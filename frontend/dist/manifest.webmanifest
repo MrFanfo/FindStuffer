@@ -1,0 +1,17 @@
+{
+  "name": "Findstuff Inventory",
+  "short_name": "Findstuff",
+  "description": "Find your home, lab, and grocery inventory.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f3ed",
+  "theme_color": "#183027",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

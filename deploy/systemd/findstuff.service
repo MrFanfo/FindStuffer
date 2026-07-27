@@ -1,0 +1,26 @@
+[Unit]
+Description=Findstuff home inventory
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=findstuff
+Group=findstuff
+WorkingDirectory=/opt/findstuff
+EnvironmentFile=-/etc/findstuff.env
+Environment=FINDSTUFF_DATA_DIR=/var/lib/findstuff
+ExecStart=/opt/findstuff/.venv/bin/uvicorn findstuff.app:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/findstuff
+MemoryHigh=180M
+MemoryMax=240M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,577 @@
+# Findstuff
+
+Findstuff is a self-hosted, mobile-first inventory application for homes,
+workshops, labs, collections, and groceries. It organizes items into nested
+places, keeps quantity history and photos, scans barcodes and QR labels, and can
+turn a rapid sequence of camera photos into reviewable AI item proposals.
+
+The server is a small FastAPI application backed by SQLite. The installable PWA
+is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
+
+## Features
+
+- Nested locations such as room → cabinet → drawer → shelf.
+- Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
+  expiration dates, loans, projects, reservations, and maintenance records.
+- Mobile camera capture, item/location QR labels, retail barcode lookup through
+  Open Food Facts, and bulk put-away/consume workflows.
+- Location-based **AI Scan**: take several photos quickly, let a vision model
+  identify the objects in the background, then approve, edit, retry, or reject
+  each proposal before an item is created.
+- Full-text search, duplicate detection, low-stock shopping lists, and history.
+- JSON export/merge, ordered JSON operations, undoable imports, and complete
+  ZIP backups containing SQLite plus photos.
+- Review-first external enrichment with a JSON document that includes
+  instructions for ChatGPT or another research agent.
+- Optional ntfy, Home Assistant MQTT, speech-to-text, and MCP integration.
+
+## Security model
+
+Findstuff contains private inventory data and administrative actions. The
+official Docker setup:
+
+- binds only to `127.0.0.1`;
+- requires HTTP Basic authentication;
+- generates a random administrator password;
+- runs the application as an unprivileged container user;
+- installs a narrow host-side watcher for authenticated in-app updates; and
+- recommends private HTTPS through Tailscale Serve.
+
+Do not publish port 8000 directly to the internet. Basic credentials must not
+be sent over untrusted plain HTTP. Tailscale Serve, a VPN, or a correctly
+configured HTTPS reverse proxy should be the external boundary.
+
+The health endpoint is intentionally unauthenticated. All other `/api/v1/`
+endpoints require the administrator credentials in the standard Docker
+deployment. Home Assistant receives data through MQTT; Findstuff does not
+expose a separate Home Assistant REST endpoint.
+
+## Quick start with Docker
+
+### Requirements
+
+- Linux on amd64, arm64, or arm/v7.
+- Git.
+- Docker Engine with Docker Compose v2. On Debian, Ubuntu, Raspberry Pi OS, and
+  Armbian, the installer can install the distribution packages for you.
+
+Clone and run the installer:
+
+```bash
+git clone https://github.com/MrFanfo/FindStuffer.git
+cd findstuff
+./install.sh
+```
+
+Use `./install.sh --yes` for a non-interactive Debian-family install.
+The script:
+
+1. verifies or installs Docker and Compose;
+2. copies `.env.example` to the ignored `.env`;
+3. generates a long random administrator password;
+4. creates `./data` with the current user's UID and GID;
+5. installs a systemd path watcher for secure in-app updates when systemd is
+   available;
+6. pulls the published multi-architecture image;
+7. starts the service; and
+8. waits for the health check and prints the local URL and credentials.
+
+The installer may ask for `sudo` to install Docker, write the two updater units,
+and start services. It does not run the Findstuff container as root. On a Linux
+distribution without systemd, add `--no-systemd-updater`; the app still works
+and updates use `./update-docker.sh`.
+
+The first image may not be available until the repository's Container workflow
+has completed and the GHCR package has been made public.
+
+Open `http://127.0.0.1:8000` on the server for an initial check. For phone use,
+configure HTTPS next.
+
+### Manual Compose setup
+
+```bash
+cp .env.example .env
+chmod 600 .env
+editor .env
+sed -i "s/^FINDSTUFF_UID=.*/FINDSTUFF_UID=$(id -u)/" .env
+sed -i "s/^FINDSTUFF_GID=.*/FINDSTUFF_GID=$(id -g)/" .env
+mkdir -p data
+chmod 750 data
+docker compose up -d
+docker compose ps
+```
+
+Replace `CHANGE_ME_TO_A_LONG_RANDOM_PASSWORD` before starting. Prefer a
+versioned image tag:
+
+```env
+FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.0.0
+```
+
+`latest` follows the newest successful build from `main`; a release tag gives
+reproducible upgrades and easier rollback.
+
+### Build locally
+
+To build the multi-stage image from the checkout instead of pulling GHCR:
+
+```bash
+cp .env.example .env
+editor .env
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+The frontend is built in a Node stage. Node, npm, and compilers are absent from
+the final Python runtime image. `npm ci` uses `package-lock.json`, while Docker
+runtime Python packages are pinned in `backend/requirements.lock`.
+
+## Private HTTPS with Tailscale Serve
+
+Camera, microphone, and reliable PWA installation require a browser secure
+context. Tailscale Serve is the simplest private HTTPS option.
+
+1. Install Tailscale using its
+   [official Linux instructions](https://tailscale.com/download/linux).
+2. Join the server and phone to the same tailnet:
+
+   ```bash
+   sudo tailscale up
+   ```
+
+3. Keep Findstuff bound to loopback in `.env`:
+
+   ```env
+   FINDSTUFF_BIND_ADDRESS=127.0.0.1
+   FINDSTUFF_PORT=8000
+   ```
+
+4. Publish the local service privately with persistent HTTPS:
+
+   ```bash
+   tailscale serve --bg http://127.0.0.1:8000
+   tailscale serve status
+   ```
+
+5. Open the displayed `https://<device>.<tailnet>.ts.net` URL on the phone and
+   enter the administrator credentials printed by the installer.
+
+Tailscale access-control rules still apply to Serve. Serve is tailnet-private;
+do not substitute `tailscale funnel`, which is designed for public internet
+access. To remove the configuration:
+
+```bash
+tailscale serve reset
+```
+
+See the current [Tailscale Serve documentation](https://tailscale.com/docs/features/tailscale-serve)
+and [CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
+
+## Configuration
+
+Docker Compose reads the ignored `.env` file. Restart after a change:
+
+```bash
+docker compose up -d
+```
+
+### Administrator authentication
+
+```env
+FINDSTUFF_REQUIRE_AUTH=true
+FINDSTUFF_ADMIN_USERNAME=admin
+FINDSTUFF_ADMIN_PASSWORD=a-long-random-secret
+```
+
+For orchestrators that mount secrets as files, set
+`FINDSTUFF_ADMIN_PASSWORD_FILE` instead of the password value. If
+`FINDSTUFF_REQUIRE_AUTH=true` but no password is available, protected requests
+fail closed with HTTP 503.
+
+To rotate the password, edit `.env`, run `docker compose up -d`, and sign in
+again. Keep `.env` mode `0600`; it is excluded from Git and Docker build
+contexts.
+
+### AI parser and AI Scan
+
+Configure AI without editing Docker files:
+
+1. Sign in and open **Manage → Integrations**.
+2. Enable **AI parser & vision**.
+3. Enter an OpenAI-compatible chat-completions URL, for example
+   `https://api.openai.com/v1/chat/completions`.
+4. Enter the provider's exact model name and API key.
+5. Select **Save AI settings**, then **Test connection**.
+
+The model must accept image content for AI Scan. Provider-specific endpoint,
+model, image-size, rate-limit, and billing rules still apply. Photos sent to AI
+Scan leave your server and are processed under the provider's privacy terms.
+The API key is write-only: the browser receives only whether a key is saved.
+Leaving the field empty keeps the current key; **Remove key** explicitly
+deletes it.
+
+Legacy `FINDSTUFF_AI_ENDPOINT`, `FINDSTUFF_AI_API_KEY`, and
+`FINDSTUFF_AI_MODEL` environment values are used only until configuration is
+saved in the app. This supports unattended provisioning, but normal users do
+not need them.
+
+To use it:
+
+1. Open **Places** and select the destination location.
+2. Tap **Start AI scan**.
+3. Take several photos in succession. Each capture is queued independently, so
+   the camera remains ready while earlier photos are processed.
+4. Open **Manage → AI scan proposals**.
+5. Review the detected name, brand, model, description, links, confidence, and
+   captured image.
+6. Approve to create the item in the original location, edit before approval,
+   retry a failed proposal, or reject it.
+
+AI results never become inventory items before approval.
+
+### Speech-to-text
+
+Browser dictation works where the browser supports it. An external multipart
+speech-to-text service is optional:
+
+```env
+FINDSTUFF_STT_ENDPOINT=https://speech-provider.example/v1/audio/transcriptions
+FINDSTUFF_STT_API_KEY=
+FINDSTUFF_STT_MODEL=
+```
+
+### Notifications with ntfy
+
+Configure low-stock and expiration alerts under **Manage → Notifications**.
+Use a complete topic URL such as `https://ntfy.sh/a-long-private-topic` or a
+protected topic on your own ntfy server. Findstuff does not return a saved ntfy
+token to the browser.
+
+Public HTTPS destinations are allowed by default. If your own ntfy server uses
+a private LAN or tailnet address, explicitly opt in:
+
+```env
+FINDSTUFF_ALLOW_PRIVATE_INTEGRATION_URLS=true
+```
+
+Only do this when every administrator who can sign into Findstuff is trusted to
+configure integrations. Restart with `docker compose up -d` after changing the
+environment.
+
+### Downloaded item photos
+
+Remote image import follows redirects, validates image signatures, and limits
+downloads to 5 MB. It also requires an exact trusted hostname:
+
+```env
+FINDSTUFF_EXTERNAL_IMAGE_HOSTS=images.openfoodfacts.org,static.example.com
+```
+
+Do not add wildcard or untrusted upload hosts. Camera uploads and normal local
+photo uploads do not use this setting.
+
+### Home Assistant MQTT
+
+Findstuff uses MQTT discovery instead of a Home Assistant REST sensor:
+
+1. Ensure Home Assistant has an MQTT broker and the MQTT integration is
+   connected to it.
+2. Create or choose broker credentials that Findstuff may use.
+3. In Findstuff, open **Manage → Integrations → Home Assistant MQTT**.
+4. Enter the broker hostname or IP reachable from the Findstuff container,
+   port (normally `1883`), username, and password.
+5. Keep `homeassistant` as the discovery prefix unless it was changed in Home
+   Assistant. The default Findstuff base topic is `findstuff`.
+6. Save, then select **Test connection**.
+
+The publisher reloads immediately; no container restart is needed. Home
+Assistant should discover a Findstuff device containing item, location,
+low-stock, expiration, needs-details, and online sensors. If Home Assistant and
+Findstuff run in separate containers, `localhost` means the Findstuff container
+itself—use a LAN address, resolvable hostname, or shared Docker-network broker
+name instead.
+
+The MQTT password is write-only. Leaving it blank keeps the current password;
+**Remove password** explicitly deletes it. Legacy `FINDSTUFF_MQTT_*`
+environment values seed the form until settings are saved in the app.
+
+### Backups
+
+```env
+FINDSTUFF_AUTO_BACKUP_ENABLED=true
+FINDSTUFF_BACKUP_DIR=/app/data/backups
+FINDSTUFF_BACKUP_KEEP=14
+FINDSTUFF_BACKUP_CHECK_INTERVAL_SECONDS=3600
+```
+
+Automatic backups use SQLite's online backup API. A backup in the same host
+data directory protects against application mistakes, not host/disk failure.
+Download a full ZIP regularly or copy backups to another device.
+
+## Export, import, and ChatGPT workflows
+
+Open **Manage → Backup & data**.
+
+### Inventory JSON export
+
+**Download JSON export** produces `findstuff-export-v1`, containing the
+inventory tables needed for a merge. It is suitable for moving structured data
+between Findstuff instances.
+
+To import:
+
+1. Choose **Import JSON**.
+2. Select a Findstuff export.
+3. Inspect the dry-run counts, row details, and errors.
+4. Select **Merge into this inventory** only after the preview is clean.
+5. If necessary, use **Recent imports → Undo**.
+
+Imports merge rather than replace the live database. Keep an independent backup
+before a large import.
+
+### Full backup ZIP
+
+**Download full backup ZIP** contains:
+
+- `findstuff.sqlite3`;
+- `photos/`; and
+- `manifest.json`.
+
+This is the disaster-recovery artifact. It contains private inventory, notes,
+serial numbers, integration configuration, and photos; store and transmit it
+accordingly. It deliberately excludes the AI API key and MQTT password, so
+re-enter those two write-only secrets after a restore. Docker restore procedures are in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+To restore entirely in the app:
+
+1. Open **Manage → Backup & data → Restore a full backup**.
+2. Choose a Findstuff backup ZIP and confirm the replacement.
+3. Findstuff validates the manifest, archive paths, compression limits, SQLite
+   integrity, required tables, and referenced photo files before accepting it.
+4. The container restarts and applies the replacement before opening any live
+   database connections.
+5. A copy of the replaced database and photos is retained automatically under
+   `data/backups/pre-restore/`.
+6. After the page reconnects, verify the restored inventory and re-enter the AI
+   API key and MQTT password.
+
+An invalid or unsafe ZIP is rejected without changing live data. If applying a
+validated backup fails, Findstuff rolls back to the previous database and
+photos and records the failure under `data/.restore/restore-status.json`.
+
+### Ordered operations JSON
+
+The built-in import templates create `findstuff-ops-v1` documents for adding,
+moving, modifying, or archiving locations, categories, and items. Operations
+run in order and are previewed before application. Full fields, matching rules,
+examples, and deletion constraints are documented in
+[docs/IMPORT_OPERATIONS.md](docs/IMPORT_OPERATIONS.md).
+
+### External enrichment with ChatGPT or another agent
+
+This workflow researches missing product metadata without giving the agent
+direct database access:
+
+1. Open **Manage → External enrichment review**.
+2. Select **Export request JSON**.
+3. Upload the JSON to ChatGPT or another web/research agent.
+4. Tell it: “Follow the instructions and response schema embedded in this
+   document. Research each item, cite source URLs, and return only the response
+   JSON.”
+5. Download the returned JSON without reformatting it.
+6. Select **Import response JSON** in Findstuff.
+7. Review every proposed patch and accept or reject it.
+
+The request schema is `findstuff.enrichment_request.v1`; the required response
+schema is `findstuff.enrichment_response.v1`. The export includes its unique
+`export_id`, item public IDs, weak fields, existing non-locked metadata, and
+explicit response instructions. The importer rejects unsupported or protected
+paths. Quantity, location, private notes, purchase data, and serial numbers are
+not agent-writable. Price suggestions always require review.
+
+Photos are represented by authenticated local URLs. A cloud ChatGPT session
+cannot fetch a loopback or tailnet-only URL unless you separately provide the
+image. Treat every enrichment export as personal data even though protected
+inventory fields are omitted.
+
+The exact schema and a response example are in
+[docs/EXTERNAL_ENRICHMENT.md](docs/EXTERNAL_ENRICHMENT.md). A reusable agent
+guide lives at `skills/findstuff-enrichment-agent/SKILL.md`.
+
+## Updating from the app or host
+
+The normal `./install.sh` setup enables **Manage → Software update**. Pressing
+**Update Findstuff**:
+
+1. requires the normal administrator login;
+2. writes only `data/update-request`;
+3. wakes the root-owned `findstuff-update.path` systemd watcher;
+4. checks that tracked files in this checkout are clean;
+5. fetches the existing `origin` and current branch;
+6. accepts only a fast-forward update;
+7. pulls the configured container image and recreates the service; and
+8. waits for the unauthenticated health endpoint before reporting success.
+
+The browser cannot choose a repository, branch, command, or filesystem path.
+The container has no Docker socket and no host root access. Progress and the
+last 30 log lines appear in the Software update panel.
+
+Check the host watcher:
+
+```bash
+systemctl status findstuff-update.path --no-pager
+journalctl -u findstuff-update.service -n 100 --no-pager
+```
+
+You can perform exactly the same update directly from the checkout:
+
+```bash
+./update-docker.sh
+```
+
+An update stops if the Git checkout has tracked local modifications, is on a
+detached commit, cannot fast-forward, cannot reach the configured origin, or
+the new container fails its health check. Application data is untouched.
+
+`latest` is the simplest channel and follows successful builds from `main`.
+For controlled production releases, set a version in `.env`, for example
+`FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.2.0`; change that value before
+running the updater. To roll back, restore the prior image tag and run
+`docker compose up -d`. Download a backup before crossing versions.
+
+To deliberately disable the app button:
+
+```bash
+sudo systemctl disable --now findstuff-update.path
+```
+
+Set `FINDSTUFF_SOFTWARE_UPDATE_ENABLED=false` in `.env`, then run
+`docker compose up -d`.
+
+## Data and container operations
+
+Persistent data is bind-mounted from `./data`:
+
+- `data/findstuff.sqlite3` is the SQLite database;
+- `data/photos/` contains uploaded and captured photos;
+- `data/ai-scans/` contains pending AI Scan captures;
+- `data/service-secrets.json` contains the write-only AI key and MQTT password
+  with mode `0600`;
+- `data/backups/` contains automatic local backups;
+- `data/.restore/` contains only restore staging and the latest restore status;
+- `data/backups/pre-restore/` contains automatic safety copies made before an
+  in-app full restore; and
+- updater request, status, and log files also live under `data/`.
+
+The directory is ignored by Git and excluded from Docker builds.
+
+Inventory JSON exports and full backup ZIPs exclude
+`data/service-secrets.json`. After restoring or moving an installation,
+re-enter the AI API key and MQTT password under **Manage → Integrations**.
+
+```bash
+docker compose ps
+docker compose logs -f --tail=100
+docker compose restart
+docker compose stop
+docker compose down
+```
+
+`docker compose down` preserves `./data`. Do not delete or replace that
+directory unless you deliberately intend to remove the inventory and already
+have a tested backup.
+
+Before copying data manually, stop the application:
+
+```bash
+docker compose stop
+tar -C . -czf "findstuff-data-$(date +%F).tar.gz" data
+docker compose start
+```
+
+The preferred live backup remains **Manage → Backup & data → Download full
+backup ZIP**, because it uses SQLite's online backup API correctly.
+
+To see the resolved configuration without printing secrets:
+
+```bash
+docker compose config --services
+docker compose config --images
+```
+
+## Development
+
+Backend:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e 'backend[dev]'
+.venv/bin/uvicorn findstuff.app:app --app-dir backend --reload
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Vite proxies `/api` to `http://127.0.0.1:8000`. Development leaves
+`FINDSTUFF_REQUIRE_AUTH` false unless you explicitly enable it. Never use that
+mode on an exposed interface.
+
+Checks:
+
+```bash
+.venv/bin/ruff check backend
+.venv/bin/pytest -q
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+./scripts/local-check.sh
+```
+
+### MCP server
+
+```bash
+.venv/bin/findstuff mcp
+```
+
+Example client configuration after replacing `${HOME}` with an absolute path
+supported by the client:
+
+```json
+{
+  "mcpServers": {
+    "findstuff": {
+      "command": "/opt/findstuff/.venv/bin/findstuff",
+      "args": ["mcp"],
+      "env": {
+        "FINDSTUFF_DATA_DIR": "/var/lib/findstuff",
+        "FINDSTUFF_DATABASE_PATH": "/var/lib/findstuff/findstuff.sqlite3"
+      }
+    }
+  }
+}
+```
+
+The MCP server can mutate inventory. Run it only for trusted local clients and
+point it at the intended database.
+
+## Public repository hygiene
+
+Never commit `.env`, data directories, SQLite files, photos, exports, backups,
+Graphify output, local paths, credentials, or private network details.
+`.gitignore` and `.dockerignore` cover the standard locations, but they do not
+replace review. Before a release, run the test suite, inspect `git status`, and
+scan both the current tree and Git history for secrets.
+
+If sensitive data was ever committed, deleting it in a later commit is not
+enough. Publish a clean squashed repository or rewrite all affected history,
+then rotate any exposed credential.
+
+## Contributing, security, and license
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development expectations and
+[SECURITY.md](SECURITY.md) for private vulnerability reporting. Findstuff is
+available under the [MIT License](LICENSE).

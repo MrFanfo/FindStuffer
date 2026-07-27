@@ -1,0 +1,18 @@
+[Unit]
+Description=Process queued Findstuff maintenance jobs
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=findstuff
+Group=findstuff
+WorkingDirectory=/opt/findstuff
+EnvironmentFile=-/etc/findstuff.env
+Environment=FINDSTUFF_DATA_DIR=/var/lib/findstuff
+ExecStart=/opt/findstuff/.venv/bin/findstuff jobs --limit 3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/findstuff
+MemoryMax=220M
