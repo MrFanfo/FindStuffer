@@ -106,6 +106,8 @@ def scan_history() -> list[tuple[str, int, str]]:
                 None,
             )
             if forbidden:
+                if relative == ".env.example":
+                    continue
                 key = ("history", forbidden, "forbidden publication path")
                 if key not in seen:
                     seen.add(key)
