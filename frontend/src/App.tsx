@@ -96,11 +96,27 @@ type SavedInventoryView = {
   tagFilter: string;
   includeZero: boolean;
 };
+type PrintQueueItem = {
+  publicId: string;
+  name: string;
+  path: string;
+  kind: string;
+  selected: boolean;
+};
+type PrintLayout = "auto" | "two" | "three";
+type PrintQueueSettings = {
+  color: string;
+  layout: PrintLayout;
+  qrSize: number;
+};
 
 const LEGACY_APP_CACHE_KEY = "findstuff.appSnapshot.v2";
 const INVENTORY_PREFS_KEY = "findstuff.inventoryPrefs.v1";
 const SAVED_INVENTORY_VIEWS_KEY = "findstuff.savedInventoryViews.v1";
 const THEME_KEY = "findstuff.theme.v1";
+const PRINT_QUEUE_KEY = "findstuff.locationPrintQueue.v1";
+const PRINT_SETTINGS_KEY = "findstuff.locationPrintSettings.v1";
+const DEFAULT_PRINT_SETTINGS: PrintQueueSettings = { color: "#4923A8", layout: "auto", qrSize: 38 };
 const LOST_TAG = "lost";
 const INITIAL_RESULT_WINDOW = 120;
 const RESULT_WINDOW_STEP = 120;
@@ -134,6 +150,47 @@ function saveSavedInventoryViews(views: SavedInventoryView[]): void {
     localStorage.setItem(SAVED_INVENTORY_VIEWS_KEY, JSON.stringify(views));
   } catch {
     // Saved views are a local UI preference; inventory data remains untouched.
+  }
+}
+
+function loadPrintQueue(): PrintQueueItem[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PRINT_QUEUE_KEY) || "[]") as PrintQueueItem[];
+    return Array.isArray(parsed)
+      ? parsed.filter((entry) => entry && typeof entry.publicId === "string" && typeof entry.name === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadPrintSettings(): PrintQueueSettings {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PRINT_SETTINGS_KEY) || "null") as Partial<PrintQueueSettings> | null;
+    const layout = parsed?.layout === "two" || parsed?.layout === "three" ? parsed.layout : "auto";
+    const color = typeof parsed?.color === "string" && /^#[0-9a-f]{6}$/i.test(parsed.color)
+      ? parsed.color.toUpperCase()
+      : DEFAULT_PRINT_SETTINGS.color;
+    const qrSize = Math.min(52, Math.max(28, Number(parsed?.qrSize) || DEFAULT_PRINT_SETTINGS.qrSize));
+    return { color, layout, qrSize };
+  } catch {
+    return DEFAULT_PRINT_SETTINGS;
+  }
+}
+
+function savePrintQueue(queue: PrintQueueItem[]): void {
+  try {
+    localStorage.setItem(PRINT_QUEUE_KEY, JSON.stringify(queue));
+  } catch {
+    // The print queue is a local convenience; inventory data remains untouched.
+  }
+}
+
+function savePrintSettings(settings: PrintQueueSettings): void {
+  try {
+    localStorage.setItem(PRINT_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Print settings are best-effort.
   }
 }
 
@@ -709,6 +766,9 @@ function App() {
   const [captureMode, setCaptureMode] = useState<CaptureMode>("scan");
   const [placesSection, setPlacesSection] = useState<PlacesSection>("locations");
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [printQueue, setPrintQueue] = useState<PrintQueueItem[]>(loadPrintQueue);
+  const [printSettings, setPrintSettings] = useState<PrintQueueSettings>(loadPrintSettings);
+  const [printQueueOpen, setPrintQueueOpen] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
@@ -724,6 +784,8 @@ function App() {
   const previousView = useRef<View>(view);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
+  useEffect(() => { savePrintQueue(printQueue); }, [printQueue]);
+  useEffect(() => { savePrintSettings(printSettings); }, [printSettings]);
   useEffect(() => {
     const applyTheme = () => {
       const resolved = theme === "system"
@@ -775,6 +837,25 @@ function App() {
     setNotice(message);
     setRetryNotice(retry ? { ...retry, message } : null);
   }, []);
+
+  const addLocationToPrintQueue = useCallback((location: LocationNode) => {
+    setPrintQueue((current) => {
+      const existing = current.find((entry) => entry.publicId === location.public_id);
+      if (existing) {
+        return current.map((entry) => entry.publicId === location.public_id
+          ? { ...entry, name: location.name, path: location.path, kind: location.kind, selected: true }
+          : entry);
+      }
+      return [...current, {
+        publicId: location.public_id,
+        name: location.name,
+        path: location.path,
+        kind: location.kind,
+        selected: true,
+      }];
+    });
+    notify(`${location.name} added to print queue`);
+  }, [notify]);
 
   const applyBootstrap = useCallback((snapshot: Bootstrap) => {
     setAuth(snapshot.auth);
@@ -1390,7 +1471,10 @@ function App() {
             locationTypes={locationTypes}
             selectedLocationId={selectedLocationId}
             busy={busy}
+            printQueueCount={printQueue.length}
             onSelectLocation={setSelectedLocationId}
+            onOpenPrintQueue={() => setPrintQueueOpen(true)}
+            onQueuePrint={addLocationToPrintQueue}
             onOpenItem={setSelectedItem}
             onCaptureHere={(id, mode = "quick") => openCapture(mode, id)}
             onCreateLocation={(body) => run(() => api.createLocation(body), "Place created", "all")}
@@ -1413,6 +1497,7 @@ function App() {
             locations={locations}
             locationTypes={locationTypes}
             busy={busy}
+            onQueuePrint={addLocationToPrintQueue}
             onOpen={(id) => { setSelectedLocationId(id); navigate("location"); }}
             onCreate={(body) => run(() => api.createLocation(body), "Place created", "all")}
             onUpdate={(id, body) => run(() => api.updateLocation(id, body), "Place updated", "all")}
@@ -1428,6 +1513,7 @@ function App() {
             categories={categories}
             locationTypes={locationTypes}
             busy={busy}
+            onQueuePrint={addLocationToPrintQueue}
             onOpenItem={setSelectedItem}
             onOpenLocation={setSelectedLocationId}
             onAddHere={(id) => openCapture("quick", id)}
@@ -1492,6 +1578,14 @@ function App() {
           />
         )}
         {globalSearchOpen && <GlobalSearch items={items} locations={locations} categories={categories} onClose={() => setGlobalSearchOpen(false)} onOpenItem={(item) => { setGlobalSearchOpen(false); setSelectedItem(item); }} onOpenLocation={(id) => { setGlobalSearchOpen(false); setSelectedLocationId(id); setPlacesSection("locations"); navigate("places"); }} onOpenCategory={(id) => { setGlobalSearchOpen(false); setSelectedCategoryId(id); navigate("category"); }} onNavigate={(next) => { setGlobalSearchOpen(false); navigate(next); }} onCapture={(mode) => { setGlobalSearchOpen(false); openCapture(mode); }} />}
+        {printQueueOpen && <PrintQueueDialog
+          queue={printQueue}
+          settings={printSettings}
+          onChangeQueue={setPrintQueue}
+          onChangeSettings={setPrintSettings}
+          onClose={() => setPrintQueueOpen(false)}
+          onNotice={notify}
+        />}
       </main>
 
       <nav className="bottom-nav" aria-label="Main navigation">
@@ -2258,7 +2352,120 @@ function AICommandBox({ busy, onApplied }: { busy: boolean; onApplied: () => Pro
   );
 }
 
-function PlacesView({ section, onSectionChange, locations, categories, locationTypes, selectedLocationId, busy, onSelectLocation, onOpenItem, onCaptureHere, onCreateLocation, onUpdateLocation, onDeleteLocation, onDeleteLocationTree, onCreateType, onOpenCategory, onCreateCategory, onUpdateCategory, onDeleteCategory, onDeleteCategoryTree, onSaveCapabilities, onSetDefaultLocation, onDefaultsChanged }: {
+function printColumnCount(settings: PrintQueueSettings): number {
+  if (settings.layout === "two") return 2;
+  if (settings.layout === "three") return 3;
+  return settings.qrSize <= 34 ? 3 : 2;
+}
+
+function chunkPrintQueue(queue: PrintQueueItem[], settings: PrintQueueSettings): PrintQueueItem[][] {
+  const columns = printColumnCount(settings);
+  const estimatedCardHeight = settings.qrSize + 31;
+  const rows = Math.max(1, Math.floor(277 / (estimatedCardHeight + 5)));
+  const pageSize = Math.max(1, columns * rows);
+  const pages: PrintQueueItem[][] = [];
+  for (let index = 0; index < queue.length; index += pageSize) pages.push(queue.slice(index, index + pageSize));
+  return pages;
+}
+
+function LocationQrLabel({ entry, settings }: { entry: PrintQueueItem; settings: PrintQueueSettings }) {
+  const style = {
+    "--label-color": settings.color,
+    "--qr-size": `${settings.qrSize}mm`,
+  } as CSSProperties;
+  return <article className="location-qr-label" style={style}>
+    <span className="qr-label-glow" aria-hidden="true" />
+    <header><span className="qr-label-kicker">Findstuff · {entry.kind}</span><h3>{entry.name}</h3></header>
+    <div className="qr-jewel-frame">
+      <span className="qr-corner qr-corner-one" aria-hidden="true" />
+      <span className="qr-corner qr-corner-two" aria-hidden="true" />
+      <span className="qr-corner qr-corner-three" aria-hidden="true" />
+      <span className="qr-corner qr-corner-four" aria-hidden="true" />
+      <img src={`/api/v1/qr/locations/${entry.publicId}.svg?color=${encodeURIComponent(settings.color)}`} alt={`QR code for ${entry.name}`} />
+      <span className="qr-monogram" aria-hidden="true">F</span>
+    </div>
+    <footer><span className="qr-label-rule" /><p>{entry.path}</p><small>SCAN TO OPEN THIS PLACE</small></footer>
+  </article>;
+}
+
+function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, onClose, onNotice }: {
+  queue: PrintQueueItem[];
+  settings: PrintQueueSettings;
+  onChangeQueue: (queue: PrintQueueItem[]) => void;
+  onChangeSettings: (settings: PrintQueueSettings) => void;
+  onClose: () => void;
+  onNotice: (message: string) => void;
+}) {
+  const selected = queue.filter((entry) => entry.selected);
+  const pages = chunkPrintQueue(selected, settings);
+  const columns = printColumnCount(settings);
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [onClose]);
+  function toggle(publicId: string) {
+    onChangeQueue(queue.map((entry) => entry.publicId === publicId ? { ...entry, selected: !entry.selected } : entry));
+  }
+  function toggleAll() {
+    const shouldSelect = selected.length !== queue.length;
+    onChangeQueue(queue.map((entry) => ({ ...entry, selected: shouldSelect })));
+  }
+  function clearQueue() {
+    if (queue.length > 0 && window.confirm("Clear every location from the print queue?")) onChangeQueue([]);
+  }
+  async function printSelected() {
+    if (!selected.length) {
+      onNotice("Select at least one QR code to print");
+      return;
+    }
+    const images = [...document.querySelectorAll<HTMLImageElement>(".print-page .location-qr-label img")];
+    await Promise.all(images.map((image) => image.complete
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+        image.addEventListener("load", () => resolve(), { once: true });
+        image.addEventListener("error", () => resolve(), { once: true });
+      })));
+    window.requestAnimationFrame(() => window.print());
+  }
+  return <div className="print-queue-backdrop" role="dialog" aria-modal="true" aria-label="Location QR print queue" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="print-queue-sheet">
+      <header className="print-queue-header"><div><p className="eyebrow">A4 LABEL STUDIO</p><h2>Print queue</h2><p>{selected.length} of {queue.length} QR label{queue.length === 1 ? "" : "s"} selected</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Close print queue"><Icon name="close" /></button></header>
+      <div className="print-queue-workspace">
+        <aside className="print-queue-controls">
+          <div className="print-queue-control-heading"><strong>Queued locations</strong><button type="button" className="text-button" disabled={!queue.length} onClick={toggleAll}>{selected.length === queue.length && queue.length ? "Select none" : "Select all"}</button></div>
+          <div className="print-queue-list">
+            {!queue.length && <div className="print-queue-empty"><Icon name="qr" size={26} /><strong>Your queue is empty</strong><small>Use “Print QR” on any Place to add a label.</small></div>}
+            {queue.map((entry) => <label className={entry.selected ? "selected" : ""} key={entry.publicId}><input type="checkbox" checked={entry.selected} onChange={() => toggle(entry.publicId)} /><span><strong>{entry.name}</strong><small>{entry.path}</small></span><button type="button" onClick={(event) => { event.preventDefault(); onChangeQueue(queue.filter((item) => item.publicId !== entry.publicId)); }} aria-label={`Remove ${entry.name}`}><Icon name="close" size={14} /></button></label>)}
+          </div>
+          <div className="print-designer">
+            <strong>Label design</strong>
+            <label>QR color<div className="print-color-control"><input type="color" value={settings.color} onChange={(event) => onChangeSettings({ ...settings, color: event.target.value.toUpperCase() })} /><output>{settings.color}</output></div></label>
+            <div className="color-swatches" aria-label="QR color presets">{["#4923A8", "#006B5E", "#B52A60", "#1B3A6F", "#111827"].map((color) => <button type="button" key={color} className={settings.color === color ? "active" : ""} style={{ background: color }} onClick={() => onChangeSettings({ ...settings, color })} aria-label={`Use color ${color}`} />)}</div>
+            <label>QR size <output>{settings.qrSize} mm</output><input type="range" min="28" max={settings.layout === "three" ? "44" : "52"} step="2" value={settings.qrSize} onChange={(event) => onChangeSettings({ ...settings, qrSize: Number(event.target.value) })} /></label>
+            <label>Page layout<select value={settings.layout} onChange={(event) => { const layout = event.target.value as PrintLayout; onChangeSettings({ ...settings, layout, qrSize: layout === "three" ? Math.min(settings.qrSize, 44) : settings.qrSize }); }}><option value="auto">Auto · best fit</option><option value="two">2 columns · generous</option><option value="three">3 columns · compact</option></select></label>
+            <small>{columns} columns · {pages.length || 1} A4 page{pages.length === 1 ? "" : "s"}</small>
+          </div>
+          <div className="print-queue-actions"><button type="button" className="text-button danger-text" disabled={!queue.length} onClick={clearQueue}>Clear queue</button><button type="button" className="primary button-with-icon" disabled={!selected.length} onClick={() => void printSelected()}><Icon name="qr" size={17} />Print selected</button></div>
+        </aside>
+        <div className="print-preview-wrap">
+          <div className="print-preview-toolbar"><span>A4 preview</span><small>{pages.length || 1} page{pages.length === 1 ? "" : "s"}</small></div>
+          <div className="print-preview">
+            {!pages.length && <div className="print-preview-placeholder"><Icon name="check" size={30} /><strong>Select labels to preview</strong></div>}
+            {pages.map((page, pageIndex) => <section className="print-page" style={{ "--print-columns": columns } as CSSProperties} key={`page-${pageIndex}`} aria-label={`A4 page ${pageIndex + 1}`}>{page.map((entry) => <LocationQrLabel key={entry.publicId} entry={entry} settings={settings} />)}<span className="print-page-number">PAGE {pageIndex + 1} / {pages.length}</span></section>)}
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>;
+}
+
+function PlacesView({ section, onSectionChange, locations, categories, locationTypes, selectedLocationId, busy, printQueueCount, onSelectLocation, onOpenPrintQueue, onQueuePrint, onOpenItem, onCaptureHere, onCreateLocation, onUpdateLocation, onDeleteLocation, onDeleteLocationTree, onCreateType, onOpenCategory, onCreateCategory, onUpdateCategory, onDeleteCategory, onDeleteCategoryTree, onSaveCapabilities, onSetDefaultLocation, onDefaultsChanged }: {
   section: PlacesSection;
   onSectionChange: (section: PlacesSection) => void;
   locations: LocationNode[];
@@ -2266,7 +2473,10 @@ function PlacesView({ section, onSectionChange, locations, categories, locationT
   locationTypes: LocationType[];
   selectedLocationId: string | null;
   busy: boolean;
+  printQueueCount: number;
   onSelectLocation: (id: string | null) => void;
+  onOpenPrintQueue: () => void;
+  onQueuePrint: (location: LocationNode) => void;
   onOpenItem: (item: Item) => void;
   onCaptureHere: (id: string, mode?: CaptureMode) => void;
   onCreateLocation: (body: { name: string; kind: string; parent_public_id: string | null }) => Promise<void>;
@@ -2284,8 +2494,8 @@ function PlacesView({ section, onSectionChange, locations, categories, locationT
   onDefaultsChanged: () => Promise<void>;
 }) {
   return <section className="places-page">
-    <header className="places-heading compact-places-heading"><div className="places-tabs" role="tablist" aria-label="Browse Places"><button type="button" role="tab" aria-selected={section === "locations"} className={section === "locations" ? "active" : ""} onClick={() => onSectionChange("locations")}><Icon name="pin" size={17} />Places</button><button type="button" role="tab" aria-selected={section === "categories"} className={section === "categories" ? "active" : ""} onClick={() => onSectionChange("categories")}><Icon name="tag" size={17} />Categories</button></div></header>
-    {section === "locations" ? <div className={`places-layout ${selectedLocationId ? "has-detail" : ""}`}><div className="places-tree-pane"><LocationsView locations={locations} locationTypes={locationTypes} busy={busy} onOpen={(id) => onSelectLocation(id)} onCreate={onCreateLocation} onUpdate={onUpdateLocation} onDelete={onDeleteLocation} onDeleteTree={onDeleteLocationTree} onCreateType={onCreateType} /></div>{selectedLocationId ? <div className="places-detail-pane"><LocationDetailView locationId={selectedLocationId} locations={locations} categories={categories} locationTypes={locationTypes} busy={busy} onOpenItem={onOpenItem} onOpenLocation={(id) => onSelectLocation(id)} onAddHere={(id) => onCaptureHere(id, "quick")} onCreateLocationHere={onCreateLocation} onDefaultsChanged={onDefaultsChanged} onBack={() => onSelectLocation(null)} /><div className="location-mode-actions"><button className="primary button-with-icon" onClick={() => onCaptureHere(selectedLocationId, "putaway")}><Icon name="scan" size={17} />Put away here</button></div></div> : <aside className="places-detail-empty"><span><Icon name="pin" size={25} /></span><h2>Select a Place</h2><p>Its Items, child Places, defaults, and actions will stay beside the tree on larger screens.</p></aside>}</div> : <CategoriesView categories={categories} locations={locations} busy={busy} onOpen={onOpenCategory} onCreate={onCreateCategory} onUpdate={onUpdateCategory} onDelete={onDeleteCategory} onDeleteTree={onDeleteCategoryTree} onSaveCapabilities={onSaveCapabilities} onSetDefaultLocation={onSetDefaultLocation} />}
+    <header className="places-heading compact-places-heading"><div className="places-tabs" role="tablist" aria-label="Browse Places"><button type="button" role="tab" aria-selected={section === "locations"} className={section === "locations" ? "active" : ""} onClick={() => onSectionChange("locations")}><Icon name="pin" size={17} />Places</button><button type="button" role="tab" aria-selected={section === "categories"} className={section === "categories" ? "active" : ""} onClick={() => onSectionChange("categories")}><Icon name="tag" size={17} />Categories</button></div>{section === "locations" && <button type="button" className="print-queue-launcher" onClick={onOpenPrintQueue}><Icon name="qr" size={17} /><span>Print queue</span><strong>{printQueueCount}</strong></button>}</header>
+    {section === "locations" ? <div className={`places-layout ${selectedLocationId ? "has-detail" : ""}`}><div className="places-tree-pane"><LocationsView locations={locations} locationTypes={locationTypes} busy={busy} onQueuePrint={onQueuePrint} onOpen={(id) => onSelectLocation(id)} onCreate={onCreateLocation} onUpdate={onUpdateLocation} onDelete={onDeleteLocation} onDeleteTree={onDeleteLocationTree} onCreateType={onCreateType} /></div>{selectedLocationId ? <div className="places-detail-pane"><LocationDetailView locationId={selectedLocationId} locations={locations} categories={categories} locationTypes={locationTypes} busy={busy} onQueuePrint={onQueuePrint} onOpenItem={onOpenItem} onOpenLocation={(id) => onSelectLocation(id)} onAddHere={(id) => onCaptureHere(id, "quick")} onCreateLocationHere={onCreateLocation} onDefaultsChanged={onDefaultsChanged} onBack={() => onSelectLocation(null)} /><div className="location-mode-actions"><button className="primary button-with-icon" onClick={() => onCaptureHere(selectedLocationId, "putaway")}><Icon name="scan" size={17} />Put away here</button></div></div> : <aside className="places-detail-empty"><span><Icon name="pin" size={25} /></span><h2>Select a Place</h2><p>Its Items, child Places, defaults, and actions will stay beside the tree on larger screens.</p></aside>}</div> : <CategoriesView categories={categories} locations={locations} busy={busy} onOpen={onOpenCategory} onCreate={onCreateCategory} onUpdate={onUpdateCategory} onDelete={onDeleteCategory} onDeleteTree={onDeleteCategoryTree} onSaveCapabilities={onSaveCapabilities} onSetDefaultLocation={onSetDefaultLocation} />}
   </section>;
 }
 
@@ -2333,7 +2543,7 @@ function SearchGroup({ title, children }: { title: string; children: ReactNode }
   return <section className="global-search-group"><h2>{title}</h2><div>{children}</div></section>;
 }
 
-function LocationsView({ locations, locationTypes, onCreate, onUpdate, onDelete, onDeleteTree, onCreateType, onOpen, busy }: {
+function LocationsView({ locations, locationTypes, onCreate, onUpdate, onDelete, onDeleteTree, onCreateType, onOpen, onQueuePrint, busy }: {
   locations: LocationNode[];
   locationTypes: LocationType[];
   onCreate: (body: { name: string; kind: string; parent_public_id: string | null }) => Promise<void>;
@@ -2342,6 +2552,7 @@ function LocationsView({ locations, locationTypes, onCreate, onUpdate, onDelete,
   onDeleteTree: (publicId: string) => Promise<void>;
   onCreateType: (name: string) => Promise<void>;
   onOpen: (publicId: string) => void;
+  onQueuePrint: (location: LocationNode) => void;
   busy: boolean;
 }) {
   const [name, setName] = useState("");
@@ -2415,12 +2626,12 @@ function LocationsView({ locations, locationTypes, onCreate, onUpdate, onDelete,
           </div>
           <button className="primary wide button-with-icon" disabled={busy || !name.trim()}><Icon name="plus" size={17} />Create location</button>
         </form><form className="inline-create-type" onSubmit={submitType}><label>Add a custom type<input value={newType} onChange={(event) => setNewType(event.target.value)} placeholder="e.g. crate, suitcase, rack" /></label><button className="secondary" disabled={!newType.trim()}>Add type</button></form></details>
-      <div className="location-tree">{locations.length ? locations.map((node) => <LocationBranch key={node.public_id} node={node} locationTypes={locationTypes} editParentOptions={editParentOptions} editingId={editingId} editName={editName} editKind={editKind} editParent={editParent} expanded={expanded} busy={busy} depth={0} onToggle={toggle} onOpen={onOpen} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} onSaveEdit={saveEdit} onCancelEdit={() => setEditingId("")} onEditName={setEditName} onEditKind={setEditKind} onEditParent={setEditParent} />) : <EmptyState icon="pin" title="No locations yet" text="Create your first room, shelf, box, or drawer." />}</div>
+      <div className="location-tree">{locations.length ? locations.map((node) => <LocationBranch key={node.public_id} node={node} locationTypes={locationTypes} editParentOptions={editParentOptions} editingId={editingId} editName={editName} editKind={editKind} editParent={editParent} expanded={expanded} busy={busy} depth={0} onToggle={toggle} onOpen={onOpen} onQueuePrint={onQueuePrint} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} onSaveEdit={saveEdit} onCancelEdit={() => setEditingId("")} onEditName={setEditName} onEditKind={setEditKind} onEditParent={setEditParent} />) : <EmptyState icon="pin" title="No locations yet" text="Create your first room, shelf, box, or drawer." />}</div>
     </section>
   );
 }
 
-function LocationBranch({ node, locationTypes, editParentOptions, editingId, editName, editKind, editParent, expanded, busy, depth = 0, onToggle, onOpen, onEdit, onDelete, onDeleteTree, onSaveEdit, onCancelEdit, onEditName, onEditKind, onEditParent }: {
+function LocationBranch({ node, locationTypes, editParentOptions, editingId, editName, editKind, editParent, expanded, busy, depth = 0, onToggle, onOpen, onQueuePrint, onEdit, onDelete, onDeleteTree, onSaveEdit, onCancelEdit, onEditName, onEditKind, onEditParent }: {
   node: LocationNode;
   locationTypes: LocationType[];
   editParentOptions: LocationNode[];
@@ -2433,6 +2644,7 @@ function LocationBranch({ node, locationTypes, editParentOptions, editingId, edi
   depth?: number;
   onToggle: (publicId: string) => void;
   onOpen: (publicId: string) => void;
+  onQueuePrint: (location: LocationNode) => void;
   onEdit: (location: LocationNode) => void;
   onDelete: (location: LocationNode) => void;
   onDeleteTree: (location: LocationNode) => void;
@@ -2449,7 +2661,7 @@ function LocationBranch({ node, locationTypes, editParentOptions, editingId, edi
   const totalItems = node.total_item_count ?? directItems;
   const itemText = `${totalItems} item${totalItems === 1 ? "" : "s"}${directItems && directItems !== totalItems ? ` · ${directItems} here` : ""}`;
   const placeText = node.children.length ? `${node.children.length} place${node.children.length === 1 ? "" : "s"} inside` : "exact spot";
-  return <div className="location-branch" style={{ "--depth": depth } as CSSProperties}><div className="location-node"><span className="hierarchy-rail" aria-hidden="true" />{node.children.length > 0 ? <button type="button" className={`tree-toggle ${isOpen ? "open" : ""}`} onClick={() => onToggle(node.public_id)} aria-label={`${isOpen ? "Collapse" : "Expand"} ${node.name}`} aria-expanded={isOpen}><Icon name="chevron" size={16} /></button> : <span className="tree-toggle-spacer" />}<button type="button" className="location-open" onClick={() => onOpen(node.public_id)}><span className="location-kind"><Icon name={node.kind === "box" || node.kind === "container" ? "box" : "pin"} size={18} /></span><span><strong>{node.name}</strong><small>Level {depth + 1} · {node.kind} · {itemText} · {placeText}</small><em>{node.path}</em></span></button><div className="location-node-actions"><button type="button" disabled={isSystem || busy} onClick={() => onEdit(node)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={isSystem || busy || node.children.length > 0} title={node.children.length > 0 ? "Move or delete child locations first" : "Delete location"} onClick={() => onDelete(node)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" disabled={isSystem || busy} onClick={() => onDeleteTree(node)}><Icon name="close" size={14} /><span>Subtree</span></button><a className="qr-link" href={`/api/v1/labels/locations/${node.public_id}`} target="_blank" rel="noreferrer" aria-label={`QR label for ${node.name}`}><Icon name="qr" size={18} /><span>QR</span></a></div></div>{isEditing && <form className="location-edit-form" onSubmit={onSaveEdit}><label>Name<input required value={editName} onChange={(event) => onEditName(event.target.value)} /></label><label>Type<select value={editKind} onChange={(event) => onEditKind(event.target.value)}>{locationTypes.map((entry) => <option key={entry.name} value={entry.name}>{entry.name}</option>)}</select></label><label>Inside<select value={editParent} onChange={(event) => onEditParent(event.target.value)}><option value="">Top level</option>{editParentOptions.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label><div className="button-row"><button type="button" onClick={onCancelEdit}>Cancel</button><button className="secondary" disabled={!editName.trim() || busy}>Save location</button></div></form>}{isOpen && node.children.map((child) => <LocationBranch key={child.public_id} node={child} locationTypes={locationTypes} editParentOptions={editParentOptions} editingId={editingId} editName={editName} editKind={editKind} editParent={editParent} expanded={expanded} busy={busy} depth={depth + 1} onToggle={onToggle} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} onDeleteTree={onDeleteTree} onSaveEdit={onSaveEdit} onCancelEdit={onCancelEdit} onEditName={onEditName} onEditKind={onEditKind} onEditParent={onEditParent} />)}</div>;
+  return <div className="location-branch" style={{ "--depth": depth } as CSSProperties}><div className="location-node"><span className="hierarchy-rail" aria-hidden="true" />{node.children.length > 0 ? <button type="button" className={`tree-toggle ${isOpen ? "open" : ""}`} onClick={() => onToggle(node.public_id)} aria-label={`${isOpen ? "Collapse" : "Expand"} ${node.name}`} aria-expanded={isOpen}><Icon name="chevron" size={16} /></button> : <span className="tree-toggle-spacer" />}<button type="button" className="location-open" onClick={() => onOpen(node.public_id)}><span className="location-kind"><Icon name={node.kind === "box" || node.kind === "container" ? "box" : "pin"} size={18} /></span><span><strong>{node.name}</strong><small>Level {depth + 1} · {node.kind} · {itemText} · {placeText}</small><em>{node.path}</em></span></button><div className="location-node-actions"><button type="button" disabled={isSystem || busy} onClick={() => onEdit(node)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={isSystem || busy || node.children.length > 0} title={node.children.length > 0 ? "Move or delete child locations first" : "Delete location"} onClick={() => onDelete(node)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" disabled={isSystem || busy} onClick={() => onDeleteTree(node)}><Icon name="close" size={14} /><span>Subtree</span></button><button type="button" className="qr-link" disabled={isSystem} onClick={() => onQueuePrint(node)} aria-label={`Print QR for ${node.name}`}><Icon name="qr" size={18} /><span>Print QR</span></button></div></div>{isEditing && <form className="location-edit-form" onSubmit={onSaveEdit}><label>Name<input required value={editName} onChange={(event) => onEditName(event.target.value)} /></label><label>Type<select value={editKind} onChange={(event) => onEditKind(event.target.value)}>{locationTypes.map((entry) => <option key={entry.name} value={entry.name}>{entry.name}</option>)}</select></label><label>Inside<select value={editParent} onChange={(event) => onEditParent(event.target.value)}><option value="">Top level</option>{editParentOptions.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label><div className="button-row"><button type="button" onClick={onCancelEdit}>Cancel</button><button className="secondary" disabled={!editName.trim() || busy}>Save location</button></div></form>}{isOpen && node.children.map((child) => <LocationBranch key={child.public_id} node={child} locationTypes={locationTypes} editParentOptions={editParentOptions} editingId={editingId} editName={editName} editKind={editKind} editParent={editParent} expanded={expanded} busy={busy} depth={depth + 1} onToggle={onToggle} onOpen={onOpen} onQueuePrint={onQueuePrint} onEdit={onEdit} onDelete={onDelete} onDeleteTree={onDeleteTree} onSaveEdit={onSaveEdit} onCancelEdit={onCancelEdit} onEditName={onEditName} onEditKind={onEditKind} onEditParent={onEditParent} />)}</div>;
 }
 
 function CategoriesView({ categories, locations, busy, onOpen, onCreate, onUpdate, onDelete, onDeleteTree, onSaveCapabilities, onSetDefaultLocation }: {
@@ -2648,12 +2860,13 @@ function CategoryDetailView({ categoryId, categories, busy, onOpenItem, onOpenCa
   );
 }
 
-function LocationDetailView({ locationId, locations, categories, locationTypes, busy, onOpenItem, onOpenLocation, onAddHere, onCreateLocationHere, onDefaultsChanged, onBack }: {
+function LocationDetailView({ locationId, locations, categories, locationTypes, busy, onQueuePrint, onOpenItem, onOpenLocation, onAddHere, onCreateLocationHere, onDefaultsChanged, onBack }: {
   locationId: string;
   locations: LocationNode[];
   categories: Category[];
   locationTypes: LocationType[];
   busy: boolean;
+  onQueuePrint: (location: LocationNode) => void;
   onOpenItem: (item: Item) => void;
   onOpenLocation: (publicId: string) => void;
   onAddHere: (publicId: string) => void;
@@ -2770,7 +2983,7 @@ function LocationDetailView({ locationId, locations, categories, locationTypes, 
   return (
     <section className="location-detail-page">
       <div className="page-heading"><div><h1>{currentLocation.name}</h1><LocationCrumbs chain={currentLocationChain} fallback={currentLocation.path} onOpen={onOpenLocation} /><p>{contents.items.length} Item{contents.items.length === 1 ? "" : "s"} including nested Places.</p></div><button className="icon-button" onClick={onBack} aria-label="Back to Places"><Icon name="close" /></button></div>
-      <div className="location-actions"><button className="primary button-with-icon" onClick={() => onAddHere(currentLocation.public_id)}><Icon name="plus" size={17} />Add Item</button><button className="ai-scan-action button-with-icon" onClick={() => setAiScanOpen(true)}><Icon name="spark" size={17} />AI Scan</button><button className="secondary button-with-icon" onClick={() => setShowCreateChild((value) => !value)}><Icon name="plus" size={17} />Add Place</button><button className="secondary button-with-icon" disabled={missingPhotoItems.length === 0} onClick={() => setQuickPhotos(true)}><Icon name="camera" size={17} />Photos {missingPhotoItems.length}</button><a className="secondary button-with-icon" href={`/api/v1/labels/locations/${currentLocation.public_id}`} target="_blank" rel="noreferrer"><Icon name="qr" size={17} />Print QR</a></div>
+      <div className="location-actions"><button className="primary button-with-icon" onClick={() => onAddHere(currentLocation.public_id)}><Icon name="plus" size={17} />Add Item</button><button className="ai-scan-action button-with-icon" onClick={() => setAiScanOpen(true)}><Icon name="spark" size={17} />AI Scan</button><button className="secondary button-with-icon" onClick={() => setShowCreateChild((value) => !value)}><Icon name="plus" size={17} />Add Place</button><button className="secondary button-with-icon" disabled={missingPhotoItems.length === 0} onClick={() => setQuickPhotos(true)}><Icon name="camera" size={17} />Photos {missingPhotoItems.length}</button><button type="button" className="secondary button-with-icon" onClick={() => onQueuePrint(currentLocation)}><Icon name="qr" size={17} />Print QR</button></div>
       {showCreateChild && <form className="inline-detail-create" onSubmit={createChildLocation}><label>New Place<input required autoFocus value={childName} onChange={(event) => setChildName(event.target.value)} placeholder={`Inside ${currentLocation.name}`} /></label><label>Type<select value={childKind} onChange={(event) => setChildKind(event.target.value)}>{locationTypes.map((entry) => <option value={entry.name} key={entry.name}>{entry.name}</option>)}</select></label><div className="button-row"><button type="button" onClick={() => { setShowCreateChild(false); setChildName(""); }}>Cancel</button><button className="secondary" disabled={busy || !childName.trim()}>Create Place</button></div></form>}
       <details className="detail-section defaults-section"><summary><span><Icon name="settings" size={16} />Defaults here</span><Icon name="chevron" size={16} /></summary><div className="defaults-section-body"><div className="defaults-grid"><div><strong>Categories</strong>{categoryDefaults.length ? categoryDefaults.map(defaultRuleRow) : <small>No category defaults</small>}</div><div><strong>Items and barcodes</strong>{itemDefaults.length ? itemDefaults.map(defaultRuleRow) : <small>No item defaults</small>}</div></div><form className="default-rule-form" onSubmit={addDefault}><label>Default type<select value={defaultType} onChange={(event) => setDefaultType(event.target.value as "category" | "name" | "barcode")}><option value="category">Category</option><option value="name">Item name contains</option><option value="barcode">Exact barcode</option></select></label>{defaultType === "category" ? <label>Category<select required value={defaultCategoryId} onChange={(event) => setDefaultCategoryId(event.target.value)}><option value="">Choose category</option>{categories.map((category) => <option key={category.id} value={category.id}>{categoryOptionLabel(category)}</option>)}</select></label> : <label>Match<input required inputMode={defaultType === "barcode" ? "numeric" : "text"} value={defaultMatch} onChange={(event) => setDefaultMatch(event.target.value)} placeholder={defaultType === "barcode" ? "8023263000534" : "SanBenedetto"} /></label>}<button className="secondary" disabled={defaultType === "category" ? !defaultCategoryId : !defaultMatch.trim()}>Add default</button></form></div></details>
       {contents.children.length > 0 && <section className="detail-section"><div className="section-heading"><div><h2>Inside this place</h2></div></div><div className="child-location-grid">{contents.children.map((child) => <button type="button" key={child.public_id} onClick={() => onOpenLocation(child.public_id)}><Icon name={child.kind === "box" || child.kind === "container" ? "box" : "pin"} /><strong>{child.name}</strong><small>{child.kind}</small></button>)}</div></section>}

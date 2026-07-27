@@ -861,9 +861,17 @@ async def remove_photo(public_id: str, database: Database) -> Response:
     return Response(status_code=204)
 
 
-def make_qr_svg(value: str) -> bytes:
+def make_qr_svg(value: str, color: str = "#18211f") -> bytes:
     output = BytesIO()
-    segno.make(value, error="m").save(output, kind="svg", scale=6, border=2, xmldecl=False)
+    segno.make(value, error="h").save(
+        output,
+        kind="svg",
+        scale=6,
+        border=3,
+        dark=color,
+        light="#ffffff",
+        xmldecl=False,
+    )
     return output.getvalue()
 
 
@@ -875,10 +883,15 @@ async def item_qr(public_id: str, request: Request, database: Database) -> Respo
 
 
 @app.get("/api/v1/qr/locations/{public_id}.svg", tags=["qr"])
-async def location_qr(public_id: str, request: Request, database: Database) -> Response:
+async def location_qr(
+    public_id: str,
+    request: Request,
+    database: Database,
+    color: Annotated[str, Query(pattern=r"^#[0-9A-Fa-f]{6}$")] = "#4923A8",
+) -> Response:
     get_location_row(database, public_id)
     target = f"{str(request.base_url).rstrip('/')}?location={public_id}&mode=view"
-    return Response(make_qr_svg(target), media_type="image/svg+xml")
+    return Response(make_qr_svg(target, color.upper()), media_type="image/svg+xml")
 
 
 @app.get("/api/v1/labels/items/{public_id}", response_class=HTMLResponse, tags=["qr"])

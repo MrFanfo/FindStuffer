@@ -97,6 +97,17 @@ def test_api_inventory_flow(tmp_path: Path, monkeypatch) -> None:
                 qr = await client.get(f"/api/v1/qr/items/{item['public_id']}.svg")
                 assert qr.status_code == 200
                 assert b"<svg" in qr.content
+                location_qr = await client.get(
+                    f"/api/v1/qr/locations/{location['public_id']}.svg",
+                    params={"color": "#B52A60"},
+                )
+                assert location_qr.status_code == 200
+                assert b'#b52a60' in location_qr.content
+                invalid_qr_color = await client.get(
+                    f"/api/v1/qr/locations/{location['public_id']}.svg",
+                    params={"color": "not-a-color"},
+                )
+                assert invalid_qr_color.status_code == 422
 
                 project = await client.post(
                     "/api/v1/projects",
