@@ -143,7 +143,6 @@ async def call_parser(connection: sqlite3.Connection, text: str) -> Proposal:
                     {"role": "system", "content": "You are a strict inventory JSON parser."},
                     {"role": "user", "content": prompt},
                 ],
-                "temperature": 0,
                 "response_format": {"type": "json_object"},
             },
         )

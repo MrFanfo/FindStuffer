@@ -222,6 +222,7 @@ from .schemas import (
     UnitSettingsUpdate,
 )
 from .service_config import (
+    AIConnectionTestError,
     get_mqtt_config,
     public_ai_config,
     public_mqtt_config,
@@ -1434,15 +1435,19 @@ async def put_ai_settings(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/v1/settings/ai/test", status_code=204, tags=["settings"])
-async def test_ai_settings(database: Database) -> Response:
+@app.post("/api/v1/settings/ai/test", tags=["settings"])
+async def test_ai_settings(database: Database) -> dict[str, Any]:
     try:
-        await test_ai_connection(database)
+        return await test_ai_connection(database)
+    except AIConnectionTestError as exc:
+        return JSONResponse(
+            status_code=502,
+            content={"detail": str(exc), "diagnostic": exc.diagnostic},
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Could not connect to the AI provider") from exc
-    return Response(status_code=204)
 
 
 @app.put("/api/v1/settings/mqtt", tags=["settings"])

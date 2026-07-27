@@ -468,6 +468,16 @@ export type ApplicationSettings = {
   };
 };
 
+export type AIConnectionDiagnostic = {
+  endpoint: string;
+  model: string;
+  http_status: number;
+  response_type: string;
+  provider_reply: string;
+  response_preview: string;
+  hint: string;
+};
+
 export type SoftwareUpdateStatus = {
   enabled?: boolean;
   status: string;
@@ -549,13 +559,15 @@ export class RequestAbortedError extends Error {
   }
 }
 
-class HttpRequestError extends Error {
+export class HttpRequestError extends Error {
   status: number;
+  diagnostic: AIConnectionDiagnostic | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, diagnostic: AIConnectionDiagnostic | null = null) {
     super(message);
     this.name = "HttpRequestError";
     this.status = status;
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -649,13 +661,15 @@ async function doRequest<T>(path: string, options?: RequestInit): Promise<T> {
   }
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let diagnostic: AIConnectionDiagnostic | null = null;
     try {
-      const body = (await response.json()) as { detail?: string };
+      const body = (await response.json()) as { detail?: string; diagnostic?: AIConnectionDiagnostic };
       if (body.detail) message = body.detail;
+      if (body.diagnostic) diagnostic = body.diagnostic;
     } catch {
       // The status remains useful when the server did not return JSON.
     }
-    throw new HttpRequestError(response.status, message);
+    throw new HttpRequestError(response.status, message, diagnostic);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -1003,7 +1017,7 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
-  testAiSettings: () => request<void>("/api/v1/settings/ai/test", { method: "POST" }),
+  testAiSettings: () => request<AIConnectionDiagnostic>("/api/v1/settings/ai/test", { method: "POST" }),
   saveMqttSettings: (body: Record<string, unknown>) =>
     request<ApplicationSettings["integrations"]["mqtt"]>("/api/v1/settings/mqtt", {
       method: "PUT",

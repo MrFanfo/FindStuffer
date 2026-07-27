@@ -192,7 +192,6 @@ async def _recognize(connection: sqlite3.Connection, row: sqlite3.Row) -> ScanRe
                         ],
                     },
                 ],
-                "temperature": 0,
                 "response_format": {"type": "json_object"},
             },
         )

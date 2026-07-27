@@ -112,7 +112,7 @@ Replace `CHANGE_ME_10_CHARS_MIN` with at least 10 characters
 before starting. Prefer a versioned image tag:
 
 ```env
-FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.2.0
+FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.2.1
 ```
 
 `latest` follows the newest successful build from `main`; a release tag gives
@@ -273,6 +273,11 @@ Configure AI without editing Docker files:
    `https://api.openai.com/v1/chat/completions`.
 4. Enter the provider's exact model name and API key.
 5. Select **Save AI settings**, then **Test connection**.
+
+The connection result includes a **Details** action. Open it to inspect the
+HTTP status, provider reply, and a bounded response preview when a provider is
+misconfigured. Findstuff redacts keys, tokens, passwords, and secrets before
+returning this diagnostic to the browser.
 
 The model must accept image content for AI Scan. Provider-specific endpoint,
 model, image-size, rate-limit, and billing rules still apply. Photos sent to AI

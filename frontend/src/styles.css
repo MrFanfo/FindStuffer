@@ -630,6 +630,16 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .backup-status-card > div { display: grid; gap: 3px; }
 .backup-status-card small, .import-history > small { color: var(--muted); font-size: .66rem; }
 .technical-details { width: 100%; }
+.ai-diagnostic { overflow: hidden; border: 1px solid #d7b58d; border-radius: 12px; background: #fff9ed; }
+.ai-diagnostic > summary { display: flex; min-height: 44px; align-items: center; justify-content: space-between; padding: 0 11px; font-size: .75rem; font-weight: 850; }
+.ai-diagnostic[open] > summary .icon { transform: rotate(90deg); }
+.ai-diagnostic > div { display: grid; gap: 7px; border-top: 1px solid #ead8bc; padding: 11px; }
+.ai-diagnostic p { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: baseline; gap: 8px; margin: 0; font-size: .7rem; }
+.ai-diagnostic p span, .ai-diagnostic > div > small, .ai-diagnostic em { color: var(--muted); }
+.ai-diagnostic code { overflow-wrap: anywhere; white-space: pre-wrap; }
+.ai-diagnostic label { display: grid; gap: 5px; color: var(--ink); font-size: .68rem; font-weight: 800; }
+.ai-diagnostic textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 9px; padding: 9px; color: var(--ink-soft); background: var(--card); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .64rem; line-height: 1.4; }
+.ai-diagnostic em { font-size: .6rem; font-style: normal; line-height: 1.35; }
 
 .where-button { display: grid; width: 100%; grid-template-columns: auto 1fr auto; align-items: center; gap: 13px; border: 0; border-radius: 20px; padding: 17px; color: #fff; text-align: left; background: var(--ink); box-shadow: var(--shadow); }
 .where-button > span { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 15px; color: var(--ink); background: var(--gold); }

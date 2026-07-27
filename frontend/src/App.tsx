@@ -3,6 +3,7 @@ import JsBarcode from "jsbarcode";
 import {
   api,
   AICommand,
+  AIConnectionDiagnostic,
   AIScanProposal,
   ApplicationSettings,
   AuthStatus,
@@ -14,6 +15,7 @@ import {
   Dashboard,
   flattenLocations,
   HistoryEvent,
+  HttpRequestError,
   ImportBatch,
   ImportPreviewDetail,
   Item,
@@ -4532,6 +4534,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [aiEndpoint, setAiEndpoint] = useState("");
   const [aiModel, setAiModel] = useState("");
   const [aiApiKey, setAiApiKey] = useState("");
+  const [aiDiagnostic, setAiDiagnostic] = useState<AIConnectionDiagnostic | null>(null);
   const [mqttEnabled, setMqttEnabled] = useState(false);
   const [mqttHost, setMqttHost] = useState("");
   const [mqttPort, setMqttPort] = useState("1883");
@@ -4861,6 +4864,47 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       clear_api_key: true,
     }), "Saved AI key removed");
     setAiApiKey("");
+  }
+
+  function showAiDiagnostic(diagnostic: AIConnectionDiagnostic) {
+    setAiDiagnostic(diagnostic);
+    window.setTimeout(() => {
+      document.getElementById("ai-test-diagnostic")?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 50);
+  }
+
+  async function testAiConnection() {
+    setManageActivity("Testing the AI connection…");
+    setAiDiagnostic(null);
+    try {
+      const diagnostic = await api.testAiSettings();
+      notify("AI connection successful", {
+        label: "Details",
+        action: async () => {
+          showAiDiagnostic(diagnostic);
+          notify("Provider details opened");
+        },
+      });
+    } catch (error) {
+      const diagnostic = error instanceof HttpRequestError ? error.diagnostic : null;
+      const message = error instanceof Error ? error.message : "AI connection test failed";
+      if (diagnostic) {
+        notify(message, {
+          label: "Details",
+          action: async () => {
+            showAiDiagnostic(diagnostic);
+            notify("Provider response opened");
+          },
+        });
+      } else {
+        notify(message);
+      }
+    } finally {
+      setManageActivity("");
+    }
   }
 
   async function saveMqttSettings(event: FormEvent) {
@@ -5417,8 +5461,9 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
             <label>API endpoint<input type="url" value={aiEndpoint} onChange={(event) => setAiEndpoint(event.target.value)} placeholder="https://api.openai.com/v1/chat/completions" /></label>
             <label>Model<input value={aiModel} onChange={(event) => setAiModel(event.target.value)} placeholder="gpt-4.1-mini" /></label>
             <label>API key {settings?.integrations.ai.api_key_set && <small>(saved)</small>}<input type="password" autoComplete="new-password" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder="Leave blank to keep the saved key" /></label>
-            <div className="button-row"><button className="secondary" disabled={busy}>Save AI settings</button><button type="button" className="outline-button" disabled={busy || !settings?.integrations.ai.endpoint} onClick={() => void perform(() => api.testAiSettings(), "AI connection successful")}>Test connection</button>{settings?.integrations.ai.api_key_set && <button type="button" disabled={busy} onClick={() => void clearAiKey()}>Remove key</button>}</div>
+            <div className="button-row"><button className="secondary" disabled={busy}>Save AI settings</button><button type="button" className="outline-button" disabled={busy || Boolean(manageActivity) || !settings?.integrations.ai.endpoint} onClick={() => void testAiConnection()}>Test connection</button>{settings?.integrations.ai.api_key_set && <button type="button" disabled={busy} onClick={() => void clearAiKey()}>Remove key</button>}</div>
           </form>
+          {aiDiagnostic && <details id="ai-test-diagnostic" className="ai-diagnostic" open><summary><span>Provider response</span><Icon name="chevron" size={15} /></summary><div><p><span>HTTP status</span><strong>{aiDiagnostic.http_status}</strong></p><p><span>Model</span><code>{aiDiagnostic.model}</code></p><p><span>Response type</span><code>{aiDiagnostic.response_type || "Not provided"}</code></p>{aiDiagnostic.provider_reply && <p><span>Provider reply</span><code>{aiDiagnostic.provider_reply}</code></p>}<small>{aiDiagnostic.hint}</small><label>Safe response preview<textarea readOnly rows={10} value={aiDiagnostic.response_preview || "No response body"} /></label><em>API keys, tokens, passwords, and secrets are redacted. The preview is limited to 4,000 characters.</em></div></details>}
         </section>
         <section className="integration-config-card">
           <div className="integration-config-heading"><div><strong>Home Assistant MQTT</strong><small>Publishes discovery, availability, and inventory counters to your broker</small></div><b className={`integration-status ${settings?.integrations.mqtt.enabled ? "ready" : ""}`}>{settings?.integrations.mqtt.enabled ? "Enabled" : "Disabled"}</b></div>

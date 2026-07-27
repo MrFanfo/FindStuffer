@@ -16,6 +16,24 @@ from .network_security import validate_http_url
 AI_SETTINGS_KEY = "ai_service"
 MQTT_SETTINGS_KEY = "mqtt_service"
 SECRETS_FILENAME = "service-secrets.json"
+DIAGNOSTIC_PREVIEW_LIMIT = 4000
+SENSITIVE_DIAGNOSTIC_KEYS = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "credential",
+    "credentials",
+    "password",
+    "secret",
+    "signature",
+    "token",
+}
+
+
+class AIConnectionTestError(ValueError):
+    def __init__(self, message: str, diagnostic: dict[str, Any]):
+        super().__init__(message)
+        self.diagnostic = diagnostic
 
 
 @dataclass(frozen=True)
@@ -148,7 +166,52 @@ def save_ai_config(
     return public_ai_config(connection)
 
 
-async def test_ai_connection(connection: sqlite3.Connection) -> None:
+def _safe_provider_preview(response: httpx.Response, api_key: str) -> str:
+    def scrub(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(key): "[redacted]"
+                if any(
+                    marker in str(key).casefold().replace("-", "_")
+                    for marker in SENSITIVE_DIAGNOSTIC_KEYS
+                )
+                else scrub(child)
+                for key, child in value.items()
+            }
+        if isinstance(value, list):
+            return [scrub(child) for child in value[:20]]
+        if isinstance(value, str):
+            return value[:1000]
+        return value
+
+    try:
+        preview = json.dumps(scrub(response.json()), ensure_ascii=False, indent=2)
+    except (ValueError, TypeError):
+        preview = response.text
+    if api_key:
+        preview = preview.replace(api_key, "[redacted]")
+    return preview[:DIAGNOSTIC_PREVIEW_LIMIT]
+
+
+def _ai_diagnostic(
+    config: AIServiceConfig,
+    response: httpx.Response,
+    *,
+    provider_reply: str = "",
+    hint: str = "",
+) -> dict[str, Any]:
+    return {
+        "endpoint": config.endpoint,
+        "model": config.model,
+        "http_status": response.status_code,
+        "response_type": response.headers.get("content-type", "").split(";", 1)[0],
+        "provider_reply": provider_reply[:1000],
+        "response_preview": _safe_provider_preview(response, config.api_key),
+        "hint": hint,
+    }
+
+
+async def test_ai_connection(connection: sqlite3.Connection) -> dict[str, Any]:
     config = get_ai_config(connection)
     if not config.endpoint or not config.model:
         raise ValueError("Save an AI endpoint and model first")
@@ -168,18 +231,67 @@ async def test_ai_connection(connection: sqlite3.Connection) -> None:
                         "content": "Reply with the single word OK.",
                     }
                 ],
-                "temperature": 0,
-                "max_tokens": 8,
             },
         )
-        response.raise_for_status()
+    if response.is_error:
+        diagnostic = _ai_diagnostic(
+            config,
+            response,
+            hint="Check the provider message, model access, billing, and API-key restrictions.",
+        )
+        raise AIConnectionTestError(
+            f"AI provider returned HTTP {response.status_code}",
+            diagnostic,
+        )
+    try:
         body = response.json()
+    except ValueError as exc:
+        raise AIConnectionTestError(
+            "AI provider did not return JSON",
+            _ai_diagnostic(
+                config,
+                response,
+                hint="This endpoint may not be an OpenAI-compatible chat-completions endpoint.",
+            ),
+        ) from exc
     try:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise ValueError("AI provider returned an unexpected response") from exc
+        raise AIConnectionTestError(
+            "AI provider returned an unexpected response",
+            _ai_diagnostic(
+                config,
+                response,
+                hint=(
+                    "The request succeeded, but the response did not contain "
+                    "choices[0].message.content."
+                ),
+            ),
+        ) from exc
+    if isinstance(content, list):
+        content = "".join(
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict) and part.get("type") in {"text", "output_text"}
+        )
     if not isinstance(content, str) or not content.strip():
-        raise ValueError("AI provider returned an empty response")
+        raise AIConnectionTestError(
+            "AI provider returned an empty response",
+            _ai_diagnostic(
+                config,
+                response,
+                hint=(
+                    "The model may have spent its output allowance on reasoning "
+                    "without returning visible text."
+                ),
+            ),
+        )
+    return _ai_diagnostic(
+        config,
+        response,
+        provider_reply=content.strip(),
+        hint="Connection and OpenAI-compatible response format verified.",
+    )
 
 
 def get_mqtt_config(connection: sqlite3.Connection) -> MQTTServiceConfig:
