@@ -2355,13 +2355,22 @@ function AICommandBox({ busy, onApplied }: { busy: boolean; onApplied: () => Pro
 function printColumnCount(settings: PrintQueueSettings): number {
   if (settings.layout === "two") return 2;
   if (settings.layout === "three") return 3;
-  return settings.qrSize <= 44 ? 3 : 2;
+  const printableWidth = 190;
+  const gap = 3;
+  const labelWidth = settings.qrSize + 5.5;
+  return Math.max(1, Math.min(5, Math.floor((printableWidth + gap) / (labelWidth + gap))));
+}
+
+function printRowCount(settings: PrintQueueSettings): number {
+  const printableHeight = 277;
+  const gap = 3;
+  const labelHeight = settings.qrSize + 9;
+  return Math.max(1, Math.floor((printableHeight + gap) / (labelHeight + gap)));
 }
 
 function chunkPrintQueue(queue: PrintQueueItem[], settings: PrintQueueSettings): PrintQueueItem[][] {
   const columns = printColumnCount(settings);
-  const estimatedCardHeight = settings.qrSize + 17;
-  const rows = Math.max(1, Math.floor(277 / (estimatedCardHeight + 5)));
+  const rows = printRowCount(settings);
   const pageSize = Math.max(1, columns * rows);
   const pages: PrintQueueItem[][] = [];
   for (let index = 0; index < queue.length; index += pageSize) pages.push(queue.slice(index, index + pageSize));
@@ -2396,6 +2405,7 @@ function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, on
   const selected = queue.filter((entry) => entry.selected);
   const pages = chunkPrintQueue(selected, settings);
   const columns = printColumnCount(settings);
+  const rows = printRowCount(settings);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -2444,9 +2454,9 @@ function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, on
             <strong>Label design</strong>
             <label>QR color<div className="print-color-control"><input type="color" value={settings.color} onChange={(event) => onChangeSettings({ ...settings, color: event.target.value.toUpperCase() })} /><output>{settings.color}</output></div></label>
             <div className="color-swatches" aria-label="QR color presets">{["#4923A8", "#006B5E", "#B52A60", "#1B3A6F", "#111827"].map((color) => <button type="button" key={color} className={settings.color === color ? "active" : ""} style={{ background: color }} onClick={() => onChangeSettings({ ...settings, color })} aria-label={`Use color ${color}`} />)}</div>
-            <label>QR size <output>{settings.qrSize} mm</output><input type="range" min="28" max={settings.layout === "three" ? "44" : "52"} step="2" value={settings.qrSize} onChange={(event) => onChangeSettings({ ...settings, qrSize: Number(event.target.value) })} /></label>
-            <label>Page layout<select value={settings.layout} onChange={(event) => { const layout = event.target.value as PrintLayout; onChangeSettings({ ...settings, layout, qrSize: layout === "three" ? Math.min(settings.qrSize, 44) : settings.qrSize }); }}><option value="auto">Auto · best fit</option><option value="two">2 columns · generous</option><option value="three">3 columns · compact</option></select></label>
-            <small>{columns} columns · {pages.length || 1} A4 page{pages.length === 1 ? "" : "s"}</small>
+            <label>QR size <output>{settings.qrSize} mm</output><input type="range" min="28" max="52" step="2" value={settings.qrSize} onChange={(event) => onChangeSettings({ ...settings, qrSize: Number(event.target.value) })} /></label>
+            <label>Page layout<select value={settings.layout} onChange={(event) => onChangeSettings({ ...settings, layout: event.target.value as PrintLayout })}><option value="auto">Auto · maximum density</option><option value="two">2 columns · generous</option><option value="three">3 columns · compact</option></select></label>
+            <small>{columns} × {rows} grid · up to {columns * rows} labels per A4 · {pages.length || 1} page{pages.length === 1 ? "" : "s"}</small>
           </div>
           <div className="print-queue-actions"><button type="button" className="text-button danger-text" disabled={!queue.length} onClick={clearQueue}>Clear queue</button><button type="button" className="primary button-with-icon" disabled={!selected.length} onClick={() => void printSelected()}><Icon name="qr" size={17} />Print selected</button></div>
         </aside>
