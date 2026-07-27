@@ -2355,12 +2355,12 @@ function AICommandBox({ busy, onApplied }: { busy: boolean; onApplied: () => Pro
 function printColumnCount(settings: PrintQueueSettings): number {
   if (settings.layout === "two") return 2;
   if (settings.layout === "three") return 3;
-  return settings.qrSize <= 34 ? 3 : 2;
+  return settings.qrSize <= 44 ? 3 : 2;
 }
 
 function chunkPrintQueue(queue: PrintQueueItem[], settings: PrintQueueSettings): PrintQueueItem[][] {
   const columns = printColumnCount(settings);
-  const estimatedCardHeight = settings.qrSize + 31;
+  const estimatedCardHeight = settings.qrSize + 17;
   const rows = Math.max(1, Math.floor(277 / (estimatedCardHeight + 5)));
   const pageSize = Math.max(1, columns * rows);
   const pages: PrintQueueItem[][] = [];
@@ -2374,17 +2374,14 @@ function LocationQrLabel({ entry, settings }: { entry: PrintQueueItem; settings:
     "--qr-size": `${settings.qrSize}mm`,
   } as CSSProperties;
   return <article className="location-qr-label" style={style}>
-    <span className="qr-label-glow" aria-hidden="true" />
-    <header><span className="qr-label-kicker">Findstuff · {entry.kind}</span><h3>{entry.name}</h3></header>
+    <header><h3>{entry.name}</h3></header>
     <div className="qr-jewel-frame">
       <span className="qr-corner qr-corner-one" aria-hidden="true" />
       <span className="qr-corner qr-corner-two" aria-hidden="true" />
       <span className="qr-corner qr-corner-three" aria-hidden="true" />
       <span className="qr-corner qr-corner-four" aria-hidden="true" />
       <img src={`/api/v1/qr/locations/${entry.publicId}.svg?color=${encodeURIComponent(settings.color)}`} alt={`QR code for ${entry.name}`} />
-      <span className="qr-monogram" aria-hidden="true">F</span>
     </div>
-    <footer><span className="qr-label-rule" /><p>{entry.path}</p><small>SCAN TO OPEN THIS PLACE</small></footer>
   </article>;
 }
 
