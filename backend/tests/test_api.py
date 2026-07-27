@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import stat
 from pathlib import Path
 
 import httpx
@@ -174,13 +175,36 @@ def test_required_basic_auth(tmp_path: Path, monkeypatch) -> None:
         transport = httpx.ASGITransport(app=app_module.app)
         async with app_module.app.router.lifespan_context(app_module.app):
             async with httpx.AsyncClient(
-                transport=transport, base_url="http://testserver"
+                transport=transport, base_url="https://testserver"
             ) as client:
                 assert (await client.get("/api/v1/health")).status_code == 200
                 denied = await client.get("/api/v1/dashboard")
                 assert denied.status_code == 401
-                assert denied.headers["www-authenticate"].startswith("Basic ")
-                assert (await client.get("/")).status_code == 401
+                assert "www-authenticate" not in denied.headers
+                assert (await client.get("/")).status_code == 200
+                wrong_login = await client.post(
+                    "/api/v1/auth/login",
+                    json={"username": "owner", "password": "incorrect"},
+                )
+                assert wrong_login.status_code == 401
+                login = await client.post(
+                    "/api/v1/auth/login",
+                    json={
+                        "username": "owner",
+                        "password": "correct horse battery staple",
+                    },
+                )
+                assert login.status_code == 200
+                cookie_header = login.headers["set-cookie"]
+                assert "HttpOnly" in cookie_header
+                assert "Max-Age=7776000" in cookie_header
+                assert "SameSite=strict" in cookie_header
+                assert "Secure" in cookie_header
+                assert client.cookies.get("findstuff_session")
+                assert (await client.get("/api/v1/dashboard")).status_code == 200
+                assert (await client.post("/api/v1/auth/logout")).status_code == 204
+                client.cookies.clear()
+                assert (await client.get("/api/v1/dashboard")).status_code == 401
                 allowed = await client.get(
                     "/api/v1/dashboard", auth=("owner", "correct horse battery staple")
                 )
@@ -188,12 +212,73 @@ def test_required_basic_auth(tmp_path: Path, monkeypatch) -> None:
                 assert (
                     await client.get("/", auth=("owner", "correct horse battery staple"))
                 ).status_code == 200
+                client.cookies.clear()
                 assert (
                     await client.get(
                         "/api/v1/dashboard",
                         headers={"Authorization": "Bearer obsolete-rest-token"},
                     )
                 ).status_code == 401
+
+                wrong_current = await client.post(
+                    "/api/v1/admin/password",
+                    auth=("owner", "correct horse battery staple"),
+                    json={
+                        "current_password": "not-the-current-password",
+                        "new_password": "new-password-123",
+                    },
+                )
+                assert wrong_current.status_code == 403
+                too_short = await client.post(
+                    "/api/v1/admin/password",
+                    auth=("owner", "correct horse battery staple"),
+                    json={
+                        "current_password": "correct horse battery staple",
+                        "new_password": "short",
+                    },
+                )
+                assert too_short.status_code == 422
+                changed = await client.post(
+                    "/api/v1/admin/password",
+                    auth=("owner", "correct horse battery staple"),
+                    json={
+                        "current_password": "correct horse battery staple",
+                        "new_password": "new-password-123",
+                    },
+                )
+                assert changed.status_code == 200
+                assert changed.json() == {"status": "changed"}
+                assert "new-password-123" not in changed.text
+
+                assert (
+                    await client.get(
+                        "/api/v1/dashboard",
+                        auth=("owner", "correct horse battery staple"),
+                    )
+                ).status_code == 401
+                assert (
+                    await client.get(
+                        "/api/v1/dashboard",
+                        auth=("owner", "new-password-123"),
+                    )
+                ).status_code == 200
+
+                settings = await client.get(
+                    "/api/v1/settings", auth=("owner", "new-password-123")
+                )
+                assert settings.status_code == 200
+                assert "new-password-123" not in settings.text
+                exported = await client.get(
+                    "/api/v1/admin/export", auth=("owner", "new-password-123")
+                )
+                assert "new-password-123" not in exported.text
+
+                password_path = tmp_path / "admin-password"
+                assert password_path.is_file()
+                assert stat.S_IMODE(password_path.stat().st_mode) == 0o600
+                session_path = tmp_path / "session-secret"
+                assert session_path.is_file()
+                assert stat.S_IMODE(session_path.stat().st_mode) == 0o600
 
     asyncio.run(scenario())
 

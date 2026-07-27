@@ -31,7 +31,8 @@ Findstuff contains private inventory data and administrative actions. The
 official Docker setup:
 
 - binds only to `127.0.0.1`;
-- requires HTTP Basic authentication;
+- provides an in-app sign-in session and HTTP Basic authentication for API
+  clients;
 - generates a random administrator password;
 - runs the application as an unprivileged container user;
 - installs a narrow host-side watcher for authenticated in-app updates; and
@@ -41,10 +42,11 @@ Do not publish port 8000 directly to the internet. Basic credentials must not
 be sent over untrusted plain HTTP. Tailscale Serve, a VPN, or a correctly
 configured HTTPS reverse proxy should be the external boundary.
 
-The health endpoint is intentionally unauthenticated. All other `/api/v1/`
-endpoints require the administrator credentials in the standard Docker
-deployment. Home Assistant receives data through MQTT; Findstuff does not
-expose a separate Home Assistant REST endpoint.
+The health endpoint and the static sign-in page are intentionally
+unauthenticated. All other `/api/v1/` endpoints require an administrator
+session or HTTP Basic credentials in the standard Docker deployment. Home
+Assistant receives data through MQTT; Findstuff does not expose a separate
+Home Assistant REST endpoint.
 
 ## Quick start with Docker
 
@@ -59,7 +61,7 @@ Clone and run the installer:
 
 ```bash
 git clone https://github.com/MrFanfo/FindStuffer.git
-cd findstuff
+cd FindStuffer
 ./install.sh
 ```
 
@@ -68,7 +70,7 @@ The script:
 
 1. verifies or installs Docker and Compose;
 2. copies `.env.example` to the ignored `.env`;
-3. generates a long random administrator password;
+3. generates a 10-character random alphanumeric administrator password;
 4. creates `./data` with the current user's UID and GID;
 5. installs a systemd path watcher for secure in-app updates when systemd is
    available;
@@ -92,7 +94,7 @@ configure HTTPS next.
 ```bash
 cp .env.example .env
 chmod 600 .env
-editor .env
+nano .env
 sed -i "s/^FINDSTUFF_UID=.*/FINDSTUFF_UID=$(id -u)/" .env
 sed -i "s/^FINDSTUFF_GID=.*/FINDSTUFF_GID=$(id -g)/" .env
 mkdir -p data
@@ -101,11 +103,11 @@ docker compose up -d
 docker compose ps
 ```
 
-Replace `CHANGE_ME_TO_A_LONG_RANDOM_PASSWORD` before starting. Prefer a
-versioned image tag:
+Replace `CHANGE_ME_10_CHARS_MIN` with at least 10 characters
+before starting. Prefer a versioned image tag:
 
 ```env
-FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.0.0
+FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.1.0
 ```
 
 `latest` follows the newest successful build from `main`; a release tag gives
@@ -117,7 +119,7 @@ To build the multi-stage image from the checkout instead of pulling GHCR:
 
 ```bash
 cp .env.example .env
-editor .env
+nano .env
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
@@ -153,7 +155,9 @@ context. Tailscale Serve is the simplest private HTTPS option.
    ```
 
 5. Open the displayed `https://<device>.<tailnet>.ts.net` URL on the phone and
-   enter the administrator credentials printed by the installer.
+   sign in with the administrator credentials printed by the installer. The
+   browser and installed PWA retain that signed session for up to 90 days, so
+   ordinary refreshes and launches do not ask again.
 
 Tailscale access-control rules still apply to Serve. Serve is tailnet-private;
 do not substitute `tailscale funnel`, which is designed for public internet
@@ -168,11 +172,52 @@ and [CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
 
 ## Configuration
 
-Docker Compose reads the ignored `.env` file. Restart after a change:
+### Where `.env` is and how to edit it
+
+`.env` is a hidden text file in the root of the cloned repository, beside
+`docker-compose.yml` and `install.sh`. It is not a global system file. For
+example, if the repository was cloned into `/opt/FindStuffer`, its path is
+`/opt/FindStuffer/.env`. The installer creates it on its first run and keeps an
+existing file unchanged on later runs.
+
+Go to the checkout and confirm the location:
 
 ```bash
-docker compose up -d
+cd /path/to/FindStuffer
+pwd
+ls -la .env docker-compose.yml
 ```
+
+Create a recoverable copy, then edit with a terminal editor:
+
+```bash
+cp .env .env.before-edit
+nano .env
+```
+
+In `nano`, use the arrow keys to move, `Ctrl+O` then Enter to save, and
+`Ctrl+X` to exit. `vi .env` or another plain-text editor works too. Each
+setting is one `NAME=value` line. Do not add spaces around `=`, and keep lines
+beginning with `#` as comments.
+
+Protect the file and apply the new values:
+
+```bash
+chmod 600 .env
+docker compose config --quiet
+docker compose up -d
+docker compose ps
+```
+
+If the service does not become healthy, inspect `docker compose logs
+--tail=100` and restore the previous configuration with `cp
+.env.before-edit .env && docker compose up -d`. Never post `.env` in an issue
+or chat: it contains the administrator password and may contain provider
+credentials.
+
+Most users only edit `.env` for the image version, listening address/port,
+container UID/GID, HTTPS cookies, backup schedule, or updater switch. Configure
+the administrator password, AI, and MQTT in the app where possible.
 
 ### Administrator authentication
 
@@ -187,9 +232,31 @@ For orchestrators that mount secrets as files, set
 `FINDSTUFF_REQUIRE_AUTH=true` but no password is available, protected requests
 fail closed with HTTP 503.
 
-To rotate the password, edit `.env`, run `docker compose up -d`, and sign in
-again. Keep `.env` mode `0600`; it is excluded from Git and Docker build
-contexts.
+The installer prints its generated username and password once. Afterwards,
+use the app's sign-in page. A successful browser login creates an HTTP-only,
+same-site session cookie valid for up to 90 days. API clients can continue to
+send HTTP Basic credentials on every request.
+
+Open **Manage → Security** to change the password: enter the current password,
+enter and confirm a new password of at least 10 characters, then sign in again
+with the new value. The password change invalidates existing sessions.
+
+An in-app password change is stored write-only in `data/admin-password` with
+mode `0600` and takes precedence over `FINDSTUFF_ADMIN_PASSWORD` in `.env`.
+The password is never returned by the API and is excluded from JSON exports
+and full backup ZIPs.
+
+For emergency recovery, stop Findstuff, move the override out of the way,
+change the password in `.env`, and start it again:
+
+```bash
+docker compose down
+mv data/admin-password data/admin-password.disabled
+nano .env
+docker compose up -d
+```
+
+Keep `.env` mode `0600`; it is excluded from Git and Docker build contexts.
 
 ### AI parser and AI Scan
 
@@ -455,6 +522,9 @@ Persistent data is bind-mounted from `./data`:
 - `data/findstuff.sqlite3` is the SQLite database;
 - `data/photos/` contains uploaded and captured photos;
 - `data/ai-scans/` contains pending AI Scan captures;
+- `data/admin-password` contains an in-app administrator password override
+  with mode `0600`;
+- `data/session-secret` signs browser sessions and has mode `0600`;
 - `data/service-secrets.json` contains the write-only AI key and MQTT password
   with mode `0600`;
 - `data/backups/` contains automatic local backups;
@@ -465,9 +535,10 @@ Persistent data is bind-mounted from `./data`:
 
 The directory is ignored by Git and excluded from Docker builds.
 
-Inventory JSON exports and full backup ZIPs exclude
-`data/service-secrets.json`. After restoring or moving an installation,
-re-enter the AI API key and MQTT password under **Manage → Integrations**.
+Inventory JSON exports and full backup ZIPs exclude `data/admin-password`,
+`data/session-secret`, and `data/service-secrets.json`. After restoring or
+moving an installation, configure a new administrator password and re-enter
+the AI API key and MQTT password under **Manage → Integrations**.
 
 ```bash
 docker compose ps

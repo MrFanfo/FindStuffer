@@ -149,6 +149,16 @@ class NotificationSettingsUpdate(StrictModel):
     notify_expiration: bool = True
 
 
+class AdminPasswordUpdate(StrictModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=10, max_length=256)
+
+
+class AdminLogin(StrictModel):
+    username: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=1, max_length=256)
+
+
 class AISettingsUpdate(StrictModel):
     enabled: bool
     endpoint: str = Field(default="", max_length=2000)

@@ -35,6 +35,7 @@ import {
   Enrichment,
   FullOffProduct,
   EnrichmentSuggestion,
+  isAuthenticationError,
   isRequestAborted,
 } from "./api";
 
@@ -919,6 +920,13 @@ function App() {
         setNotice("");
       })
       .catch((error) => {
+        if (isAuthenticationError(error)) {
+          setAuth({ authenticated: false, user: null });
+          setDashboard(null);
+          setConnectionIssue("");
+          setNotice("");
+          return;
+        }
         const message = error instanceof Error ? error.message : "Unable to connect";
         setAuth({ authenticated: false, user: null });
         setDashboard(EMPTY_DASHBOARD);
@@ -1218,8 +1226,18 @@ function App() {
     return category;
   }
 
+  async function signIn(username: string, password: string) {
+    await api.login(username, password);
+    const snapshot = await api.bootstrap("", undefined, inventoryIncludeZero);
+    applyBootstrap(snapshot);
+    setNotice("");
+  }
+
   if (auth === null) {
     return <div className="splash"><div className="item-icon">F</div><h1>Findstuff</h1><p>{notice || "Opening your inventory…"}</p></div>;
+  }
+  if (!auth.authenticated) {
+    return <LoginView onLogin={signIn} />;
   }
 
   const navView = view === "location" || view === "locations" || view === "category" || view === "categories"
@@ -1426,6 +1444,52 @@ function App() {
         ))}
       </nav>
     </div>
+  );
+}
+
+function LoginView({
+  onLogin,
+}: {
+  onLogin: (username: string, password: string) => Promise<void>;
+}) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      await onLogin(username.trim(), password);
+    } catch (loginError) {
+      setError(
+        loginError instanceof Error
+          ? loginError.message
+          : "Could not sign in",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="login-page">
+      <section className="login-card">
+        <div className="brand-mark" aria-hidden="true">F</div>
+        <p className="eyebrow">PRIVATE INVENTORY</p>
+        <h1>Welcome to Findstuff</h1>
+        <p>Sign in once on this device. Your secure session stays available to the installed app for 90 days.</p>
+        <form className="form-card compact-form" onSubmit={submit}>
+          <label>Username<input required autoCapitalize="none" autoCorrect="off" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+          <label>Password<input required autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          {error && <div className="login-error" role="alert">{error}</div>}
+          <button className="primary wide" disabled={submitting || !username.trim() || !password}>{submitting ? "Signing in…" : "Sign in"}</button>
+        </form>
+        <small>The password stays on this device and is sent only to your Findstuff server. Use the private HTTPS address when signing in from a phone.</small>
+      </section>
+    </main>
   );
 }
 
@@ -4383,6 +4447,9 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [mqttDiscoveryPrefix, setMqttDiscoveryPrefix] = useState("homeassistant");
   const [mqttClientId, setMqttClientId] = useState("findstuff");
   const [mqttPublishInterval, setMqttPublishInterval] = useState("60");
+  const [currentAdminPassword, setCurrentAdminPassword] = useState("");
+  const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState("");
   const [importPayload, setImportPayload] = useState<unknown>(null);
   const [importSummary, setImportSummary] = useState<Record<string, number> | null>(null);
   const [importDetails, setImportDetails] = useState<ImportPreviewDetail[]>([]);
@@ -4569,6 +4636,28 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       notify_expiration: true,
     }), "Notification settings saved");
     setNotificationToken("");
+  }
+
+  async function changeAdminPassword(event: FormEvent) {
+    event.preventDefault();
+    if (newAdminPassword !== confirmAdminPassword) {
+      setNotice("The new passwords do not match");
+      return;
+    }
+    if (newAdminPassword.length < 10) {
+      setNotice("The new password must be at least 10 characters");
+      return;
+    }
+    try {
+      await api.changeAdminPassword(currentAdminPassword, newAdminPassword);
+      setCurrentAdminPassword("");
+      setNewAdminPassword("");
+      setConfirmAdminPassword("");
+      setNotice("Password changed. Sign in again with the new password.");
+      window.setTimeout(() => window.location.reload(), 800);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not change the password");
+    }
   }
 
   async function saveAiSettings(event: FormEvent) {
@@ -4993,6 +5082,17 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       </div></details>
 
       <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Appearance</strong><small>{theme === "system" ? "Follows this device" : `${theme[0].toUpperCase()}${theme.slice(1)} theme`}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="theme-options" role="radiogroup" aria-label="Color theme">{(["light", "dark", "system"] as ThemePreference[]).map((option) => <button type="button" role="radio" aria-checked={theme === option} className={theme === option ? "active" : ""} key={option} onClick={() => onThemeChange(option)}><span className={`theme-preview ${option}`} aria-hidden="true" /><strong>{option === "system" ? "Device" : option[0].toUpperCase() + option.slice(1)}</strong><small>{option === "system" ? "Match system setting" : `${option} colors`}</small></button>)}</div></div></details>
+
+      <details><summary><span className="summary-icon"><Icon name="user" /></span><span><strong>Security</strong><small>Change the administrator password</small></span><Icon name="chevron" /></summary><div className="manage-panel">
+        <p className="panel-copy">Change the password used to open Findstuff and call its API. It stays write-only and is excluded from exports and backup ZIPs.</p>
+        <form className="form-card compact-form" onSubmit={changeAdminPassword}>
+          <label>Current password<input required type="password" autoComplete="current-password" value={currentAdminPassword} onChange={(event) => setCurrentAdminPassword(event.target.value)} /></label>
+          <label>New password<input required minLength={10} maxLength={256} type="password" autoComplete="new-password" value={newAdminPassword} onChange={(event) => setNewAdminPassword(event.target.value)} /><small>At least 10 characters.</small></label>
+          <label>Confirm new password<input required minLength={10} maxLength={256} type="password" autoComplete="new-password" value={confirmAdminPassword} onChange={(event) => setConfirmAdminPassword(event.target.value)} /></label>
+          <button className="secondary" disabled={busy || !currentAdminPassword || newAdminPassword.length < 10 || newAdminPassword !== confirmAdminPassword}>Change password</button>
+        </form>
+        <p className="panel-copy">After saving, Findstuff will return to its sign-in page for the new password.</p>
+      </div></details>
 
       <details><summary><span className="summary-icon"><Icon name="search" /></span><span><strong>Lost items</strong><small>{lostItems.length ? `${lostItems.length} marked lost` : "Nothing marked lost"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="lost-list">{lostItems.length === 0 && <div className="empty-inline"><span>Everything is accounted for</span></div>}{lostItems.map((item) => <article className="lost-row" key={item.public_id}><button type="button" className="lost-main" onClick={() => onOpenItem(item)}><span><Icon name="search" size={17} /></span><div><strong>{item.name}</strong><small>{item.location_path}</small></div></button><div className="lost-actions"><button className="secondary" type="button" onClick={() => void onMarkFound(item)}><Icon name="check" size={14} />Found</button><button type="button" onClick={() => void onForeverLost(item)}><Icon name="close" size={14} />Forever lost</button></div></article>)}</div></div></details>
       <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Recent activity</strong><small>{dashboard?.recent_events.length ? "Latest inventory changes" : "No changes yet"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="event-list">{!dashboard?.recent_events.length && <div className="empty-inline"><span>Changes will appear here</span></div>}{dashboard?.recent_events.slice(0, 12).map((event, index) => <div className="event" key={`${event.created_at}-${index}`}><span>{activityLabel(event.action)}</span><strong>{event.item_name}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>)}</div></div></details>

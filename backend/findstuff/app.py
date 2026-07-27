@@ -51,6 +51,15 @@ from .ai_scans import (
     scan_photo_path,
     update_scan,
 )
+from .auth_config import (
+    SESSION_COOKIE_NAME,
+    SESSION_MAX_AGE_SECONDS,
+    create_session_token,
+    credentials_are_valid,
+    get_admin_password,
+    save_admin_password,
+    session_token_is_valid,
+)
 from .backups import (
     apply_pending_restore,
     backup_archive,
@@ -172,6 +181,8 @@ from .off_categories import (
 )
 from .photos import delete_photo, get_photo, import_photo_from_url, list_photos, store_photo
 from .schemas import (
+    AdminLogin,
+    AdminPasswordUpdate,
     AIScanProposalPatch,
     AISettingsUpdate,
     CategoryCreate,
@@ -306,10 +317,11 @@ async def protect_api(request: Request, call_next):
         )
     path = request.url.path
     is_api = path.startswith("/api/v1/")
-    if path == "/api/v1/health":
+    if not is_api or path in {"/api/v1/health", "/api/v1/auth/login"}:
         return await call_next(request)
     settings = get_settings()
-    if settings.require_auth and not settings.admin_password:
+    admin_password = get_admin_password()
+    if settings.require_auth and not admin_password:
         return JSONResponse(
             status_code=503,
             content={
@@ -319,26 +331,6 @@ async def protect_api(request: Request, call_next):
                 )
             },
         )
-    if settings.admin_password:
-        authorization = request.headers.get("Authorization", "")
-        authenticated = False
-        if authorization.startswith("Basic "):
-            try:
-                decoded = base64.b64decode(
-                    authorization.removeprefix("Basic ").strip(), validate=True
-                ).decode("utf-8")
-                username, password = decoded.split(":", 1)
-                authenticated = secrets.compare_digest(
-                    username.encode(), settings.admin_username.encode()
-                ) and secrets.compare_digest(password.encode(), settings.admin_password.encode())
-            except (binascii.Error, UnicodeDecodeError, ValueError):
-                authenticated = False
-        if not authenticated:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Authentication required"},
-                headers={"WWW-Authenticate": 'Basic realm="Findstuff", charset="UTF-8"'},
-            )
     if is_api:
         request.state.user = {
             "id": 0,
@@ -347,6 +339,47 @@ async def protect_api(request: Request, call_next):
             "username": settings.admin_username,
         }
         request.state.session = None
+    if admin_password:
+        authorization = request.headers.get("Authorization", "")
+        authenticated = False
+        used_basic_auth = authorization.startswith("Basic ")
+        if authorization and used_basic_auth:
+            try:
+                decoded = base64.b64decode(
+                    authorization.removeprefix("Basic ").strip(), validate=True
+                ).decode("utf-8")
+                username, password = decoded.split(":", 1)
+                authenticated = credentials_are_valid(username, password)
+            except (binascii.Error, UnicodeDecodeError, ValueError):
+                authenticated = False
+        elif not authorization:
+            authenticated = session_token_is_valid(
+                request.cookies.get(SESSION_COOKIE_NAME, "")
+            )
+        if not authenticated:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Authentication required"},
+            )
+        response = await call_next(request)
+        if used_basic_auth:
+            response.set_cookie(
+                SESSION_COOKIE_NAME,
+                create_session_token(),
+                max_age=SESSION_MAX_AGE_SECONDS,
+                httponly=True,
+                secure=(
+                    settings.secure_cookies
+                    or request.url.scheme == "https"
+                    or request.headers.get("x-forwarded-proto", "")
+                    .split(",", 1)[0]
+                    .strip()
+                    == "https"
+                ),
+                samesite="strict",
+                path="/api/v1",
+            )
+        return response
     return await call_next(request)
 
 
@@ -380,9 +413,52 @@ async def auth_status() -> dict[str, Any]:
     }
 
 
+@app.post("/api/v1/auth/login", tags=["authentication"])
+async def login(payload: AdminLogin, request: Request, response: Response) -> dict[str, Any]:
+    settings = get_settings()
+    if not credentials_are_valid(payload.username, payload.password):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        create_session_token(),
+        max_age=SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        secure=(
+            settings.secure_cookies
+            or request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+            == "https"
+        ),
+        samesite="strict",
+        path="/api/v1",
+    )
+    return {
+        "authenticated": True,
+        "user": local_user(),
+    }
+
+
+@app.post("/api/v1/auth/logout", status_code=204, tags=["authentication"])
+async def logout(response: Response) -> Response:
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/api/v1")
+    response.status_code = 204
+    return response
+
+
 @app.get("/api/v1/auth/me", tags=["authentication"])
 async def get_me() -> dict[str, Any]:
     return local_user()
+
+
+@app.post("/api/v1/admin/password", tags=["administration"])
+async def change_admin_password(payload: AdminPasswordUpdate) -> dict[str, str]:
+    try:
+        save_admin_password(payload.current_password, payload.new_password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "changed"}
 
 
 @app.get("/api/v1/bootstrap", tags=["system"])

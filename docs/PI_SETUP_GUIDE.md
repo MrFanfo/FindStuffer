@@ -42,7 +42,7 @@ After reconnecting, clone Findstuff and run the universal installer:
 
 ```bash
 git clone https://github.com/MrFanfo/FindStuffer.git
-cd findstuff
+cd FindStuffer
 ./install.sh
 ```
 
@@ -50,14 +50,16 @@ Use `./install.sh --yes` to accept the installer’s Debian package installation
 without a prompt. The installer:
 
 - installs Docker Engine and Compose v2 if necessary;
-- generates an ignored `.env` and a random administrator password;
+- generates an ignored `.env` and a 10-character random alphanumeric
+  administrator password;
 - creates the persistent `./data` directory;
 - pulls the image matching the board architecture;
 - enables the host-side systemd watcher used by the app’s Update button;
 - starts Findstuff on `127.0.0.1:8000`; and
 - waits for a successful health check.
 
-Save the printed password in a password manager.
+Save the printed password in a password manager. You can change it later under
+**Manage → Security**; the replacement must be at least 10 characters.
 
 ## Private HTTPS for a phone
 
@@ -74,7 +76,9 @@ Serve is the easiest private option:
    tailscale serve status
    ```
 
-4. Open the displayed `https://…ts.net` address on the phone.
+4. Open the displayed `https://…ts.net` address on the phone and sign in. The
+   browser and installed PWA retain a signed session for up to 90 days, so
+   ordinary launches and refreshes do not ask for the password again.
 
 Keep `FINDSTUFF_BIND_ADDRESS=127.0.0.1`. Tailscale Serve is private to the
 tailnet; Tailscale Funnel is public and is not recommended here.

@@ -8,7 +8,7 @@ and arm/v7.
 
 ```bash
 git clone https://github.com/MrFanfo/FindStuffer.git
-cd findstuff
+cd FindStuffer
 ./install.sh
 ```
 
@@ -37,6 +37,8 @@ findstuff/
 │   ├── photos/
 │   ├── ai-scans/
 │   ├── backups/
+│   ├── admin-password      optional write-only password override
+│   ├── session-secret      local browser-session signing secret
 │   ├── update-status.json
 │   └── update.log
 └── update-docker.sh
@@ -94,8 +96,9 @@ use the same script:
 ## Backup
 
 The UI’s full backup ZIP is the preferred live backup. It contains a consistent
-SQLite copy, photos, and a manifest. It deliberately excludes the write-only AI
-API key and MQTT password. Store it off the Findstuff host.
+SQLite copy, photos, and a manifest. It deliberately excludes the administrator
+password override, browser-session signing secret, write-only AI API key, and
+MQTT password. Store it off the Findstuff host.
 
 For a cold filesystem copy:
 

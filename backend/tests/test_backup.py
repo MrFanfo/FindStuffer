@@ -48,12 +48,22 @@ def test_backup_archive_contains_inventory_and_manifest(tmp_path: Path, monkeypa
     connection = connect(database_path)
     create_item(connection, {"name": "Archived backup item", "quantity": 1})
     connection.close()
+    (data / "admin-password").write_text("private-admin-password\n", encoding="utf-8")
+    (data / "session-secret").write_text("private-session-secret\n", encoding="utf-8")
+    (data / "service-secrets.json").write_text(
+        '{"ai_api_key":"private-ai-key"}\n',
+        encoding="utf-8",
+    )
 
     result = backup_archive(tmp_path / "downloads")
 
     assert result.name.startswith("findstuff-backup-")
     with zipfile.ZipFile(result) as archive:
-        assert {"findstuff.sqlite3", "manifest.json"}.issubset(set(archive.namelist()))
+        names = set(archive.namelist())
+        assert {"findstuff.sqlite3", "manifest.json"}.issubset(names)
+        assert "admin-password" not in names
+        assert "session-secret" not in names
+        assert "service-secrets.json" not in names
         archive.extract("findstuff.sqlite3", tmp_path / "restored")
     restored = sqlite3.connect(tmp_path / "restored" / "findstuff.sqlite3")
     try:

@@ -551,6 +551,10 @@ export function isRequestAborted(error: unknown): boolean {
   return error instanceof RequestAbortedError;
 }
 
+export function isAuthenticationError(error: unknown): boolean {
+  return error instanceof HttpRequestError && error.status === 401;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -612,6 +616,7 @@ async function doRequest<T>(path: string, options?: RequestInit): Promise<T> {
     response = await fetch(path, {
       ...requestOptions,
       cache: options?.method && options.method !== "GET" ? "no-store" : options?.cache,
+      credentials: "same-origin",
       signal: controller.signal,
       headers: {
         ...(isForm ? {} : { "Content-Type": "application/json" }),
@@ -646,6 +651,12 @@ async function doRequest<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   authStatus: () => request<AuthStatus>("/api/v1/auth/status"),
+  login: (username: string, password: string) =>
+    request<AuthStatus>("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
   bootstrap: (query = "", options?: RequestInit, includeZero = false) =>
     request<Bootstrap>(`/api/v1/bootstrap?q=${encodeURIComponent(query)}&limit=250&include_zero=${includeZero ? "true" : "false"}`, options),
   dashboard: (options?: RequestInit) => request<Dashboard>("/api/v1/dashboard", options),
@@ -919,6 +930,14 @@ export const api = {
   applyEnrichment: (candidateId: string) =>
     request<Item>(`/api/v1/enrichment-candidates/${candidateId}/apply`, { method: "POST" }),
   settings: () => request<ApplicationSettings>("/api/v1/settings"),
+  changeAdminPassword: (currentPassword: string, newPassword: string) =>
+    request<{ status: string }>("/api/v1/admin/password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    }),
   softwareUpdateStatus: () => request<SoftwareUpdateStatus>("/api/v1/admin/software-update"),
   requestSoftwareUpdate: () =>
     request<SoftwareUpdateStatus>("/api/v1/admin/software-update", { method: "POST" }),

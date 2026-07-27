@@ -113,7 +113,8 @@ fi
 created_credentials=0
 if [[ ! -f "$ROOT/.env" ]]; then
   cp "$ROOT/.env.example" "$ROOT/.env"
-  password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+  password_material="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+  password="${password_material:0:10}"
   sed -i "s/^FINDSTUFF_ADMIN_PASSWORD=.*/FINDSTUFF_ADMIN_PASSWORD=${password}/" "$ROOT/.env"
   chmod 0600 "$ROOT/.env"
   created_credentials=1
