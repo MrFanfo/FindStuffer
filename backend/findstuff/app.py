@@ -632,6 +632,7 @@ async def get_items(
     low_stock: bool = False,
     needs_details: bool = False,
     include_archived: bool = False,
+    archived_only: bool = False,
     include_zero: bool = False,
     limit: int = Query(default=100, ge=1, le=2000),
 ) -> list[dict[str, Any]]:
@@ -643,6 +644,7 @@ async def get_items(
         low_stock=low_stock,
         needs_details=needs_details,
         include_archived=include_archived,
+        archived_only=archived_only,
         include_zero=include_zero,
         limit=limit,
     )

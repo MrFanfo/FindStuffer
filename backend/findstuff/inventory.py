@@ -1005,6 +1005,7 @@ def list_items(
     low_stock: bool = False,
     needs_details: bool = False,
     include_archived: bool = False,
+    archived_only: bool = False,
     include_zero: bool = False,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
@@ -1015,7 +1016,9 @@ def list_items(
         prefix += " JOIN item_fts ON item_fts.item_id = items.id"
         conditions.append("item_fts MATCH ?")
         parameters.append(_fts_expression(query))
-    if not include_archived:
+    if archived_only:
+        conditions.append("items.archived_at IS NOT NULL")
+    elif not include_archived:
         conditions.append("items.archived_at IS NULL")
     if not include_zero:
         conditions.append("items.quantity_milli > 0")

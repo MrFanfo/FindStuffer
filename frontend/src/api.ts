@@ -742,7 +742,7 @@ export const api = {
   locations: () => request<LocationNode[]>("/api/v1/locations/tree"),
   locationContents: (publicId: string) =>
     request<LocationContents>(`/api/v1/locations/${publicId}/contents`),
-  items: (query = "", options?: RequestInit, filters: { categoryId?: number | null; needsDetails?: boolean; includeZero?: boolean } = {}) => {
+  items: (query = "", options?: RequestInit, filters: { categoryId?: number | null; needsDetails?: boolean; includeZero?: boolean; archivedOnly?: boolean } = {}) => {
     const parameters = new URLSearchParams({ q: query });
     parameters.set("limit", "2000");
     if (filters.categoryId !== undefined && filters.categoryId !== null) {
@@ -750,8 +750,10 @@ export const api = {
     }
     if (filters.needsDetails) parameters.set("needs_details", "true");
     if (filters.includeZero) parameters.set("include_zero", "true");
+    if (filters.archivedOnly) parameters.set("archived_only", "true");
     return request<Item[]>(`/api/v1/items?${parameters.toString()}`, options);
   },
+  archivedItems: () => request<Item[]>("/api/v1/items?q=&limit=2000&archived_only=true&include_zero=true"),
   item: (publicId: string) => request<Item>(`/api/v1/items/${publicId}`),
   itemDetail: (publicId: string) =>
     request<ItemDetailPayload>(`/api/v1/items/${publicId}/detail`),

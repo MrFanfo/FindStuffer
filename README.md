@@ -17,9 +17,11 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
   Open Food Facts, and bulk put-away/consume workflows.
 - Place-based **AI Scan**: take several photos quickly, let a vision model
   identify the objects in the background, then review the results in the
-  **Inbox**. Swipe, edit inline, select several, or approve all
-  high-confidence suggestions.
+  **Inbox**, one suggestion at a time. Swipe, edit, approve, or reject each
+  suggested Item.
 - Full-text search, duplicate detection, low-stock shopping lists, and history.
+- Separate Archive and permanent Delete actions, with an **Archived Items**
+  manager in Settings for restoring Items or deleting them forever.
 - JSON export/merge, ordered JSON operations, undoable imports, and complete
   ZIP Backups containing SQLite plus photos. Recent import history is capped at
   five entries.
@@ -522,7 +524,7 @@ the new container fails its health check. Application data is untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.3.1`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.3.2`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

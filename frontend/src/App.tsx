@@ -719,6 +719,7 @@ function App() {
   const refreshGeneration = useRef(0);
   const inventoryRefreshGeneration = useRef(0);
   const adjustmentQueue = useRef<Map<string, AdjustmentQueue>>(new Map());
+  const previousView = useRef<View>(view);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => {
@@ -870,6 +871,19 @@ function App() {
   const searchInventory = useCallback((value: string, options: InventorySearchOptions = {}) => {
     void refreshInventory(value, { showBusy: options.showBusy ?? true });
   }, [refreshInventory]);
+
+  useEffect(() => {
+    const lastView = previousView.current;
+    previousView.current = view;
+    if (lastView !== "inventory" || view === "inventory") return;
+    setInventoryFilter("all");
+    setInventoryCategoryId(null);
+    setInventoryTag("");
+    setInventoryIncludeZero(false);
+    setQuery("");
+    setSelectedItem(null);
+    if (!inventoryIncludeZero) searchInventory("", { showBusy: false });
+  }, [inventoryIncludeZero, searchInventory, view]);
 
   const scheduleRefresh = useCallback((search = query) => {
     if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
@@ -1181,22 +1195,16 @@ function App() {
   }
 
   async function hardDeleteItem(item: Item) {
-    if (!window.confirm(`Archive ${item.name}? It will disappear from the inventory, and you can undo this action.`)) return;
+    if (!window.confirm(
+      `Permanently delete ${item.name}?\n\nThis removes the Item, its photos, and its history. This cannot be undone.`,
+    )) return;
     setBusy(true);
-    setActivityMessage(`Archiving ${item.name}…`);
+    setActivityMessage(`Deleting ${item.name}…`);
     try {
-      await api.archive(item);
+      await api.hardDeleteItem(item);
       setItems((current) => current.filter((entry) => entry.public_id !== item.public_id));
       setSelectedItem((current) => current?.public_id === item.public_id ? null : current);
-      notify(`${item.name} archived`, {
-        label: "Undo",
-        action: async () => {
-          const restored = await api.restoreItem(item.public_id);
-          applyLocalItem(restored);
-          scheduleInventoryRefresh();
-          notify(`${restored.name} restored`);
-        },
-      });
+      notify(`${item.name} permanently deleted`);
       scheduleInventoryRefresh();
     } catch (error) {
       notify(friendlyErrorMessage(error, "Could not delete item"), {
@@ -4695,6 +4703,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [settings, setSettings] = useState<ApplicationSettings | null>(null);
   const [rules, setRules] = useState<LocationRule[]>([]);
   const [suggestions, setSuggestions] = useState<EnrichmentSuggestion[]>([]);
+  const [archivedItems, setArchivedItems] = useState<Item[]>([]);
   const [softwareUpdate, setSoftwareUpdate] = useState<SoftwareUpdateStatus | null>(null);
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
@@ -4749,12 +4758,13 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
 
   const load = useCallback(async () => {
     try {
-      const [nextProjects, nextLoans, nextSettings, nextRules, nextSuggestions, nextUpdate, nextImports] = await Promise.all([
+      const [nextProjects, nextLoans, nextSettings, nextRules, nextSuggestions, nextArchivedItems, nextUpdate, nextImports] = await Promise.all([
         api.projects(),
         api.loans(),
         api.settings(),
         api.locationRules(),
         api.enrichmentSuggestions("pending"),
+        api.archivedItems(),
         api.softwareUpdateStatus(),
         api.importBatches(),
       ]);
@@ -4765,6 +4775,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       onUnitsChanged(nextSettings.units);
       setRules(nextRules);
       setSuggestions(nextSuggestions);
+      setArchivedItems(nextArchivedItems);
       setImportBatches(nextImports);
       setNotificationsEnabled(nextSettings.notifications.enabled);
       setNotificationUrl(nextSettings.notifications.ntfy_url);
@@ -4801,6 +4812,23 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
     } finally {
       setManageActivity("");
     }
+  }
+
+  async function restoreArchivedItem(item: Item) {
+    await perform(async () => {
+      await api.restoreItem(item.public_id);
+      await onInventoryChanged();
+    }, `${item.name} restored to Inventory`);
+  }
+
+  async function permanentlyDeleteArchivedItem(item: Item) {
+    if (!window.confirm(
+      `Delete ${item.name} forever?\n\nThis permanently removes the Item, its photos, and its history. This cannot be undone.`,
+    )) return;
+    await perform(async () => {
+      await api.hardDeleteItem(item);
+      await onInventoryChanged();
+    }, `${item.name} permanently deleted`);
   }
 
   async function createProject(event: FormEvent) {
@@ -5448,30 +5476,18 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       </div></details>
 
       <details><summary><span className="summary-icon"><Icon name="search" /></span><span><strong>Lost items</strong><small>{lostItems.length ? `${lostItems.length} marked lost` : "Nothing marked lost"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="lost-list">{lostItems.length === 0 && <div className="empty-inline"><span>Everything is accounted for</span></div>}{lostItems.map((item) => <article className="lost-row" key={item.public_id}><button type="button" className="lost-main" onClick={() => onOpenItem(item)}><span><Icon name="search" size={17} /></span><div><strong>{item.name}</strong><small>{item.location_path}</small></div></button><div className="lost-actions"><button className="secondary" type="button" onClick={() => void onMarkFound(item)}><Icon name="check" size={14} />Found</button><button type="button" onClick={() => void onForeverLost(item)}><Icon name="close" size={14} />Forever lost</button></div></article>)}</div></div></details>
-      <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Recent activity</strong><small>{dashboard?.recent_events.length ? "Latest inventory changes" : "No changes yet"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="event-list">{!dashboard?.recent_events.length && <div className="empty-inline"><span>Changes will appear here</span></div>}{dashboard?.recent_events.slice(0, 12).map((event, index) => <div className="event" key={`${event.created_at}-${index}`}><span>{activityLabel(event.action)}</span><strong>{event.item_name}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>)}</div></div></details>
-
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Storage & app info</strong><small>{system ? `${formatBytes(system.storage.total_managed_bytes)} used · version ${system.app.version}` : "Storage and version"}</small></span><Icon name="chevron" /></summary><div className="manage-panel app-info-panel">
-        {system ? <>
-          <div className="app-metric-grid">
-            <div><span>Total data</span><strong>{formatBytes(system.storage.total_managed_bytes)}</strong><small>Database + photos</small></div>
-            <div><span>Database</span><strong>{formatBytes(system.storage.database_bytes)}</strong><small>{formatBytes(system.storage.database_main_bytes)} main · {formatBytes(system.storage.database_wal_bytes)} WAL</small></div>
-            <div><span>Photos</span><strong>{formatBytes(system.storage.photos_bytes)}</strong><small>{system.inventory.photos} saved photo{system.inventory.photos === 1 ? "" : "s"}</small></div>
-            <div><span>App CPU</span><strong>{system.resources.cpu_percent.toFixed(1)}%</strong><small>{system.resources.cpu_count} CPU core{system.resources.cpu_count === 1 ? "" : "s"} available</small></div>
-            <div><span>App RAM</span><strong>{formatBytes(system.resources.memory_rss_bytes)}</strong><small>Current resident memory</small></div>
-            <div><span>Disk free</span><strong>{formatBytes(system.storage.disk_free_bytes)}</strong><small>{diskFreePercent}% of {formatBytes(system.storage.disk_total_bytes)}</small></div>
-          </div>
-          <div className="integration-list app-info-list"><p><span>Inventory</span><small>{system.inventory.items} Items · {system.inventory.locations} Places · {system.inventory.categories} Categories</small></p><p><span>Version</span><code>{system.app.version}</code></p><p><span>Running for</span><small>{formatUptime(system.app.uptime_seconds)}</small></p></div>
-          <details className="nested-form technical-details"><summary>Technical details</summary><div className="integration-list app-info-list">
-            <p><span>Other data folder usage</span><small>{formatBytes(system.storage.other_data_bytes)}</small></p>
-            <p><span>Database engine</span><small>{system.database.journal_mode.toUpperCase()} · {system.database.page_count.toLocaleString()} pages · {formatBytes(system.database.page_size)} page size</small></p>
-            <p><span>Started</span><small>{new Date(system.app.started_at).toLocaleString()}</small></p>
-            <p><span>Process</span><small>PID {system.app.process_id} · Python {system.app.python_version}</small></p>
-            <p><span>Database path</span><code>{system.storage.database_path}</code></p>
-            <p><span>Data folder</span><code>{system.storage.data_dir}</code></p>
-          </div></details>
-          <button className="outline-button" onClick={() => void load()}>Refresh info</button>
-        </> : <div className="empty-inline"><span>Loading app information</span></div>}
+      <details><summary><span className="summary-icon"><Icon name="box" /></span><span><strong>Archived Items</strong><small>{archivedItems.length ? `${archivedItems.length} archived` : "Archive is empty"}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
+        <p className="panel-copy">Archived Items stay out of Inventory but remain available to restore. Delete forever permanently removes the Item, its photos, and its history.</p>
+        <div className="archived-list">
+          {archivedItems.length === 0 && <div className="empty-inline"><span>No archived Items</span></div>}
+          {archivedItems.map((item) => <article className="archived-row" key={item.public_id}>
+            {item.primary_photo_url ? <img src={item.primary_photo_url} alt="" /> : <span className="archived-placeholder"><Icon name="box" size={19} /></span>}
+            <div className="archived-main"><strong>{item.name}</strong><small>{item.location_path}{item.category_path ? ` · ${item.category_path}` : ""}</small><time>Archived {item.archived_at ? new Date(`${item.archived_at}Z`).toLocaleString() : "recently"}</time></div>
+            <div className="archived-actions"><button className="secondary" type="button" disabled={busy} onClick={() => void restoreArchivedItem(item)}><Icon name="check" size={14} />Restore</button><button className="danger-button" type="button" disabled={busy} onClick={() => void permanentlyDeleteArchivedItem(item)}><Icon name="close" size={14} />Delete forever</button></div>
+          </article>)}
+        </div>
       </div></details>
+      <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Recent activity</strong><small>{dashboard?.recent_events.length ? "Latest inventory changes" : "No changes yet"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="event-list">{!dashboard?.recent_events.length && <div className="empty-inline"><span>Changes will appear here</span></div>}{dashboard?.recent_events.slice(0, 12).map((event, index) => <div className="event" key={`${event.created_at}-${index}`}><span>{activityLabel(event.action)}</span><strong>{event.item_name}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>)}</div></div></details>
 
       <details><summary><span className="summary-icon"><Icon name="pin" /></span><span><strong>Default locations & types</strong><small>{rules.length} rules · {locationTypes.length} location types</small></span><Icon name="chevron" /></summary><div className="manage-panel">
         <form className="form-card compact-form" onSubmit={createRule}><div className="form-row"><label>Match type<select value={ruleType} onChange={(event) => setRuleType(event.target.value as "name" | "barcode" | "category")}><option value="name">Item/name contains</option><option value="barcode">Exact barcode</option><option value="category">Category contains</option></select></label><label>Match value<input required list={ruleType === "category" ? "category-rule-options" : undefined} value={ruleMatch} onChange={(event) => setRuleMatch(event.target.value)} placeholder={ruleType === "barcode" ? "807680..." : ruleType === "category" ? "Electronics > Components" : "pasta, milk, ESP32…"} /><datalist id="category-rule-options">{categories.map((entry) => <option key={entry.id} value={categoryOptionLabel(entry)} />)}</datalist></label></div><label>Default location<select value={ruleLocation} onChange={(event) => setRuleLocation(event.target.value)}>{flatLocations.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label><button className="secondary" disabled={!ruleMatch.trim()}>Save default rule</button></form>
@@ -5558,6 +5574,28 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         <div className="suggestion-list">{suggestions.length === 0 && <div className="empty-inline"><span>No pending suggestions</span></div>}{suggestions.map((suggestion) => <article className="suggestion-row" key={suggestion.public_id}><div><strong>{suggestion.item_name}</strong><small>{suggestion.path} · {Math.round(suggestion.confidence * 100)}% confidence</small><code>{typeof suggestion.value === "object" ? JSON.stringify(suggestion.value) : String(suggestion.value)}</code>{suggestion.sources[0]?.url && <a href={suggestion.sources[0].url} target="_blank" rel="noreferrer">{suggestion.sources[0].label || "Source"}</a>}{suggestion.uncertainty && <em>{suggestion.uncertainty}</em>}</div><div><button className="primary" onClick={() => void perform(async () => { await api.acceptSuggestion(suggestion.public_id); await onInventoryChanged(); }, "Suggestion accepted")}>Accept</button><button onClick={() => void perform(() => api.rejectSuggestion(suggestion.public_id), "Suggestion rejected")}>Reject</button></div></article>)}</div>
       </div></details>
       <details className="setup-health"><summary><span className="summary-icon"><Icon name="check" /></span><span><strong>Setup health</strong><small>{setupHealth.filter((entry) => entry.status === "Needs attention").length ? `${setupHealth.filter((entry) => entry.status === "Needs attention").length} need attention` : "Everything important is ready"}</small></span><Icon name="chevron" /></summary><div className="manage-panel setup-health-grid">{setupHealth.map((entry) => <article key={entry.label}><span>{entry.label}</span><b className={`health-status ${entry.status.toLowerCase().replace(" ", "-")}`}>{entry.status}</b><small>{entry.detail}</small></article>)}</div></details>
+      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>App info</strong><small>{system ? `${formatBytes(system.storage.total_managed_bytes)} used · version ${system.app.version}` : "Storage, resources, and version"}</small></span><Icon name="chevron" /></summary><div className="manage-panel app-info-panel">
+        {system ? <>
+          <div className="app-metric-grid">
+            <div><span>Total data</span><strong>{formatBytes(system.storage.total_managed_bytes)}</strong><small>Database + photos</small></div>
+            <div><span>Database</span><strong>{formatBytes(system.storage.database_bytes)}</strong><small>{formatBytes(system.storage.database_main_bytes)} main · {formatBytes(system.storage.database_wal_bytes)} WAL</small></div>
+            <div><span>Photos</span><strong>{formatBytes(system.storage.photos_bytes)}</strong><small>{system.inventory.photos} saved photo{system.inventory.photos === 1 ? "" : "s"}</small></div>
+            <div><span>App CPU</span><strong>{system.resources.cpu_percent.toFixed(1)}%</strong><small>{system.resources.cpu_count} CPU core{system.resources.cpu_count === 1 ? "" : "s"} available</small></div>
+            <div><span>App RAM</span><strong>{formatBytes(system.resources.memory_rss_bytes)}</strong><small>Current resident memory</small></div>
+            <div><span>Disk free</span><strong>{formatBytes(system.storage.disk_free_bytes)}</strong><small>{diskFreePercent}% of {formatBytes(system.storage.disk_total_bytes)}</small></div>
+          </div>
+          <div className="integration-list app-info-list"><p><span>Inventory</span><small>{system.inventory.items} Items · {system.inventory.locations} Places · {system.inventory.categories} Categories</small></p><p><span>Version</span><code>{system.app.version}</code></p><p><span>Running for</span><small>{formatUptime(system.app.uptime_seconds)}</small></p></div>
+          <details className="nested-form technical-details"><summary>Technical details</summary><div className="integration-list app-info-list">
+            <p><span>Other data folder usage</span><small>{formatBytes(system.storage.other_data_bytes)}</small></p>
+            <p><span>Database engine</span><small>{system.database.journal_mode.toUpperCase()} · {system.database.page_count.toLocaleString()} pages · {formatBytes(system.database.page_size)} page size</small></p>
+            <p><span>Started</span><small>{new Date(system.app.started_at).toLocaleString()}</small></p>
+            <p><span>Process</span><small>PID {system.app.process_id} · Python {system.app.python_version}</small></p>
+            <p><span>Database path</span><code>{system.storage.database_path}</code></p>
+            <p><span>Data folder</span><code>{system.storage.data_dir}</code></p>
+          </div></details>
+          <button className="outline-button" onClick={() => void load()}>Refresh info</button>
+        </> : <div className="empty-inline"><span>Loading app information</span></div>}
+      </div></details>
     </section>
   );
 }

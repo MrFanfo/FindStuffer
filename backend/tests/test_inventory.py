@@ -17,6 +17,7 @@ from findstuff.extended import (
 from findstuff.inventory import (
     ConflictError,
     adjust_quantity,
+    archive_item,
     category_contents,
     category_data_settings,
     complete_maintenance_task,
@@ -70,6 +71,19 @@ def test_item_update_rejects_unknown_sql_columns(database: sqlite3.Connection) -
         "SELECT name, notes FROM items WHERE public_id = ?", (item["public_id"],)
     ).fetchone()
     assert dict(stored) == {"name": "Safe item", "notes": ""}
+
+
+def test_archived_only_lists_archived_items_including_zero_quantity(
+    database: sqlite3.Connection,
+) -> None:
+    archived = create_item(database, {"name": "Archived cable", "quantity": Decimal("0")})
+    create_item(database, {"name": "Active cable", "quantity": Decimal("1")})
+    archive_item(database, archived["public_id"])
+
+    items = list_items(database, archived_only=True, include_zero=True)
+
+    assert [item["name"] for item in items] == ["Archived cable"]
+    assert items[0]["archived_at"] is not None
 
 
 def test_inventory_flow_and_search(database: sqlite3.Connection) -> None:
