@@ -1,4 +1,5 @@
-FROM node:24-bookworm-slim AS web-build
+ARG BUILDPLATFORM=linux/amd64
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS web-build
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
