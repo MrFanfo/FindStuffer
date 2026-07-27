@@ -302,9 +302,9 @@ To use it:
    separate from Settings.
 5. Review the detected name, brand, model, description, links, confidence, and
    captured image.
-6. Edit fields inline, swipe right to approve and left to reject, select
-   several suggestions for batch actions, or use **Approve all
-   high-confidence** for suggestions at or above 85% confidence.
+6. Review one suggestion at a time. Edit its fields, swipe right to approve,
+   swipe left to reject, or use the visible **Approve**, **Reject**, and
+   **Edit** buttons.
 7. Approve to create the Item in the original Place, retry a failed
    suggestion, or reject it. AI approvals offer a temporary Undo action.
 
@@ -522,7 +522,7 @@ the new container fails its health check. Application data is untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.3.0`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.3.1`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

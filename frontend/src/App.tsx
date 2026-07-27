@@ -4379,14 +4379,12 @@ function OffCategoryMappingsView({ categories, busy, onBack, onOpenItem, onNotic
   </section>;
 }
 
-function AIScanProposalCard({ scan, categories, locations, units, busy, selected, onSelect, onSave, onApprove, onReject, onRetry }: {
+function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, onApprove, onReject, onRetry }: {
   scan: AIScanProposal;
   categories: Category[];
   locations: LocationNode[];
   units: string[];
   busy: boolean;
-  selected: boolean;
-  onSelect: (selected: boolean) => void;
   onSave: (changes: Record<string, unknown>) => Promise<void>;
   onApprove: () => Promise<void>;
   onReject: () => Promise<void>;
@@ -4408,6 +4406,7 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, selected
   const swipeOffsetRef = useRef(0);
   const swipeFrame = useRef<number | null>(null);
   const swipeStart = useRef<{ x: number; y: number; pointerId: number; axis: "x" | "y" | null } | null>(null);
+  const category = item?.category_id ? categories.find((entry) => entry.id === item.category_id) : null;
 
   useEffect(() => () => {
     if (swipeFrame.current !== null) window.cancelAnimationFrame(swipeFrame.current);
@@ -4473,61 +4472,94 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, selected
     window.setTimeout(() => setSwipeSettling(false), 180);
   }
 
-  return <article
-    className={`ai-proposal-card ${scan.status} ${selected ? "selected" : ""} ${swipeSettling ? "swipe-settling" : ""} ${swipeOffset > 0 ? "swiping-right" : swipeOffset < 0 ? "swiping-left" : ""}`}
+  return <div
+    className={`ai-swipe-shell ${swipeOffset > 0 ? "swiping-right" : swipeOffset < 0 ? "swiping-left" : ""}`}
     style={{ "--swipe-offset": `${swipeOffset}px`, "--swipe-opacity": Math.min(1, Math.abs(swipeOffset) / 70) } as CSSProperties}
-    onPointerDown={(event) => {
-      if (editing || scan.status !== "pending" || busy || swipeSettling || !event.isPrimary) return;
-      if (event.target instanceof Element && event.target.closest("button, input, select, textarea, label, a")) return;
-      swipeStart.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, axis: null };
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }}
-    onPointerMove={(event) => {
-      const start = swipeStart.current;
-      if (!start || start.pointerId !== event.pointerId || editing || scan.status !== "pending") return;
-      const x = event.clientX - start.x;
-      const y = event.clientY - start.y;
-      if (!start.axis && Math.max(Math.abs(x), Math.abs(y)) > 8) start.axis = Math.abs(x) > Math.abs(y) + 4 ? "x" : "y";
-      if (start.axis === "x") {
-        event.preventDefault();
-        const resistance = 1 - Math.min(0.28, Math.abs(x) / Math.max(window.innerWidth, 1) * 0.28);
-        moveSwipe(Math.max(-180, Math.min(180, x * resistance)));
-      }
-    }}
-    onPointerUp={(event) => {
-      if (swipeStart.current?.pointerId !== event.pointerId) return;
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-      finishSwipe();
-    }}
-    onPointerCancel={() => { moveSwipe(0); swipeStart.current = null; }}
   >
-    {scan.status === "pending" && <label className="ai-proposal-select"><input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span>Select</span></label>}
-    <div className="ai-swipe-cue reject" aria-hidden="true">Reject</div><div className="ai-swipe-cue approve" aria-hidden="true">Approve</div>
-    <div className="ai-proposal-photo"><img src={scan.photo_url} alt={item?.name || "AI Inbox photo"} /><span>{scan.status === "processing" ? "AI processing" : scan.status === "failed" ? "Needs attention" : `${Math.round((scan.proposal?.confidence || 0) * 100)}% confidence`}</span></div>
-    <div className="ai-proposal-main">
-      {scan.status === "processing" && <div className="ai-proposal-wait"><strong>Analyzing photo…</strong><small>{scan.location_path} · You can leave the Inbox while this runs.</small></div>}
-      {scan.status === "failed" && <div className="ai-proposal-wait error"><strong>Scan could not be analyzed</strong><small>{scan.error || "The AI provider did not return a result."}</small><div><button className="primary" disabled={busy} onClick={() => void onRetry()}>Retry</button><button disabled={busy} onClick={() => void onReject()}>Reject</button></div></div>}
-      {scan.status === "pending" && item && <>
-        {!editing ? <>
-          <div className="ai-proposal-heading"><div><strong>{item.name}</strong><small>{scan.location_path}{item.category_id ? ` · ${categories.find((entry) => entry.id === item.category_id)?.path || "Category"}` : ""}</small></div><button className="secondary" onClick={() => setEditing(true)}><Icon name="settings" size={14} />Edit inline</button></div>
-          {item.description && <p>{item.description}</p>}
-          <div className="ai-proposal-facts"><span><small>Quantity</small><strong>{item.quantity} {item.unit}</strong></span>{item.brand && <span><small>Brand</small><strong>{item.brand}</strong></span>}{item.model && <span><small>Model</small><strong>{item.model}</strong></span>}{item.barcode && <span><small>Barcode</small><strong>{item.barcode}</strong></span>}</div>
-          {scan.proposal?.research?.url && <a href={scan.proposal.research.url} target="_blank" rel="noreferrer">{scan.proposal.research.label}</a>}
-          {scan.proposal?.warnings.map((warning) => <em key={warning}>{warning}</em>)}
-        </> : <form className="ai-proposal-form" onSubmit={save}>
-          <label>Name<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <div className="form-row"><label>Brand<input value={brand} onChange={(event) => setBrand(event.target.value)} /></label><label>Model<input value={model} onChange={(event) => setModel(event.target.value)} /></label></div>
-          <div className="form-row"><label>Quantity<input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Unit<select value={unit} onChange={(event) => setUnit(event.target.value)}>{Array.from(new Set([unit, ...units, "pcs"])).map((entry) => <option value={entry} key={entry}>{entry}</option>)}</select></label></div>
-          <label>Category<select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">No category</option>{categories.map((entry) => <option key={entry.id} value={entry.id}>{entry.path}</option>)}</select></label>
-          <label>Place<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{locations.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label>
-          <label>Barcode<input inputMode="numeric" value={barcode} onChange={(event) => setBarcode(event.target.value)} /></label>
-          <label>Description<textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-          <div className="button-row"><button type="button" onClick={() => setEditing(false)}>Cancel</button><button className="secondary" disabled={busy || !name.trim()}>Save changes</button></div>
-        </form>}
-        {!editing && <><small className="ai-swipe-help">Swipe right to approve · left to reject</small><div className="ai-proposal-actions"><button disabled={busy} onClick={() => void onReject()}>Reject</button><button className="secondary" disabled={busy} onClick={() => setEditing(true)}>Edit</button><button className="primary" disabled={busy} onClick={() => void onApprove()}><Icon name="check" size={15} />Approve Item</button></div></>}
-      </>}
-    </div>
-  </article>;
+    <div className="ai-swipe-underlay approve" aria-hidden="true"><Icon name="check" size={24} /><strong>Approve</strong></div>
+    <div className="ai-swipe-underlay reject" aria-hidden="true"><Icon name="close" size={24} /><strong>Reject</strong></div>
+    <article
+      className={`ai-proposal-card ${scan.status} ${swipeSettling ? "swipe-settling" : ""}`}
+      onPointerDown={(event) => {
+        if (editing || scan.status !== "pending" || busy || swipeSettling || !event.isPrimary) return;
+        if (event.target instanceof Element && event.target.closest("button, input, select, textarea, label, a")) return;
+        swipeStart.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, axis: null };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const start = swipeStart.current;
+        if (!start || start.pointerId !== event.pointerId || editing || scan.status !== "pending") return;
+        const x = event.clientX - start.x;
+        const y = event.clientY - start.y;
+        if (!start.axis && Math.max(Math.abs(x), Math.abs(y)) > 8) start.axis = Math.abs(x) > Math.abs(y) + 4 ? "x" : "y";
+        if (start.axis === "x") {
+          event.preventDefault();
+          const resistance = 1 - Math.min(0.28, Math.abs(x) / Math.max(window.innerWidth, 1) * 0.28);
+          moveSwipe(Math.max(-180, Math.min(180, x * resistance)));
+        }
+      }}
+      onPointerUp={(event) => {
+        if (swipeStart.current?.pointerId !== event.pointerId) return;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        finishSwipe();
+      }}
+      onPointerCancel={() => { moveSwipe(0); swipeStart.current = null; }}
+    >
+      <div className="ai-proposal-photo">
+        <img src={scan.photo_url} alt={item?.name || "Scanned Item"} />
+        <span>{scan.status === "processing" ? "AI processing" : scan.status === "failed" ? "Needs attention" : `${Math.round((scan.proposal?.confidence || 0) * 100)}% confidence`}</span>
+      </div>
+      <div className="ai-proposal-main">
+        {scan.status === "processing" && <>
+          <div className="ai-proposal-context single"><span><Icon name="pin" size={17} /><small>Place</small><strong>{scan.location_path}</strong></span></div>
+          <div className="ai-proposal-wait"><strong>Analyzing photo…</strong><small>You can leave this page while AI works.</small></div>
+        </>}
+        {scan.status === "failed" && <>
+          <div className="ai-proposal-context single"><span><Icon name="pin" size={17} /><small>Place</small><strong>{scan.location_path}</strong></span></div>
+          <div className="ai-proposal-wait error"><strong>Scan could not be analyzed</strong><small>{scan.error || "The AI provider did not return a result."}</small><div><button className="primary" disabled={busy} onClick={() => void onRetry()}>Retry</button><button disabled={busy} onClick={() => void onReject()}>Reject</button></div></div>
+        </>}
+        {scan.status === "pending" && item && <>
+          {!editing ? <>
+            <div className="ai-item-identity"><small>Suggested Item</small><h2>{item.name}</h2></div>
+            <div className="ai-proposal-context">
+              <span><Icon name="pin" size={17} /><small>Place</small><strong>{scan.location_path}</strong></span>
+              <span><Icon name="tag" size={17} /><small>Category</small><strong>{category?.path || "Uncategorized"}</strong></span>
+            </div>
+            <div className="ai-item-details">
+              <small className="ai-section-label">Item details</small>
+              <div className="ai-proposal-facts">
+                <span><small>Quantity</small><strong>{item.quantity} {item.unit}</strong></span>
+                {item.brand && <span><small>Brand</small><strong>{item.brand}</strong></span>}
+                {item.model && <span><small>Model</small><strong>{item.model}</strong></span>}
+                {item.barcode && <span><small>Barcode</small><strong>{item.barcode}</strong></span>}
+              </div>
+              {item.description && <p>{item.description}</p>}
+              {scan.proposal?.research?.url && <a href={scan.proposal.research.url} target="_blank" rel="noreferrer">{scan.proposal.research.label}</a>}
+              {scan.proposal?.warnings.map((warning) => <em key={warning}>{warning}</em>)}
+            </div>
+          </> : <form className="ai-proposal-form" onSubmit={save}>
+            <div className="ai-edit-heading"><strong>Edit suggestion</strong><small>Nothing is saved as an Item until you approve it.</small></div>
+            <label>Name<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
+            <div className="form-row"><label>Brand<input value={brand} onChange={(event) => setBrand(event.target.value)} /></label><label>Model<input value={model} onChange={(event) => setModel(event.target.value)} /></label></div>
+            <div className="form-row"><label>Quantity<input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Unit<select value={unit} onChange={(event) => setUnit(event.target.value)}>{Array.from(new Set([unit, ...units, "pcs"])).map((entry) => <option value={entry} key={entry}>{entry}</option>)}</select></label></div>
+            <label>Category<select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Uncategorized</option>{categories.map((entry) => <option key={entry.id} value={entry.id}>{entry.path}</option>)}</select></label>
+            <label>Place<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{locations.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label>
+            <label>Barcode<input inputMode="numeric" value={barcode} onChange={(event) => setBarcode(event.target.value)} /></label>
+            <label>Description<textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+            <div className="button-row"><button type="button" onClick={() => setEditing(false)}>Cancel</button><button className="secondary" disabled={busy || !name.trim()}>Save changes</button></div>
+          </form>}
+          {!editing && <>
+            <small className="ai-swipe-help">Swipe left to reject · right to approve</small>
+            <div className="ai-proposal-actions">
+              <button disabled={busy} onClick={() => void onReject()}><Icon name="close" size={16} />Reject</button>
+              <button className="secondary" disabled={busy} onClick={() => setEditing(true)}><Icon name="settings" size={16} />Edit</button>
+              <button className="primary" disabled={busy} onClick={() => void onApprove()}><Icon name="check" size={16} />Approve</button>
+            </div>
+          </>}
+        </>}
+      </div>
+    </article>
+  </div>;
 }
 
 function AIScanInboxView({ categories, locations, units, busy, onBack, onInventoryChanged, notify }: {
@@ -4540,7 +4572,6 @@ function AIScanInboxView({ categories, locations, units, busy, onBack, onInvento
   notify: (message: string, action?: Omit<RetryNotice, "message">) => void;
 }) {
   const [scans, setScans] = useState<AIScanProposal[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [reviewBusy, setReviewBusy] = useState("");
   const [loading, setLoading] = useState(true);
   const flatLocations = useMemo(() => flattenLocations(locations), [locations]);
@@ -4561,10 +4592,6 @@ function AIScanInboxView({ categories, locations, units, busy, onBack, onInvento
     const timer = window.setInterval(() => void load(), 2500);
     return () => window.clearInterval(timer);
   }, [load, processing]);
-  useEffect(() => {
-    const available = new Set(scans.filter((scan) => scan.status === "pending").map((scan) => scan.public_id));
-    setSelected((current) => new Set(Array.from(current).filter((publicId) => available.has(publicId))));
-  }, [scans]);
 
   async function performScan(
     action: () => Promise<unknown>,
@@ -4584,30 +4611,25 @@ function AIScanInboxView({ categories, locations, units, busy, onBack, onInvento
     }
   }
 
-  async function approveScans(chosen: AIScanProposal[]) {
-    const pending = chosen.filter((scan) => scan.status === "pending");
-    if (!pending.length || reviewBusy) return;
-    setReviewBusy(`Approving ${pending.length} Item${pending.length === 1 ? "" : "s"}…`);
+  async function approveScan(scan: AIScanProposal) {
+    if (scan.status !== "pending" || reviewBusy) return;
+    setReviewBusy("Approving Item…");
     try {
-      const created: Item[] = [];
-      for (const scan of pending) created.push(await api.approveAiScan(scan.public_id));
-      setSelected(new Set());
+      const created = await api.approveAiScan(scan.public_id);
       await load();
       await onInventoryChanged();
-      notify(`${created.length} Item${created.length === 1 ? "" : "s"} approved`, {
+      notify(`${created.name} approved`, {
         label: "Undo",
         action: async () => {
-          for (const item of created) {
-            const current = await api.item(item.public_id);
-            await api.archive(current);
-          }
+          const current = await api.item(created.public_id);
+          await api.archive(current);
           await load();
           await onInventoryChanged();
-          notify(`${created.length} approval${created.length === 1 ? "" : "s"} undone`);
+          notify(`${created.name} approval undone`);
         },
       });
     } catch (error) {
-      notify(error instanceof Error ? error.message : "The Items could not be approved");
+      notify(error instanceof Error ? error.message : "The Item could not be approved");
       await load();
       await onInventoryChanged();
     } finally {
@@ -4615,60 +4637,33 @@ function AIScanInboxView({ categories, locations, units, busy, onBack, onInvento
     }
   }
 
-  async function rejectScans(chosen: AIScanProposal[]) {
-    const pending = chosen.filter((scan) => scan.status === "pending");
-    if (!pending.length || reviewBusy) return;
-    setReviewBusy(`Rejecting ${pending.length} proposal${pending.length === 1 ? "" : "s"}…`);
-    try {
-      for (const scan of pending) await api.rejectAiScan(scan.public_id);
-      setSelected(new Set());
-      await load();
-      notify(`${pending.length} proposal${pending.length === 1 ? "" : "s"} rejected`);
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "The proposals could not be rejected");
-      await load();
-    } finally {
-      setReviewBusy("");
-    }
-  }
-
-  const pendingCount = scans.filter((scan) => scan.status === "pending").length;
+  const orderedScans = useMemo(() => [...scans].sort((left, right) => {
+    const priority = { pending: 0, failed: 1, processing: 2 } as Record<string, number>;
+    return (priority[left.status] ?? 3) - (priority[right.status] ?? 3);
+  }), [scans]);
+  const currentScan = orderedScans[0] || null;
   return <section className="ai-inbox-page">
-    <div className="subpage-header ai-inbox-header">
-      <button type="button" className="text-button" onClick={onBack}>Back</button>
-      <div><p className="eyebrow">AI SCAN</p><h1>Inbox</h1><p>{pendingCount ? `${pendingCount} suggestion${pendingCount === 1 ? "" : "s"} ready to review.` : processing ? "AI is working on your photos." : "Approve, edit, or reject scanned Items."}</p></div>
+    <div className="ai-inbox-nav">
+      <button type="button" className="ai-inbox-back" onClick={onBack}><Icon name="chevron" size={17} />Back</button>
+      {orderedScans.length > 1 && <span>{orderedScans.length} remaining</span>}
     </div>
-    {reviewBusy && <div className="inline-activity" role="status"><span className="activity-spinner" />{reviewBusy}</div>}
-    {scans.some((scan) => scan.status === "pending") && <div className="ai-inbox-toolbar">
-      <button type="button" className="secondary" disabled={Boolean(reviewBusy)} onClick={() => setSelected(new Set(scans.filter((scan) => scan.status === "pending").map((scan) => scan.public_id)))}>Select all</button>
-      {selected.size > 0 && <button type="button" onClick={() => setSelected(new Set())}>Clear</button>}
-      <span>{selected.size} selected</span>
-      <button type="button" className="primary" disabled={!selected.size || Boolean(reviewBusy)} onClick={() => void approveScans(scans.filter((scan) => selected.has(scan.public_id)))}>Approve selected</button>
-      <button type="button" className="danger-button" disabled={!selected.size || Boolean(reviewBusy)} onClick={() => void rejectScans(scans.filter((scan) => selected.has(scan.public_id)))}>Reject selected</button>
-      <button type="button" className="high-confidence-action" disabled={Boolean(reviewBusy) || !scans.some((scan) => scan.status === "pending" && (scan.proposal?.confidence || 0) >= 0.85)} onClick={() => void approveScans(scans.filter((scan) => scan.status === "pending" && (scan.proposal?.confidence || 0) >= 0.85))}><Icon name="spark" size={15} />Approve all high-confidence</button>
-    </div>}
     {loading && <div className="inline-activity" role="status"><span className="activity-spinner" />Loading Inbox…</div>}
     {!loading && scans.length === 0 && <EmptyState icon="spark" title="Your Inbox is clear" text="New AI Scan results will appear here automatically." />}
-    <div className="ai-proposal-list">
-      {scans.map((scan) => <AIScanProposalCard
-        key={scan.public_id}
-        scan={scan}
+    {currentScan && <div className="ai-card-stage">
+      {reviewBusy && <div className="ai-review-progress" role="status"><span className="activity-spinner" />{reviewBusy}</div>}
+      <AIScanProposalCard
+        key={currentScan.public_id}
+        scan={currentScan}
         categories={categories}
         locations={flatLocations}
         units={units}
         busy={busy || Boolean(reviewBusy)}
-        selected={selected.has(scan.public_id)}
-        onSelect={(checked) => setSelected((current) => {
-          const next = new Set(current);
-          if (checked) next.add(scan.public_id); else next.delete(scan.public_id);
-          return next;
-        })}
-        onSave={(changes) => performScan(() => api.updateAiScan(scan.public_id, changes), "AI scan proposal updated")}
-        onApprove={() => approveScans([scan])}
-        onReject={() => performScan(() => api.rejectAiScan(scan.public_id), "AI scan proposal rejected")}
-        onRetry={() => performScan(() => api.retryAiScan(scan.public_id), "AI scan queued again")}
-      />)}
-    </div>
+        onSave={(changes) => performScan(() => api.updateAiScan(currentScan.public_id, changes), "AI scan proposal updated")}
+        onApprove={() => approveScan(currentScan)}
+        onReject={() => performScan(() => api.rejectAiScan(currentScan.public_id), "AI scan proposal rejected")}
+        onRetry={() => performScan(() => api.retryAiScan(currentScan.public_id), "AI scan queued again")}
+      />
+    </div>}
   </section>;
 }
 
