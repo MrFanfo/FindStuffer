@@ -163,7 +163,7 @@ install_systemd_updater() {
     echo "Use ./update-docker.sh on the host to update."
     return
   fi
-  if [[ "$ROOT" == *$'\n'* || "$ROOT" == *'"'* || "$ROOT" == *'%'* || "$ROOT" == *\\* ]]; then
+  if [[ "$ROOT" == *$'\n'* || "$ROOT" == *' '* || "$ROOT" == *'"'* || "$ROOT" == *'%'* || "$ROOT" == *\\* ]]; then
     echo "The checkout path contains characters unsupported by the updater service." >&2
     echo "Move it to a simple path such as /opt/findstuff and rerun the installer." >&2
     return 1
@@ -182,8 +182,8 @@ install_systemd_updater() {
       '' \
       '[Service]' \
       'Type=oneshot' \
-      "WorkingDirectory=\"$ROOT\"" \
-      "ExecStart=/bin/bash \"$ROOT/update-docker.sh\" --from-app" \
+      "WorkingDirectory=$ROOT" \
+      "ExecStart=/bin/bash $ROOT/update-docker.sh --from-app" \
       'NoNewPrivileges=true' \
       'PrivateTmp=true' \
       'ProtectControlGroups=true' \
@@ -199,7 +199,7 @@ install_systemd_updater() {
       'Description=Watch for Findstuff in-app update requests' \
       '' \
       '[Path]' \
-      "PathExists=\"$ROOT/data/update-request\"" \
+      "PathExists=$ROOT/data/update-request" \
       'Unit=findstuff-update.service' \
       '' \
       '[Install]' \
