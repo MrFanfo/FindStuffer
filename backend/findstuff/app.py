@@ -64,6 +64,7 @@ from .backups import (
     apply_pending_restore,
     backup_archive,
     backup_if_due,
+    backup_status,
     restore_status,
     stage_backup_restore,
 )
@@ -1341,6 +1342,13 @@ async def get_application_settings(database: Database) -> dict[str, Any]:
         "units": inventory_units(database),
         "category_data": category_data_settings(database),
         "system": application_system_info(database, runtime),
+        "setup": {
+            "authentication": {
+                "required": runtime.require_auth,
+                "configured": bool(get_admin_password()),
+            },
+            "backup": backup_status(runtime.backup_dir),
+        },
         "integrations": {
             "ai": public_ai_config(database),
             "stt_configured": bool(runtime.stt_endpoint and runtime.stt_model),

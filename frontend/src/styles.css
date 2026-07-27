@@ -83,9 +83,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .brand-lockup small { margin-top: 3px; color: var(--muted); font-size: .68rem; }
 .account-menu { display: flex; min-height: 42px; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 0 12px; color: var(--ink-soft); background: #fffefaad; font-size: .75rem; font-weight: 700; }
 details > summary::-webkit-details-marker { display: none; }
-.progress-bar { position: fixed; z-index: 60; top: 0; right: 0; left: 0; height: 3px; overflow: hidden; background: #18302712; }
-.progress-bar span { display: block; width: 35%; height: 100%; background: var(--accent); animation: progress 1s ease-in-out infinite; }
-@keyframes progress { from { transform: translateX(-110%); } to { transform: translateX(310%); } }
+.activity-banner { position: fixed; z-index: 65; top: max(10px, env(safe-area-inset-top)); right: 14px; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 999px; padding: 9px 13px; color: var(--ink); background: var(--card); box-shadow: var(--shadow); font-size: .75rem; }
+.activity-spinner { display: inline-block; width: 15px; height: 15px; flex: 0 0 auto; border: 2px solid var(--sage); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .toast { position: fixed; z-index: 70; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom)); left: 16px; display: grid; max-width: 520px; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; margin: auto; border: 1px solid #bfd1c4; border-radius: 15px; padding: 11px; background: #f8fff9; box-shadow: 0 16px 45px #1830272b; animation: toast-in .22s ease-out; }
 .toast.has-action { grid-template-columns: auto 1fr auto auto; border-color: #e1b896; background: #fff8ea; }
 .toast p { margin: 0; font-size: .84rem; font-weight: 650; }
@@ -578,9 +578,21 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .suggestion-row button { min-height: 39px; border: 1px solid var(--line); border-radius: 10px; padding: 0 11px; font-weight: 800; }
 .suggestion-row button:not(.primary) { color: var(--danger); background: var(--danger-soft); }
 .ai-proposal-list { display: grid; gap: 10px; }
-.ai-proposal-card { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; border: 1px solid var(--line); border-radius: 15px; padding: 11px; background: var(--card); }
+.inline-activity { display: flex; min-height: 42px; align-items: center; gap: 9px; border-radius: 11px; padding: 8px 11px; color: var(--accent-dark); background: var(--accent-soft); font-size: .76rem; font-weight: 800; }
+.ai-inbox-toolbar { position: sticky; z-index: 4; top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 13px; padding: 8px; background: color-mix(in srgb, var(--card) 94%, transparent); box-shadow: 0 8px 24px #18302714; backdrop-filter: blur(10px); }
+.ai-inbox-toolbar span { margin-right: auto; color: var(--muted); font-size: .7rem; font-weight: 800; }
+.ai-inbox-toolbar button { min-height: 38px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; font-size: .68rem; font-weight: 850; }
+.ai-inbox-toolbar .high-confidence-action { display: inline-flex; flex: 1 1 220px; align-items: center; justify-content: center; gap: 6px; color: #fff; background: var(--ink); }
+.ai-proposal-card { position: relative; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; padding: 11px; background: var(--card); transform: translateX(var(--swipe-offset, 0)); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; touch-action: pan-y; }
+.ai-proposal-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .ai-proposal-card.processing { border-style: dashed; }
 .ai-proposal-card.failed { border-color: #e2a99d; background: var(--danger-soft); }
+.ai-proposal-select { position: absolute; z-index: 3; top: 16px; left: 16px; display: flex; align-items: center; border-radius: 8px; padding: 4px 6px; color: #fff; background: #101f19d9; font-size: .6rem; font-weight: 800; }
+.ai-proposal-select input { width: 16px; min-height: 16px; margin: 0 4px 0 0; accent-color: var(--gold); }
+.ai-swipe-cue { position: absolute; z-index: 5; top: 50%; border-radius: 8px; padding: 7px 9px; color: #fff; font-size: .65rem; font-weight: 900; opacity: 0; transform: translateY(-50%) translateX(calc(-1 * var(--swipe-offset, 0px))); pointer-events: none; }
+.ai-swipe-cue.reject { right: 10px; background: var(--danger); }
+.ai-swipe-cue.approve { left: 10px; background: var(--accent); }
+.ai-proposal-card.swiping-left .ai-swipe-cue.reject, .ai-proposal-card.swiping-right .ai-swipe-cue.approve { opacity: var(--swipe-opacity); }
 .ai-proposal-photo { position: relative; min-height: 112px; overflow: hidden; border-radius: 12px; background: var(--sage-soft); }
 .ai-proposal-photo img { width: 100%; height: 100%; min-height: 112px; object-fit: cover; }
 .ai-proposal-photo > span { position: absolute; right: 5px; bottom: 5px; left: 5px; border-radius: 7px; padding: 4px 5px; color: #fff; background: #101f19d9; font-size: .58rem; font-weight: 850; text-align: center; }
@@ -606,6 +618,18 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .ai-proposal-form { display: grid; gap: 8px; }
 .ai-proposal-form input, .ai-proposal-form select, .ai-proposal-form textarea, .ai-proposal-form button { border-radius: 9px; font-size: .72rem; }
 .ai-proposal-form input, .ai-proposal-form select { min-height: 40px; }
+.ai-swipe-help { color: var(--muted); font-size: .6rem; text-align: right; }
+.setup-health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.setup-health-grid article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 5px 8px; border: 1px solid var(--line); border-radius: 12px; padding: 11px; background: var(--card); }
+.setup-health-grid article > span { font-size: .78rem; font-weight: 850; }
+.setup-health-grid article > small { grid-column: 1 / -1; color: var(--muted); font-size: .66rem; line-height: 1.35; }
+.health-status { width: fit-content; border-radius: 999px; padding: 4px 7px; color: var(--muted); background: var(--card-alt); font-size: .58rem; }
+.health-status.ready { color: var(--accent-dark); background: var(--accent-soft); }
+.health-status.needs-attention { color: var(--danger); background: var(--danger-soft); }
+.backup-status-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 11px; background: var(--card-alt); }
+.backup-status-card > div { display: grid; gap: 3px; }
+.backup-status-card small, .import-history > small { color: var(--muted); font-size: .66rem; }
+.technical-details { width: 100%; }
 
 .where-button { display: grid; width: 100%; grid-template-columns: auto 1fr auto; align-items: center; gap: 13px; border: 0; border-radius: 20px; padding: 17px; color: #fff; text-align: left; background: var(--ink); box-shadow: var(--shadow); }
 .where-button > span { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 15px; color: var(--ink); background: var(--gold); }
@@ -1164,7 +1188,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   .quick-grid button { padding: 10px; }
   .scan-tips { grid-template-columns: 1fr; }
   .attention-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .inline-create-type, .inline-unit-form, .type-form, .button-row, .connection-panel, .child-location-grid, .view-toolbar, .location-overview, .inline-lot-form, .maintenance-form, .category-launcher-grid, .picker-create, .defaults-grid, .default-rule-form, .location-edit-form, .inline-detail-create, .app-metric-grid { grid-template-columns: 1fr; }
+  .inline-create-type, .inline-unit-form, .type-form, .button-row, .connection-panel, .child-location-grid, .view-toolbar, .location-overview, .inline-lot-form, .maintenance-form, .category-launcher-grid, .picker-create, .defaults-grid, .default-rule-form, .location-edit-form, .inline-detail-create, .app-metric-grid, .setup-health-grid { grid-template-columns: 1fr; }
   .location-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .location-actions > * { min-height: 43px; }
   .location-actions > :last-child { grid-column: 1 / -1; }
@@ -1187,6 +1211,8 @@ button:active:not(:disabled) { transform: scale(.98); }
   .ai-proposal-actions { grid-template-columns: 1fr 1fr; }
   .ai-proposal-actions .primary { grid-column: 1 / -1; }
   .ai-proposal-form { grid-column: 1 / -1; }
+  .ai-inbox-toolbar .primary, .ai-inbox-toolbar .danger-button { flex: 1 1 40%; }
+  .backup-status-card { align-items: flex-start; flex-direction: column; }
   .ai-scan-status { grid-template-columns: auto auto; }
   .ai-scan-status > small { grid-column: 1 / -1; text-align: left; }
   .ai-scan-controls { grid-template-columns: 1fr 1.35fr; }

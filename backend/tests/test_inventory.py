@@ -739,6 +739,29 @@ def test_operations_import_can_be_undone(database: sqlite3.Connection) -> None:
     assert list_import_batches(database)[0]["undone_at"] is not None
 
 
+def test_import_history_keeps_only_latest_five(database: sqlite3.Connection) -> None:
+    for index in range(7):
+        result = apply_import_merge(
+            database,
+            {
+                "format": "findstuff-ops-v1",
+                "operations": [
+                    {
+                        "op": "add",
+                        "type": "item",
+                        "data": {"name": f"Retained import item {index}", "quantity": "1"},
+                    }
+                ],
+            },
+        )
+        assert result["import_public_id"]
+
+    batches = list_import_batches(database)
+
+    assert len(batches) == 5
+    assert database.execute("SELECT count(*) FROM import_batches").fetchone()[0] == 5
+
+
 def test_export_merge_import_can_be_undone(tmp_path: Path) -> None:
     source_path = tmp_path / "source.sqlite3"
     target_path = tmp_path / "target.sqlite3"

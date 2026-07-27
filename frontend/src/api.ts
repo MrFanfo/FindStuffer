@@ -433,6 +433,18 @@ export type ApplicationSettings = {
       journal_mode: string;
     };
   };
+  setup: {
+    authentication: {
+      required: boolean;
+      configured: boolean;
+    };
+    backup: {
+      enabled: boolean;
+      last_backup_at: string | null;
+      backup_count: number;
+      retention: number;
+    };
+  };
   integrations: {
     ai: {
       enabled: boolean;
@@ -1026,6 +1038,8 @@ export const api = {
     }),
   archive: (item: Item) =>
     request<void>(`/api/v1/items/${item.public_id}`, { method: "DELETE" }),
+  restoreItem: (publicId: string) =>
+    request<Item>(`/api/v1/items/${publicId}/restore`, { method: "POST" }),
   hardDeleteItem: (item: Item) =>
     request<void>(`/api/v1/items/${item.public_id}/permanent`, { method: "DELETE" }),
 };

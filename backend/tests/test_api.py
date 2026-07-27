@@ -130,6 +130,8 @@ def test_api_inventory_flow(tmp_path: Path, monkeypatch) -> None:
                 assert settings["system"]["resources"]["memory_rss_bytes"] > 0
                 assert settings["system"]["inventory"]["items"] == 2
                 assert settings["system"]["inventory"]["photos"] == 1
+                assert settings["setup"]["authentication"]["configured"] is False
+                assert settings["setup"]["backup"]["enabled"] is False
                 categories = (await client.get("/api/v1/categories")).json()
                 groceries = next(
                     category for category in categories if category["slug"] == "groceries"

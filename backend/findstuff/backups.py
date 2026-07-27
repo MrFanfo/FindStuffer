@@ -97,6 +97,29 @@ def _backup_dates(output: Path) -> set[date]:
     return dates
 
 
+def backup_status(output: Path | None = None) -> dict[str, Any]:
+    settings = get_settings()
+    backup_output = output or settings.backup_dir
+    completed: list[datetime] = []
+    if backup_output.exists():
+        for path in backup_output.iterdir():
+            if not path.is_dir() or path.name.startswith("."):
+                continue
+            try:
+                completed.append(
+                    datetime.strptime(path.name, TIMESTAMP_FORMAT).replace(tzinfo=UTC)
+                )
+            except ValueError:
+                continue
+    completed.sort(reverse=True)
+    return {
+        "enabled": settings.auto_backup_enabled,
+        "last_backup_at": completed[0].isoformat() if completed else None,
+        "backup_count": len(completed),
+        "retention": settings.backup_keep,
+    }
+
+
 def backup_if_due(
     output: Path | None = None,
     *,

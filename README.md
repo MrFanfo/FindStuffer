@@ -15,12 +15,17 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
   expiration dates, loans, projects, reservations, and maintenance records.
 - Mobile camera capture, item/location QR labels, retail barcode lookup through
   Open Food Facts, and bulk put-away/consume workflows.
-- Location-based **AI Scan**: take several photos quickly, let a vision model
-  identify the objects in the background, then approve, edit, retry, or reject
-  each proposal before an item is created.
+- Place-based **AI Scan**: take several photos quickly, let a vision model
+  identify the objects in the background, then review the results in the
+  **Inbox**. Swipe, edit inline, select several, or approve all
+  high-confidence suggestions.
 - Full-text search, duplicate detection, low-stock shopping lists, and history.
 - JSON export/merge, ordered JSON operations, undoable imports, and complete
-  ZIP backups containing SQLite plus photos.
+  ZIP Backups containing SQLite plus photos. Recent import history is capped at
+  five entries.
+- Gentle Undo after Item moves, archives, quantity changes, bulk edits, and AI
+  approvals, plus a Setup health view for HTTPS, authentication, Backup, AI,
+  MQTT, updates, storage, and app version.
 - Review-first external enrichment with a JSON document that includes
   instructions for ChatGPT or another research agent.
 - Optional ntfy, Home Assistant MQTT, speech-to-text, and MCP integration.
@@ -107,7 +112,7 @@ Replace `CHANGE_ME_10_CHARS_MIN` with at least 10 characters
 before starting. Prefer a versioned image tag:
 
 ```env
-FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.1.0
+FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.2.0
 ```
 
 `latest` follows the newest successful build from `main`; a release tag gives
@@ -283,17 +288,20 @@ not need them.
 
 To use it:
 
-1. Open **Places** and select the destination location.
-2. Tap **Start AI scan**.
+1. Open **Places** and select the destination Place.
+2. Tap **AI Scan**.
 3. Take several photos in succession. Each capture is queued independently, so
    the camera remains ready while earlier photos are processed.
-4. Open **Manage → AI scan proposals**.
+4. Open **More → Inbox**.
 5. Review the detected name, brand, model, description, links, confidence, and
    captured image.
-6. Approve to create the item in the original location, edit before approval,
-   retry a failed proposal, or reject it.
+6. Edit fields inline, swipe right to approve and left to reject, select
+   several suggestions for batch actions, or use **Approve all
+   high-confidence** for suggestions at or above 85% confidence.
+7. Approve to create the Item in the original Place, retry a failed
+   suggestion, or reject it. AI approvals offer a temporary Undo action.
 
-AI results never become inventory items before approval.
+AI results never become Items before approval.
 
 ### Speech-to-text
 
@@ -370,7 +378,9 @@ FINDSTUFF_BACKUP_KEEP=14
 FINDSTUFF_BACKUP_CHECK_INTERVAL_SECONDS=3600
 ```
 
-Automatic backups use SQLite's online backup API. A backup in the same host
+Automatic Backups use SQLite's online backup API. The **Backup & data** screen
+shows when the last automatic Backup completed, how many are retained, and
+whether the schedule is active. A Backup in the same host
 data directory protects against application mistakes, not host/disk failure.
 Download a full ZIP regularly or copy backups to another device.
 
@@ -390,7 +400,8 @@ To import:
 2. Select a Findstuff export.
 3. Inspect the dry-run counts, row details, and errors.
 4. Select **Merge into this inventory** only after the preview is clean.
-5. If necessary, use **Recent imports → Undo**.
+5. If necessary, use **Recent imports → Undo**. Findstuff retains the latest
+   five import records and automatically removes older import history.
 
 Imports merge rather than replace the live database. Keep an independent backup
 before a large import.

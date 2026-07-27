@@ -951,10 +951,34 @@ def _record_import_batch(
                 json.dumps(payload, separators=(",", ":")),
             ),
         )
+        connection.execute(
+            """
+            DELETE FROM import_batches
+            WHERE public_id NOT IN (
+                SELECT public_id
+                FROM import_batches
+                ORDER BY created_at DESC, public_id DESC
+                LIMIT 5
+            )
+            """
+        )
     return public_id
 
 
-def list_import_batches(connection: sqlite3.Connection, limit: int = 20) -> list[dict[str, Any]]:
+def list_import_batches(connection: sqlite3.Connection, limit: int = 5) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(limit, 5))
+    with transaction(connection):
+        connection.execute(
+            """
+            DELETE FROM import_batches
+            WHERE public_id NOT IN (
+                SELECT public_id
+                FROM import_batches
+                ORDER BY created_at DESC, public_id DESC
+                LIMIT 5
+            )
+            """
+        )
     rows = connection.execute(
         """
         SELECT public_id, mode, summary_json, undo_json, undone_at, created_at
@@ -962,7 +986,7 @@ def list_import_batches(connection: sqlite3.Connection, limit: int = 20) -> list
         ORDER BY created_at DESC, public_id DESC
         LIMIT ?
         """,
-        (limit,),
+        (safe_limit,),
     ).fetchall()
     batches: list[dict[str, Any]] = []
     for row in rows:

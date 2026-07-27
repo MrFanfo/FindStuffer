@@ -11,6 +11,7 @@ from findstuff.backups import (
     apply_pending_restore,
     backup_archive,
     backup_if_due,
+    backup_status,
     restore_status,
     stage_backup_restore,
 )
@@ -89,6 +90,26 @@ def test_backup_if_due_runs_once_per_utc_day(tmp_path: Path, monkeypatch) -> Non
     assert first is not None
     assert (first / "findstuff.sqlite3").is_file()
     assert second is None
+
+
+def test_backup_status_reports_latest_automatic_backup(tmp_path: Path, monkeypatch) -> None:
+    data = tmp_path / "data"
+    database_path = data / "findstuff.sqlite3"
+    output = data / "backups"
+    monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(data))
+    monkeypatch.setenv("FINDSTUFF_DATABASE_PATH", str(database_path))
+    monkeypatch.setenv("FINDSTUFF_BACKUP_DIR", str(output))
+    monkeypatch.setenv("FINDSTUFF_BACKUP_KEEP", "7")
+    migrate(database_path)
+
+    created = backup_if_due(output, keep=7)
+    status = backup_status(output)
+
+    assert created is not None
+    assert status["enabled"] is True
+    assert status["backup_count"] == 1
+    assert status["retention"] == 7
+    assert status["last_backup_at"] is not None
 
 
 def test_full_backup_can_be_staged_and_restored_safely(

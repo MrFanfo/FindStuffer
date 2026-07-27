@@ -62,6 +62,10 @@ type RetryNotice = {
   label: string;
   message: string;
 };
+type ActionOptions = {
+  progress?: string;
+  undo?: () => Promise<void>;
+};
 type CategoryNode = Category & { children: CategoryNode[] };
 type InventoryViewPrefs = {
   groupBy: InventoryGroup;
@@ -687,6 +691,7 @@ function App() {
   const [retryNotice, setRetryNotice] = useState<RetryNotice | null>(null);
   const [connectionIssue, setConnectionIssue] = useState("");
   const [busy, setBusy] = useState(false);
+  const [activityMessage, setActivityMessage] = useState("");
   const [inventorySearchBusy, setInventorySearchBusy] = useState(false);
   const [pendingItems, setPendingItems] = useState<Set<string>>(() => new Set());
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
@@ -754,8 +759,10 @@ function App() {
 
   useEffect(() => {
     if (!notice) return;
-    if (retryNotice?.message === notice) return;
-    const timeout = window.setTimeout(() => setNotice(""), 4500);
+    const timeout = window.setTimeout(() => {
+      setNotice("");
+      setRetryNotice(null);
+    }, retryNotice?.message === notice ? 9000 : 4500);
     return () => window.clearTimeout(timeout);
   }, [notice, retryNotice]);
 
@@ -963,19 +970,26 @@ function App() {
     if (requestedView) navigate(requestedView);
   }, [auth?.authenticated, navigate]);
 
-  async function run(action: () => Promise<unknown>, success: string, scope: RefreshScope = "inventory") {
+  async function run(
+    action: () => Promise<unknown>,
+    success: string,
+    scope: RefreshScope = "inventory",
+    options: ActionOptions = {},
+  ) {
     setBusy(true);
+    setActivityMessage(options.progress || "Saving changes…");
     try {
       await action();
-      notify(success);
+      notify(success, options.undo ? { label: "Undo", action: options.undo } : undefined);
       refreshAfterMutation(scope);
     } catch (error) {
       notify(friendlyErrorMessage(error, "The action failed"), {
         label: "Retry",
-        action: async () => run(action, success, scope),
+        action: async () => run(action, success, scope, options),
       });
     } finally {
       setBusy(false);
+      setActivityMessage("");
     }
   }
 
@@ -1014,7 +1028,16 @@ function App() {
         return;
       }
       applyLocalItem(updated);
-      notify(`${updated.name}: quantity updated`);
+      notify(`${updated.name}: quantity updated`, {
+        label: "Undo",
+        action: async () => {
+          const current = await api.item(updated.public_id);
+          const restored = await api.adjust(current, -delta);
+          applyLocalItem(restored);
+          scheduleInventoryRefresh();
+          notify(`${restored.name}: change undone`);
+        },
+      });
       finishQueue(publicId);
     } catch (error) {
       const retryDelta = delta;
@@ -1078,7 +1101,16 @@ function App() {
     try {
       const updated = await api.move(item, destinationPublicId);
       applyLocalItem(updated);
-      notify(`${updated.name} moved`);
+      notify(`${updated.name} moved`, {
+        label: "Undo",
+        action: async () => {
+          const current = await api.item(updated.public_id);
+          const restored = await api.move(current, item.location_public_id);
+          applyLocalItem(restored);
+          scheduleInventoryRefresh();
+          notify(`${restored.name} moved back`);
+        },
+      });
       scheduleInventoryRefresh();
     } catch (error) {
       applyLocalItem(item);
@@ -1126,7 +1158,15 @@ function App() {
       await api.archive(item);
       setItems((current) => current.filter((entry) => entry.public_id !== item.public_id));
       setSelectedItem((current) => current?.public_id === item.public_id ? null : current);
-      notify(`${item.name} moved to forever lost`);
+      notify(`${item.name} moved to forever lost`, {
+        label: "Undo",
+        action: async () => {
+          const restored = await api.restoreItem(item.public_id);
+          applyLocalItem(restored);
+          scheduleInventoryRefresh();
+          notify(`${restored.name} restored`);
+        },
+      });
       scheduleInventoryRefresh();
     } catch (error) {
       notify(friendlyErrorMessage(error, "Could not mark item forever lost"), {
@@ -1139,13 +1179,22 @@ function App() {
   }
 
   async function hardDeleteItem(item: Item) {
-    if (!window.confirm(`Permanently delete ${item.name}? This removes the item and its local history.`)) return;
+    if (!window.confirm(`Archive ${item.name}? It will disappear from the inventory, and you can undo this action.`)) return;
     setBusy(true);
+    setActivityMessage(`Archiving ${item.name}…`);
     try {
-      await api.hardDeleteItem(item);
+      await api.archive(item);
       setItems((current) => current.filter((entry) => entry.public_id !== item.public_id));
       setSelectedItem((current) => current?.public_id === item.public_id ? null : current);
-      notify(`${item.name} deleted`);
+      notify(`${item.name} archived`, {
+        label: "Undo",
+        action: async () => {
+          const restored = await api.restoreItem(item.public_id);
+          applyLocalItem(restored);
+          scheduleInventoryRefresh();
+          notify(`${restored.name} restored`);
+        },
+      });
       scheduleInventoryRefresh();
     } catch (error) {
       notify(friendlyErrorMessage(error, "Could not delete item"), {
@@ -1154,6 +1203,7 @@ function App() {
       });
     } finally {
       setBusy(false);
+      setActivityMessage("");
     }
   }
 
@@ -1245,9 +1295,9 @@ function App() {
     : view === "add" || view === "scan" ? "capture" : view === "off-category-mappings" ? "manage" : view;
   return (
     <div className="app-shell">
-      {busy && <div className="progress-bar" role="progressbar" aria-label="Working"><span /></div>}
+      {busy && <div className="activity-banner" role="status" aria-live="polite"><span className="activity-spinner" aria-hidden="true" /><strong>{activityMessage || "Saving changes…"}</strong></div>}
 
-      {notice && <div className={`toast ${retryNotice?.message === notice ? "has-action" : ""}`} role="status"><span className="toast-check"><Icon name="spark" size={16} /></span><p>{notice}</p>{retryNotice?.message === notice && <button className="toast-action" onClick={() => { const action = retryNotice.action; setRetryNotice(null); notify("Retrying..."); void action().catch((error) => notify(friendlyErrorMessage(error, "Retry failed"))); }}>{retryNotice.label}</button>}<button onClick={() => { setNotice(""); setRetryNotice(null); }} aria-label="Dismiss message"><Icon name="close" size={16} /></button></div>}
+      {notice && <div className={`toast ${retryNotice?.message === notice ? "has-action" : ""}`} role="status"><span className="toast-check"><Icon name="spark" size={16} /></span><p>{notice}</p>{retryNotice?.message === notice && <button className="toast-action" onClick={() => { const pendingAction = retryNotice; setRetryNotice(null); notify(`${pendingAction.label} in progress…`); void pendingAction.action().catch((error) => notify(friendlyErrorMessage(error, `${pendingAction.label} failed`))); }}>{retryNotice.label}</button>}<button onClick={() => { setNotice(""); setRetryNotice(null); }} aria-label="Dismiss message"><Icon name="close" size={16} /></button></div>}
 
       <main className="page-content">
         {view === "inventory" && (
@@ -1331,18 +1381,18 @@ function App() {
             onSelectLocation={setSelectedLocationId}
             onOpenItem={setSelectedItem}
             onCaptureHere={(id, mode = "quick") => openCapture(mode, id)}
-            onCreateLocation={(body) => run(() => api.createLocation(body), "Location created", "all")}
-            onUpdateLocation={(id, body) => run(() => api.updateLocation(id, body), "Location updated", "all")}
-            onDeleteLocation={(id) => run(() => api.deleteLocation(id), "Location deleted", "all")}
-            onDeleteLocationTree={(id) => run(() => api.deleteLocationTree(id), "Location subtree deleted", "all")}
-            onCreateType={(name) => run(() => api.createLocationType(name), "Location type added", "all")}
+            onCreateLocation={(body) => run(() => api.createLocation(body), "Place created", "all")}
+            onUpdateLocation={(id, body) => run(() => api.updateLocation(id, body), "Place updated", "all")}
+            onDeleteLocation={(id) => run(() => api.deleteLocation(id), "Place deleted", "all")}
+            onDeleteLocationTree={(id) => run(() => api.deleteLocationTree(id), "Place group deleted", "all")}
+            onCreateType={(name) => run(() => api.createLocationType(name), "Place type added", "all")}
             onOpenCategory={(id) => { setSelectedCategoryId(id); navigate("category"); }}
             onCreateCategory={(name, parentId) => run(() => api.createCategory(name, parentId), "Category created", "all")}
             onUpdateCategory={(id, body) => run(() => api.updateCategory(id, body), "Category updated", "all")}
             onDeleteCategory={(id) => run(() => api.deleteCategory(id), "Category deleted", "all")}
             onDeleteCategoryTree={(id) => run(() => api.deleteCategoryTree(id), "Category subtree deleted", "all")}
             onSaveCapabilities={(overrides) => run(() => api.saveCategoryDataSettings(overrides), "Required metadata saved", "all")}
-            onSetDefaultLocation={(id, locationId) => run(() => api.setCategoryDefaultLocation(id, locationId), "Default location saved", "all")}
+            onSetDefaultLocation={(id, locationId) => run(() => api.setCategoryDefaultLocation(id, locationId), "Default Place saved", "all")}
             onDefaultsChanged={() => refresh(undefined, { showBusy: false })}
           />
         )}
@@ -1352,11 +1402,11 @@ function App() {
             locationTypes={locationTypes}
             busy={busy}
             onOpen={(id) => { setSelectedLocationId(id); navigate("location"); }}
-            onCreate={(body) => run(() => api.createLocation(body), "Location created", "all")}
-            onUpdate={(id, body) => run(() => api.updateLocation(id, body), "Location updated", "all")}
-            onDelete={(id) => run(() => api.deleteLocation(id), "Location deleted", "all")}
-            onDeleteTree={(id) => run(() => api.deleteLocationTree(id), "Location subtree deleted", "all")}
-            onCreateType={(name) => run(() => api.createLocationType(name), "Location type added", "all")}
+            onCreate={(body) => run(() => api.createLocation(body), "Place created", "all")}
+            onUpdate={(id, body) => run(() => api.updateLocation(id, body), "Place updated", "all")}
+            onDelete={(id) => run(() => api.deleteLocation(id), "Place deleted", "all")}
+            onDeleteTree={(id) => run(() => api.deleteLocationTree(id), "Place group deleted", "all")}
+            onCreateType={(name) => run(() => api.createLocationType(name), "Place type added", "all")}
           />
         )}
         {view === "location" && selectedLocationId && (
@@ -1369,7 +1419,7 @@ function App() {
             onOpenItem={setSelectedItem}
             onOpenLocation={setSelectedLocationId}
             onAddHere={(id) => openCapture("quick", id)}
-            onCreateLocationHere={(body) => run(() => api.createLocation(body), "Location created", "all")}
+            onCreateLocationHere={(body) => run(() => api.createLocation(body), "Place created", "all")}
             onDefaultsChanged={() => refresh(undefined, { showBusy: false })}
             onBack={() => { setPlacesSection("locations"); navigate("places"); }}
           />
@@ -1385,7 +1435,7 @@ function App() {
             onDelete={(id) => run(() => api.deleteCategory(id), "Category deleted", "all")}
             onDeleteTree={(id) => run(() => api.deleteCategoryTree(id), "Category subtree deleted", "all")}
             onSaveCapabilities={(overrides) => run(() => api.saveCategoryDataSettings(overrides), "Required metadata saved", "all")}
-            onSetDefaultLocation={(id, locationId) => run(() => api.setCategoryDefaultLocation(id, locationId), "Default location saved", "all")}
+            onSetDefaultLocation={(id, locationId) => run(() => api.setCategoryDefaultLocation(id, locationId), "Default Place saved", "all")}
           />
         )}
         {view === "category" && selectedCategoryId && (
@@ -1403,7 +1453,7 @@ function App() {
         {view === "off-category-mappings" && <OffCategoryMappingsView categories={categories} busy={busy} onBack={() => navigate("manage")} onOpenItem={setSelectedItem} onNotice={setNotice} />}
         {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onNavigate={navigate} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} />}
         {view === "manage" && (
-          <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onOffCategoryMappings={() => navigate("off-category-mappings")} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} onUnitsChanged={setUnits} onCreateType={(name) => run(() => api.createLocationType(name), "Location type added", "all")} />
+          <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onOffCategoryMappings={() => navigate("off-category-mappings")} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} onUnitsChanged={setUnits} onCreateType={(name) => run(() => api.createLocationType(name), "Place type added", "all")} />
         )}
         {selectedItem && view !== "inventory" && (
           <ItemDetail
@@ -1526,7 +1576,7 @@ function InventoryView({
   query: string;
   setQuery: (value: string) => void;
   onSearch: (query: string, options?: InventorySearchOptions) => void;
-  run: (action: () => Promise<unknown>, success: string, scope?: RefreshScope) => Promise<void>;
+  run: (action: () => Promise<unknown>, success: string, scope?: RefreshScope, options?: ActionOptions) => Promise<void>;
   busy: boolean;
   isSearchBusy: boolean;
   onOpen: (item: Item) => void;
@@ -1707,12 +1757,24 @@ function InventoryView({
     setBulkSelection(new Set());
     setBulkPicker(null);
   }
-  async function performBulk(label: string, action: (item: Item) => Promise<unknown>) {
+  async function performBulk(
+    label: string,
+    action: (item: Item) => Promise<unknown>,
+    undo?: (current: Item, original: Item) => Promise<unknown>,
+  ) {
     const selected = items.filter((item) => bulkSelection.has(item.public_id));
     if (!selected.length) return;
     await run(async () => {
       for (const item of selected) await action(item);
-    }, `${label}: ${selected.length} item${selected.length === 1 ? "" : "s"}`, "inventory");
+    }, `${label}: ${selected.length} item${selected.length === 1 ? "" : "s"}`, "inventory", {
+      progress: `${label} ${selected.length} item${selected.length === 1 ? "" : "s"}…`,
+      undo: undo ? async () => {
+        for (const original of selected) {
+          const current = await api.item(original.public_id);
+          await undo(current, original);
+        }
+      } : undefined,
+    });
     leaveBulkMode();
   }
   function saveCurrentView(name: string, nextFormula: InventoryFormula) {
@@ -1794,13 +1856,13 @@ function InventoryView({
         <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>All <span>{allCount}</span></button>
         <button className={filter === "low" ? "active" : ""} onClick={() => setFilter("low")}>Low stock <span>{lowStockCount}</span></button>
         <button className={filter === "expiring" ? "active" : ""} onClick={() => setFilter("expiring")}>Expiring <span>{expiringCount}</span></button>
-        <button className={filter === "details" ? "active" : ""} onClick={() => setFilter("details")}>Missing location <span>{displayedDetailsCount}</span></button>
+        <button className={filter === "details" ? "active" : ""} onClick={() => setFilter("details")}>Needs details <span>{displayedDetailsCount}</span></button>
       </div>
       <div className="view-toolbar compact-inventory-toolbar">
-        <label><span>Sort</span><select aria-label="Sort inventory" value={sortBy} onChange={(event) => setSortBy(event.target.value as InventorySort)}><option value="updated">Recent</option><option value="name">Name</option><option value="location">Location</option><option value="quantity-asc">Qty ↑</option><option value="quantity-desc">Qty ↓</option><option value="expiration">Expires</option></select></label>
-        <label><span>Group</span><select aria-label="Group inventory" value={groupBy} onChange={(event) => setGroupBy(event.target.value as InventoryGroup)}><option value="none">None</option><option value="room">Room</option><option value="location">Location</option><option value="category">Type</option><option value="tag">Tag</option><option value="unit">Unit</option></select></label>
+        <label><span>Sort</span><select aria-label="Sort Items" value={sortBy} onChange={(event) => setSortBy(event.target.value as InventorySort)}><option value="updated">Recent</option><option value="name">Name</option><option value="location">Place</option><option value="quantity-asc">Qty ↑</option><option value="quantity-desc">Qty ↓</option><option value="expiration">Expires</option></select></label>
+        <label><span>Group</span><select aria-label="Group Items" value={groupBy} onChange={(event) => setGroupBy(event.target.value as InventoryGroup)}><option value="none">None</option><option value="room">Room</option><option value="location">Place</option><option value="category">Category</option><option value="tag">Tag</option><option value="unit">Unit</option></select></label>
         <div className="filter-choice"><span>Category</span><button type="button" onClick={() => setFilterPicker("category")}><Icon name="tag" size={16} /><strong>{selectedCategory ? categoryOptionLabel(selectedCategory) : "Any category"}</strong><Icon name="chevron" size={15} /></button></div>
-        <div className="filter-choice"><span>Location</span><button type="button" onClick={() => setFilterPicker("location")}><Icon name="pin" size={16} /><strong>{selectedLocation?.path || "Any location"}</strong><Icon name="chevron" size={15} /></button></div>
+        <div className="filter-choice"><span>Place</span><button type="button" onClick={() => setFilterPicker("location")}><Icon name="pin" size={16} /><strong>{selectedLocation?.path || "Any Place"}</strong><Icon name="chevron" size={15} /></button></div>
         <div className="filter-choice"><span>Tag</span><button type="button" onClick={() => setFilterPicker("tag")}><Icon name="tag" size={16} /><strong>{tagFilter || "Any tag"}</strong><Icon name="chevron" size={15} /></button></div>
         <label className="toolbar-toggle"><span>Zero qty</span><input type="checkbox" checked={includeZero} onChange={(event) => onIncludeZeroChange(event.target.checked)} /></label>
       </div>
@@ -1820,7 +1882,7 @@ function InventoryView({
         <span>{showingSearchPlaceholder ? "Searching..." : `${visibleItems.length === sortedEntries.length ? sortedEntries.length : `${visibleItems.length} of ${sortedEntries.length}`} ${sortedEntries.length === 1 ? "item" : "items"}`}</span>
       </div>
       <div className="item-list">
-        {showingSearchPlaceholder ? <div className="empty-inline"><span>Searching inventory...</span></div> : visibleItems.length === 0 && <EmptyState icon={hasScope ? "box" : "search"} title={hasScope ? query ? "No matches yet" : "Nothing needs attention" : "No inventory yet"} text={hasScope ? query ? "Try a shorter name, a tag, or a location." : "You’re all caught up." : "Add an item and it will appear here."} action={items.length === 0 ? { label: "Add first item", onClick: onAdd } : undefined} />}
+        {showingSearchPlaceholder ? <div className="empty-inline"><span>Searching Items…</span></div> : visibleItems.length === 0 && <EmptyState icon={hasScope ? "box" : "search"} title={hasScope ? query ? "No matches yet" : "Nothing needs attention" : "No Items yet"} text={hasScope ? query ? "Try a shorter name, a tag, or a Place." : "You’re all caught up." : "Add an Item and it will appear here."} action={items.length === 0 ? { label: "Add first Item", onClick: onAdd } : undefined} />}
         {!showingSearchPlaceholder && (groupBy === "none" ? [["", visibleItems] as [string, Item[]]] : groupedItems).map(([group, groupItems]) => <div className="inventory-group" key={group || "all"}>{group && <h3>{group}<span>{groupItems.length}</span></h3>}{groupItems.map((item) => (
           <article className={`item-card ${expirationState(item) === "expired" || isLowStock(item) ? "needs-attention" : ""} ${pendingItems.has(item.public_id) ? "syncing" : ""} ${bulkMode ? "bulk-selectable" : ""} ${bulkSelection.has(item.public_id) ? "selected" : ""}`} key={item.public_id}>
             <button className="item-main" onClick={() => bulkMode ? toggleBulkItem(item.public_id) : onOpen(item)} aria-pressed={bulkMode ? bulkSelection.has(item.public_id) : undefined}>
@@ -1846,13 +1908,13 @@ function InventoryView({
         {!showingSearchPlaceholder && hiddenResultCount > 0 && <button type="button" className="load-more-results" onClick={() => setRenderLimit((current) => current + RESULT_WINDOW_STEP)}>Show {Math.min(RESULT_WINDOW_STEP, hiddenResultCount)} more</button>}
       </div>
       {filterPicker === "category" && <SearchableFilterPicker title="Filter by category" icon="tag" selectedId={categoryFilter} emptyLabel="Any category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: `${category.path} · ${category.total_item_count} item${category.total_item_count === 1 ? "" : "s"}` }))} onChoose={setCategoryFilter} onClose={() => setFilterPicker(null)} />}
-      {filterPicker === "location" && <SearchableFilterPicker title="Filter by location" icon="pin" selectedId={locationFilter} emptyLabel="Any location" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: `${location.path} · ${location.total_item_count ?? location.item_count ?? 0} items inside` }))} onChoose={setLocationFilter} onClose={() => setFilterPicker(null)} />}
+      {filterPicker === "location" && <SearchableFilterPicker title="Filter by Place" icon="pin" selectedId={locationFilter} emptyLabel="Any Place" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: `${location.path} · ${location.total_item_count ?? location.item_count ?? 0} Items inside` }))} onChoose={setLocationFilter} onClose={() => setFilterPicker(null)} />}
       {filterPicker === "tag" && <SearchableFilterPicker title="Filter by tag" icon="tag" selectedId={tagFilter} emptyLabel="Any tag" options={tags.map((tag) => ({ id: tag, label: tag, detail: `${indexedItems.filter(({ item }) => item.tags.includes(tag)).length} matching items` }))} onChoose={setTagFilter} onClose={() => setFilterPicker(null)} />}
       {formulaOpen && <FormulaBuilder formula={formula} categories={categories} locations={flatInventoryLocations} tags={tags} units={Array.from(new Set(items.map((item) => item.unit))).sort()} onApply={(next) => { setFormula(next); setFormulaOpen(false); requestSearch(query, { showBusy: true }); }} onSave={(name, next) => { saveCurrentView(name, next); setFormula(next); setFormulaOpen(false); requestSearch(query, { showBusy: true }); }} onClose={() => setFormulaOpen(false)} />}
-      {bulkMode && bulkSelection.size > 0 && <div className="bulk-action-dock" aria-label="Bulk actions"><strong>{bulkSelection.size}<small>selected</small></strong><button type="button" onClick={() => setBulkPicker("location")}><Icon name="pin" size={17} />Move</button><button type="button" onClick={() => setBulkPicker("category")}><Icon name="tag" size={17} />Category</button><button type="button" onClick={() => { const tag = window.prompt("Tag to add to the selected items"); if (tag?.trim()) void performBulk("Tag added", (item) => api.setTags(item, Array.from(new Set([...item.tags, tag.trim()])))); }}><Icon name="plus" size={17} />Add tag</button><button type="button" onClick={() => setBulkPicker("remove-tag")}><Icon name="minus" size={17} />Remove tag</button><button type="button" onClick={() => { const value = window.prompt("Quantity adjustment for every selected item (for example: 2 or -1)", "1"); const delta = Number(value?.replace(",", ".")); if (value && Number.isFinite(delta) && delta !== 0) void performBulk("Quantity adjusted", (item) => api.adjust(item, delta)); }}><Icon name="plus" size={17} />Quantity</button><button type="button" onClick={exportBulkSelection}><Icon name="more" size={17} />Export</button><button type="button" className="danger" onClick={() => { if (window.confirm(`Archive ${bulkSelection.size} selected items?`)) void performBulk("Archived", api.archive); }}><Icon name="close" size={17} />Archive</button></div>}
-      {bulkPicker === "location" && <SearchableFilterPicker title="Move selected items" icon="pin" selectedId="" emptyLabel="Cancel" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: location.path }))} onChoose={(id) => { if (id) void performBulk("Moved", (item) => api.move(item, id)); }} onClose={() => setBulkPicker(null)} />}
-      {bulkPicker === "category" && <SearchableFilterPicker title="Categorise selected items" icon="tag" selectedId="" emptyLabel="No category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: category.path }))} onChoose={(id) => { void performBulk("Category updated", (item) => api.updateItem(item, { category_id: id ? Number(id) : null })); }} onClose={() => setBulkPicker(null)} />}
-      {bulkPicker === "remove-tag" && <SearchableFilterPicker title="Remove a tag from selected items" icon="tag" selectedId="" emptyLabel="Cancel" options={Array.from(new Set(items.filter((item) => bulkSelection.has(item.public_id)).flatMap((item) => item.tags))).sort().map((tag) => ({ id: tag, label: tag }))} onChoose={(tag) => { if (tag) void performBulk("Tag removed", (item) => api.setTags(item, item.tags.filter((entry) => entry !== tag))); }} onClose={() => setBulkPicker(null)} />}
+      {bulkMode && bulkSelection.size > 0 && <div className="bulk-action-dock" aria-label="Bulk actions"><strong>{bulkSelection.size}<small>selected</small></strong><button type="button" onClick={() => setBulkPicker("location")}><Icon name="pin" size={17} />Move</button><button type="button" onClick={() => setBulkPicker("category")}><Icon name="tag" size={17} />Category</button><button type="button" onClick={() => { const tag = window.prompt("Tag to add to the selected items"); if (tag?.trim()) void performBulk("Tagged", (item) => api.setTags(item, Array.from(new Set([...item.tags, tag.trim()]))), (current, original) => api.setTags(current, original.tags)); }}><Icon name="plus" size={17} />Add tag</button><button type="button" onClick={() => setBulkPicker("remove-tag")}><Icon name="minus" size={17} />Remove tag</button><button type="button" onClick={() => { const value = window.prompt("Quantity adjustment for every selected item (for example: 2 or -1)", "1"); const delta = Number(value?.replace(",", ".")); if (value && Number.isFinite(delta) && delta !== 0) void performBulk("Updated", (item) => api.adjust(item, delta), (current) => api.adjust(current, -delta)); }}><Icon name="plus" size={17} />Quantity</button><button type="button" onClick={exportBulkSelection}><Icon name="more" size={17} />Export</button><button type="button" className="danger" onClick={() => { if (window.confirm(`Archive ${bulkSelection.size} selected items?`)) void performBulk("Archived", api.archive, (_current, original) => api.restoreItem(original.public_id)); }}><Icon name="close" size={17} />Archive</button></div>}
+      {bulkPicker === "location" && <SearchableFilterPicker title="Move selected Items" icon="pin" selectedId="" emptyLabel="Cancel" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: location.path }))} onChoose={(id) => { if (id) void performBulk("Moved", (item) => api.move(item, id), (current, original) => api.move(current, original.location_public_id)); }} onClose={() => setBulkPicker(null)} />}
+      {bulkPicker === "category" && <SearchableFilterPicker title="Change Category" icon="tag" selectedId="" emptyLabel="No Category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: category.path }))} onChoose={(id) => { void performBulk("Category updated", (item) => api.updateItem(item, { category_id: id ? Number(id) : null }), (current, original) => api.updateItem(current, { category_id: original.category_id })); }} onClose={() => setBulkPicker(null)} />}
+      {bulkPicker === "remove-tag" && <SearchableFilterPicker title="Remove a tag from selected Items" icon="tag" selectedId="" emptyLabel="Cancel" options={Array.from(new Set(items.filter((item) => bulkSelection.has(item.public_id)).flatMap((item) => item.tags))).sort().map((tag) => ({ id: tag, label: tag }))} onChoose={(tag) => { if (tag) void performBulk("Tag removed", (item) => api.setTags(item, item.tags.filter((entry) => entry !== tag)), (current, original) => api.setTags(current, original.tags)); }} onClose={() => setBulkPicker(null)} />}
     </section>
   );
 }
@@ -2205,8 +2267,8 @@ function PlacesView({ section, onSectionChange, locations, categories, locationT
   onDefaultsChanged: () => Promise<void>;
 }) {
   return <section className="places-page">
-    <header className="places-heading compact-places-heading"><div className="places-tabs" role="tablist" aria-label="Browse places"><button type="button" role="tab" aria-selected={section === "locations"} className={section === "locations" ? "active" : ""} onClick={() => onSectionChange("locations")}><Icon name="pin" size={17} />Locations</button><button type="button" role="tab" aria-selected={section === "categories"} className={section === "categories" ? "active" : ""} onClick={() => onSectionChange("categories")}><Icon name="tag" size={17} />Categories</button></div></header>
-    {section === "locations" ? <div className={`places-layout ${selectedLocationId ? "has-detail" : ""}`}><div className="places-tree-pane"><LocationsView locations={locations} locationTypes={locationTypes} busy={busy} onOpen={(id) => onSelectLocation(id)} onCreate={onCreateLocation} onUpdate={onUpdateLocation} onDelete={onDeleteLocation} onDeleteTree={onDeleteLocationTree} onCreateType={onCreateType} /></div>{selectedLocationId ? <div className="places-detail-pane"><LocationDetailView locationId={selectedLocationId} locations={locations} categories={categories} locationTypes={locationTypes} busy={busy} onOpenItem={onOpenItem} onOpenLocation={(id) => onSelectLocation(id)} onAddHere={(id) => onCaptureHere(id, "quick")} onCreateLocationHere={onCreateLocation} onDefaultsChanged={onDefaultsChanged} onBack={() => onSelectLocation(null)} /><div className="location-mode-actions"><button className="primary button-with-icon" onClick={() => onCaptureHere(selectedLocationId, "putaway")}><Icon name="scan" size={17} />Put away here</button></div></div> : <aside className="places-detail-empty"><span><Icon name="pin" size={25} /></span><h2>Select a location</h2><p>Its contents, child locations, defaults, and actions will stay beside the tree on larger screens.</p></aside>}</div> : <CategoriesView categories={categories} locations={locations} busy={busy} onOpen={onOpenCategory} onCreate={onCreateCategory} onUpdate={onUpdateCategory} onDelete={onDeleteCategory} onDeleteTree={onDeleteCategoryTree} onSaveCapabilities={onSaveCapabilities} onSetDefaultLocation={onSetDefaultLocation} />}
+    <header className="places-heading compact-places-heading"><div className="places-tabs" role="tablist" aria-label="Browse Places"><button type="button" role="tab" aria-selected={section === "locations"} className={section === "locations" ? "active" : ""} onClick={() => onSectionChange("locations")}><Icon name="pin" size={17} />Places</button><button type="button" role="tab" aria-selected={section === "categories"} className={section === "categories" ? "active" : ""} onClick={() => onSectionChange("categories")}><Icon name="tag" size={17} />Categories</button></div></header>
+    {section === "locations" ? <div className={`places-layout ${selectedLocationId ? "has-detail" : ""}`}><div className="places-tree-pane"><LocationsView locations={locations} locationTypes={locationTypes} busy={busy} onOpen={(id) => onSelectLocation(id)} onCreate={onCreateLocation} onUpdate={onUpdateLocation} onDelete={onDeleteLocation} onDeleteTree={onDeleteLocationTree} onCreateType={onCreateType} /></div>{selectedLocationId ? <div className="places-detail-pane"><LocationDetailView locationId={selectedLocationId} locations={locations} categories={categories} locationTypes={locationTypes} busy={busy} onOpenItem={onOpenItem} onOpenLocation={(id) => onSelectLocation(id)} onAddHere={(id) => onCaptureHere(id, "quick")} onCreateLocationHere={onCreateLocation} onDefaultsChanged={onDefaultsChanged} onBack={() => onSelectLocation(null)} /><div className="location-mode-actions"><button className="primary button-with-icon" onClick={() => onCaptureHere(selectedLocationId, "putaway")}><Icon name="scan" size={17} />Put away here</button></div></div> : <aside className="places-detail-empty"><span><Icon name="pin" size={25} /></span><h2>Select a Place</h2><p>Its Items, child Places, defaults, and actions will stay beside the tree on larger screens.</p></aside>}</div> : <CategoriesView categories={categories} locations={locations} busy={busy} onOpen={onOpenCategory} onCreate={onCreateCategory} onUpdate={onUpdateCategory} onDelete={onDeleteCategory} onDeleteTree={onDeleteCategoryTree} onSaveCapabilities={onSaveCapabilities} onSetDefaultLocation={onSetDefaultLocation} />}
   </section>;
 }
 
@@ -2616,8 +2678,8 @@ function LocationDetailView({ locationId, locations, categories, locationTypes, 
       setChildKind(locationTypes[0]?.name || "location");
     }
   }, [childKind, locationTypes]);
-  if (error) return <section className="location-detail-page"><button className="text-button" onClick={onBack}>Back to locations</button><div className="inline-alert">{error}</div></section>;
-  if (!contents) return <div className="dashboard-skeleton" aria-label="Loading location"><span /><span /><span /></div>;
+  if (error) return <section className="location-detail-page"><button className="text-button" onClick={onBack}>Back to Places</button><div className="inline-alert">{error}</div></section>;
+  if (!contents) return <div className="dashboard-skeleton" aria-label="Loading Place"><span /><span /><span /></div>;
   const currentLocation = contents.location;
   const currentLocationChain = findLocationChain(currentLocation.path, flatLocations);
   const locationRules = rules.filter((rule) => rule.location_public_id === currentLocation.public_id);
@@ -2690,12 +2752,12 @@ function LocationDetailView({ locationId, locations, categories, locationTypes, 
   }
   return (
     <section className="location-detail-page">
-      <div className="page-heading"><div><h1>{currentLocation.name}</h1><LocationCrumbs chain={currentLocationChain} fallback={currentLocation.path} onOpen={onOpenLocation} /><p>{contents.items.length} item{contents.items.length === 1 ? "" : "s"} including nested places.</p></div><button className="icon-button" onClick={onBack} aria-label="Back to locations"><Icon name="close" /></button></div>
-      <div className="location-actions"><button className="primary button-with-icon" onClick={() => onAddHere(currentLocation.public_id)}><Icon name="plus" size={17} />Add item</button><button className="ai-scan-action button-with-icon" onClick={() => setAiScanOpen(true)}><Icon name="spark" size={17} />AI scan</button><button className="secondary button-with-icon" onClick={() => setShowCreateChild((value) => !value)}><Icon name="plus" size={17} />Add place</button><button className="secondary button-with-icon" disabled={missingPhotoItems.length === 0} onClick={() => setQuickPhotos(true)}><Icon name="camera" size={17} />Photos {missingPhotoItems.length}</button><a className="secondary button-with-icon" href={`/api/v1/labels/locations/${currentLocation.public_id}`} target="_blank" rel="noreferrer"><Icon name="qr" size={17} />Print QR</a></div>
-      {showCreateChild && <form className="inline-detail-create" onSubmit={createChildLocation}><label>New child location<input required autoFocus value={childName} onChange={(event) => setChildName(event.target.value)} placeholder={`Inside ${currentLocation.name}`} /></label><label>Type<select value={childKind} onChange={(event) => setChildKind(event.target.value)}>{locationTypes.map((entry) => <option value={entry.name} key={entry.name}>{entry.name}</option>)}</select></label><div className="button-row"><button type="button" onClick={() => { setShowCreateChild(false); setChildName(""); }}>Cancel</button><button className="secondary" disabled={busy || !childName.trim()}>Create location</button></div></form>}
+      <div className="page-heading"><div><h1>{currentLocation.name}</h1><LocationCrumbs chain={currentLocationChain} fallback={currentLocation.path} onOpen={onOpenLocation} /><p>{contents.items.length} Item{contents.items.length === 1 ? "" : "s"} including nested Places.</p></div><button className="icon-button" onClick={onBack} aria-label="Back to Places"><Icon name="close" /></button></div>
+      <div className="location-actions"><button className="primary button-with-icon" onClick={() => onAddHere(currentLocation.public_id)}><Icon name="plus" size={17} />Add Item</button><button className="ai-scan-action button-with-icon" onClick={() => setAiScanOpen(true)}><Icon name="spark" size={17} />AI Scan</button><button className="secondary button-with-icon" onClick={() => setShowCreateChild((value) => !value)}><Icon name="plus" size={17} />Add Place</button><button className="secondary button-with-icon" disabled={missingPhotoItems.length === 0} onClick={() => setQuickPhotos(true)}><Icon name="camera" size={17} />Photos {missingPhotoItems.length}</button><a className="secondary button-with-icon" href={`/api/v1/labels/locations/${currentLocation.public_id}`} target="_blank" rel="noreferrer"><Icon name="qr" size={17} />Print QR</a></div>
+      {showCreateChild && <form className="inline-detail-create" onSubmit={createChildLocation}><label>New Place<input required autoFocus value={childName} onChange={(event) => setChildName(event.target.value)} placeholder={`Inside ${currentLocation.name}`} /></label><label>Type<select value={childKind} onChange={(event) => setChildKind(event.target.value)}>{locationTypes.map((entry) => <option value={entry.name} key={entry.name}>{entry.name}</option>)}</select></label><div className="button-row"><button type="button" onClick={() => { setShowCreateChild(false); setChildName(""); }}>Cancel</button><button className="secondary" disabled={busy || !childName.trim()}>Create Place</button></div></form>}
       <details className="detail-section defaults-section"><summary><span><Icon name="settings" size={16} />Defaults here</span><Icon name="chevron" size={16} /></summary><div className="defaults-section-body"><div className="defaults-grid"><div><strong>Categories</strong>{categoryDefaults.length ? categoryDefaults.map(defaultRuleRow) : <small>No category defaults</small>}</div><div><strong>Items and barcodes</strong>{itemDefaults.length ? itemDefaults.map(defaultRuleRow) : <small>No item defaults</small>}</div></div><form className="default-rule-form" onSubmit={addDefault}><label>Default type<select value={defaultType} onChange={(event) => setDefaultType(event.target.value as "category" | "name" | "barcode")}><option value="category">Category</option><option value="name">Item name contains</option><option value="barcode">Exact barcode</option></select></label>{defaultType === "category" ? <label>Category<select required value={defaultCategoryId} onChange={(event) => setDefaultCategoryId(event.target.value)}><option value="">Choose category</option>{categories.map((category) => <option key={category.id} value={category.id}>{categoryOptionLabel(category)}</option>)}</select></label> : <label>Match<input required inputMode={defaultType === "barcode" ? "numeric" : "text"} value={defaultMatch} onChange={(event) => setDefaultMatch(event.target.value)} placeholder={defaultType === "barcode" ? "8023263000534" : "SanBenedetto"} /></label>}<button className="secondary" disabled={defaultType === "category" ? !defaultCategoryId : !defaultMatch.trim()}>Add default</button></form></div></details>
       {contents.children.length > 0 && <section className="detail-section"><div className="section-heading"><div><h2>Inside this place</h2></div></div><div className="child-location-grid">{contents.children.map((child) => <button type="button" key={child.public_id} onClick={() => onOpenLocation(child.public_id)}><Icon name={child.kind === "box" || child.kind === "container" ? "box" : "pin"} /><strong>{child.name}</strong><small>{child.kind}</small></button>)}</div></section>}
-      <DetailItemsBrowser items={contents.items} groupMode="category" emptyText="Scan this location’s QR later to add items directly here." onOpenItem={onOpenItem} busy={busy} />
+      <DetailItemsBrowser items={contents.items} groupMode="category" emptyText="Scan this Place’s QR later to add Items directly here." onOpenItem={onOpenItem} busy={busy} />
       {quickPhotos && <QuickPhotoSession title={currentLocation.name} items={missingPhotoItems} onDone={async () => { setQuickPhotos(false); await load(); }} onClose={() => setQuickPhotos(false)} />}
       {aiScanOpen && <AIScanSession location={currentLocation} onClose={() => setAiScanOpen(false)} />}
     </section>
@@ -2831,7 +2893,7 @@ function AIScanSession({ location, onClose }: {
           <div className="ai-scan-frame" aria-hidden="true"><span>One item</span></div>
         </div>
         {error && <div className="inline-alert">{error}</div>}
-        <div className="ai-scan-status"><div><strong>{queued}</strong><span>queued for review</span></div><div><strong>{uploading}</strong><span>uploading</span></div><small>Results appear in Settings → AI scan proposals.</small></div>
+        <div className="ai-scan-status"><div><strong>{queued}</strong><span>sent to Inbox</span></div><div><strong>{uploading}</strong><span>{uploading === 1 ? "Uploading 1 photo" : `Uploading ${uploading} photos`}</span></div><small>{uploading ? "AI processing continues in the background." : "Review results in More → Inbox."}</small></div>
         {scans.length > 0 && <div className="ai-scan-strip">{scans.map((entry) => <div className={entry.status} key={entry.id}><img src={entry.preview} alt="AI scan capture" /><span>{entry.status === "uploading" ? "Sending" : entry.status === "queued" ? "Queued" : "Failed"}</span>{entry.error && <small>{entry.error}</small>}</div>)}</div>}
         <div className="ai-scan-controls"><label className="secondary button-with-icon"><Icon name="camera" size={18} />Phone camera<input type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void choosePhoto(file); }} /></label><button className="primary ai-shutter" disabled={!cameraReady} onClick={() => void snap()} aria-label="Photograph item"><Icon name="camera" size={24} />Snap item</button><button onClick={onClose}>Done</button></div>
       </section>
@@ -3226,7 +3288,7 @@ function ItemDetail({ item, allItems, locations, categories, units, busy, embedd
   onDeleteItem: (item: Item) => Promise<void>;
   onOpenLocation: (publicId: string) => void;
   onOpenTag: (tag: string) => void;
-  run: (action: () => Promise<unknown>, success: string, scope?: RefreshScope) => Promise<void>;
+  run: (action: () => Promise<unknown>, success: string, scope?: RefreshScope, options?: ActionOptions) => Promise<void>;
 }) {
   const photoRail = useRef<HTMLDivElement | null>(null);
   const [editing, setEditing] = useState(false);
@@ -4311,12 +4373,14 @@ function OffCategoryMappingsView({ categories, busy, onBack, onOpenItem, onNotic
   </section>;
 }
 
-function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, onApprove, onReject, onRetry }: {
+function AIScanProposalCard({ scan, categories, locations, units, busy, selected, onSelect, onSave, onApprove, onReject, onRetry }: {
   scan: AIScanProposal;
   categories: Category[];
   locations: LocationNode[];
   units: string[];
   busy: boolean;
+  selected: boolean;
+  onSelect: (selected: boolean) => void;
   onSave: (changes: Record<string, unknown>) => Promise<void>;
   onApprove: () => Promise<void>;
   onReject: () => Promise<void>;
@@ -4333,6 +4397,8 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, 
   const [unit, setUnit] = useState(item?.unit || "pcs");
   const [categoryId, setCategoryId] = useState(item?.category_id ? String(item.category_id) : "");
   const [locationId, setLocationId] = useState(scan.location_public_id);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (editing || !item) return;
@@ -4363,14 +4429,39 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, 
     setEditing(false);
   }
 
-  return <article className={`ai-proposal-card ${scan.status}`}>
-    <div className="ai-proposal-photo"><img src={scan.photo_url} alt={item?.name || "AI scan proposal"} /><span>{scan.status === "processing" ? "AI working" : scan.status === "failed" ? "Needs retry" : `${Math.round((scan.proposal?.confidence || 0) * 100)}% confidence`}</span></div>
+  function finishSwipe() {
+    const action = swipeOffset > 84 ? onApprove : swipeOffset < -84 ? onReject : null;
+    setSwipeOffset(0);
+    swipeStart.current = null;
+    if (action && scan.status === "pending" && !busy && !editing) void action();
+  }
+
+  return <article
+    className={`ai-proposal-card ${scan.status} ${selected ? "selected" : ""} ${swipeOffset > 0 ? "swiping-right" : swipeOffset < 0 ? "swiping-left" : ""}`}
+    style={{ "--swipe-offset": `${swipeOffset}px`, "--swipe-opacity": Math.min(1, Math.abs(swipeOffset) / 70) } as CSSProperties}
+    onTouchStart={(event) => {
+      if (editing || scan.status !== "pending") return;
+      swipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+    }}
+    onTouchMove={(event) => {
+      const start = swipeStart.current;
+      if (!start || editing || scan.status !== "pending") return;
+      const x = event.touches[0].clientX - start.x;
+      const y = event.touches[0].clientY - start.y;
+      if (Math.abs(x) > Math.abs(y) + 8) setSwipeOffset(Math.max(-125, Math.min(125, x)));
+    }}
+    onTouchEnd={finishSwipe}
+    onTouchCancel={() => { setSwipeOffset(0); swipeStart.current = null; }}
+  >
+    {scan.status === "pending" && <label className="ai-proposal-select"><input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span>Select</span></label>}
+    <div className="ai-swipe-cue reject" aria-hidden="true">Reject</div><div className="ai-swipe-cue approve" aria-hidden="true">Approve</div>
+    <div className="ai-proposal-photo"><img src={scan.photo_url} alt={item?.name || "AI Inbox photo"} /><span>{scan.status === "processing" ? "AI processing" : scan.status === "failed" ? "Needs attention" : `${Math.round((scan.proposal?.confidence || 0) * 100)}% confidence`}</span></div>
     <div className="ai-proposal-main">
       {scan.status === "processing" && <div className="ai-proposal-wait"><strong>Analyzing photo…</strong><small>{scan.location_path} · You can leave Settings while this runs.</small></div>}
       {scan.status === "failed" && <div className="ai-proposal-wait error"><strong>Scan could not be analyzed</strong><small>{scan.error || "The AI provider did not return a result."}</small><div><button className="primary" disabled={busy} onClick={() => void onRetry()}>Retry</button><button disabled={busy} onClick={() => void onReject()}>Reject</button></div></div>}
       {scan.status === "pending" && item && <>
         {!editing ? <>
-          <div className="ai-proposal-heading"><div><strong>{item.name}</strong><small>{scan.location_path}{item.category_id ? ` · ${categories.find((entry) => entry.id === item.category_id)?.path || "Category"}` : ""}</small></div><button className="secondary" onClick={() => setEditing(true)}><Icon name="settings" size={14} />Edit</button></div>
+          <div className="ai-proposal-heading"><div><strong>{item.name}</strong><small>{scan.location_path}{item.category_id ? ` · ${categories.find((entry) => entry.id === item.category_id)?.path || "Category"}` : ""}</small></div><button className="secondary" onClick={() => setEditing(true)}><Icon name="settings" size={14} />Edit inline</button></div>
           {item.description && <p>{item.description}</p>}
           <div className="ai-proposal-facts"><span><small>Quantity</small><strong>{item.quantity} {item.unit}</strong></span>{item.brand && <span><small>Brand</small><strong>{item.brand}</strong></span>}{item.model && <span><small>Model</small><strong>{item.model}</strong></span>}{item.barcode && <span><small>Barcode</small><strong>{item.barcode}</strong></span>}</div>
           {scan.proposal?.research?.url && <a href={scan.proposal.research.url} target="_blank" rel="noreferrer">{scan.proposal.research.label}</a>}
@@ -4380,18 +4471,18 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, 
           <div className="form-row"><label>Brand<input value={brand} onChange={(event) => setBrand(event.target.value)} /></label><label>Model<input value={model} onChange={(event) => setModel(event.target.value)} /></label></div>
           <div className="form-row"><label>Quantity<input inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Unit<select value={unit} onChange={(event) => setUnit(event.target.value)}>{Array.from(new Set([unit, ...units, "pcs"])).map((entry) => <option value={entry} key={entry}>{entry}</option>)}</select></label></div>
           <label>Category<select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">No category</option>{categories.map((entry) => <option key={entry.id} value={entry.id}>{entry.path}</option>)}</select></label>
-          <label>Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{locations.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label>
+          <label>Place<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{locations.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label>
           <label>Barcode<input inputMode="numeric" value={barcode} onChange={(event) => setBarcode(event.target.value)} /></label>
           <label>Description<textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
           <div className="button-row"><button type="button" onClick={() => setEditing(false)}>Cancel</button><button className="secondary" disabled={busy || !name.trim()}>Save changes</button></div>
         </form>}
-        {!editing && <div className="ai-proposal-actions"><button disabled={busy} onClick={() => void onReject()}>Reject</button><button className="secondary" disabled={busy} onClick={() => setEditing(true)}>Modify</button><button className="primary" disabled={busy} onClick={() => void onApprove()}><Icon name="check" size={15} />Approve item</button></div>}
+        {!editing && <><small className="ai-swipe-help">Swipe right to approve · left to reject</small><div className="ai-proposal-actions"><button disabled={busy} onClick={() => void onReject()}>Reject</button><button className="secondary" disabled={busy} onClick={() => setEditing(true)}>Edit</button><button className="primary" disabled={busy} onClick={() => void onApprove()}><Icon name="check" size={15} />Approve Item</button></div></>}
       </>}
     </div>
   </article>;
 }
 
-function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, onThemeChange, onInventoryChanged, onLocations, onCategories, onOffCategoryMappings, onOpenItem, onMarkFound, onForeverLost, onUnitsChanged, onCreateType }: {
+function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, notify, onThemeChange, onInventoryChanged, onLocations, onCategories, onOffCategoryMappings, onOpenItem, onMarkFound, onForeverLost, onUnitsChanged, onCreateType }: {
   items: Item[];
   dashboard: Dashboard | null;
   locations: LocationNode[];
@@ -4401,6 +4492,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   busy: boolean;
   theme: ThemePreference;
   setNotice: (message: string) => void;
+  notify: (message: string, action?: Omit<RetryNotice, "message">) => void;
   onThemeChange: (theme: ThemePreference) => void;
   onInventoryChanged: () => Promise<void>;
   onLocations: () => void;
@@ -4419,6 +4511,8 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [suggestions, setSuggestions] = useState<EnrichmentSuggestion[]>([]);
   const [aiScans, setAiScans] = useState<AIScanProposal[]>([]);
   const [aiScansOpen, setAiScansOpen] = useState(false);
+  const [selectedAiScans, setSelectedAiScans] = useState<Set<string>>(() => new Set());
+  const [aiReviewBusy, setAiReviewBusy] = useState("");
   const sawAiScansRef = useRef(false);
   const [softwareUpdate, setSoftwareUpdate] = useState<SoftwareUpdateStatus | null>(null);
   const [projectName, setProjectName] = useState("");
@@ -4455,6 +4549,8 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [importDetails, setImportDetails] = useState<ImportPreviewDetail[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [importBatches, setImportBatches] = useState<ImportBatch[]>([]);
+  const [dataActivity, setDataActivity] = useState("");
+  const [manageActivity, setManageActivity] = useState("");
   const [enrichmentFile, setEnrichmentFile] = useState<unknown>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const [ruleType, setRuleType] = useState<"name" | "barcode" | "category">("name");
@@ -4527,14 +4623,21 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
     }, 2500);
     return () => window.clearInterval(timer);
   }, [aiScansProcessing]);
+  useEffect(() => {
+    const available = new Set(aiScans.filter((scan) => scan.status === "pending").map((scan) => scan.public_id));
+    setSelectedAiScans((current) => new Set(Array.from(current).filter((publicId) => available.has(publicId))));
+  }, [aiScans]);
 
   async function perform(action: () => Promise<unknown>, success: string) {
+    setManageActivity("Saving changes…");
     try {
       await action();
       setNotice(success);
       void load();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The action could not be completed");
+    } finally {
+      setManageActivity("");
     }
   }
 
@@ -4543,6 +4646,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
     success: string,
     inventoryChanged = false,
   ) {
+    setAiReviewBusy("Updating Inbox…");
     try {
       await action();
       setNotice(success);
@@ -4550,6 +4654,56 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       if (inventoryChanged) await onInventoryChanged();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The AI scan action could not be completed");
+    } finally {
+      setAiReviewBusy("");
+    }
+  }
+
+  async function approveAIScans(scans: AIScanProposal[]) {
+    const pending = scans.filter((scan) => scan.status === "pending");
+    if (!pending.length || aiReviewBusy) return;
+    setAiReviewBusy(`Approving ${pending.length} Item${pending.length === 1 ? "" : "s"}…`);
+    try {
+      const created: Item[] = [];
+      for (const scan of pending) created.push(await api.approveAiScan(scan.public_id));
+      setSelectedAiScans(new Set());
+      await load();
+      await onInventoryChanged();
+      notify(`${created.length} Item${created.length === 1 ? "" : "s"} approved`, {
+        label: "Undo",
+        action: async () => {
+          for (const item of created) {
+            const current = await api.item(item.public_id);
+            await api.archive(current);
+          }
+          await load();
+          await onInventoryChanged();
+          notify(`${created.length} approval${created.length === 1 ? "" : "s"} undone`);
+        },
+      });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "The Items could not be approved");
+      await load();
+      await onInventoryChanged();
+    } finally {
+      setAiReviewBusy("");
+    }
+  }
+
+  async function rejectAIScans(scans: AIScanProposal[]) {
+    const pending = scans.filter((scan) => scan.status === "pending");
+    if (!pending.length || aiReviewBusy) return;
+    setAiReviewBusy(`Rejecting ${pending.length} proposal${pending.length === 1 ? "" : "s"}…`);
+    try {
+      for (const scan of pending) await api.rejectAiScan(scan.public_id);
+      setSelectedAiScans(new Set());
+      await load();
+      notify(`${pending.length} proposal${pending.length === 1 ? "" : "s"} rejected`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "The proposals could not be rejected");
+      await load();
+    } finally {
+      setAiReviewBusy("");
     }
   }
 
@@ -4571,6 +4725,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
     if (!window.confirm(
       "Restore this full backup? Every current item, location, category, history record, setting, and saved photo will be replaced. Findstuff will create a safety backup first and then restart.",
     )) return;
+    setDataActivity(`Uploading ${file.name}…`);
     try {
       const result = await api.restoreBackup(file);
       const summary = result.counts
@@ -4596,6 +4751,31 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       setNotice("Restore was queued. Reload Findstuff after its container finishes restarting.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not restore this backup");
+    } finally {
+      setDataActivity("");
+    }
+  }
+
+  async function downloadData(path: string, filename: string, kind: "Backup" | "Export") {
+    setDataActivity(kind === "Backup" ? "Preparing your Backup…" : "Preparing your export…");
+    try {
+      const response = await fetch(path, { credentials: "same-origin", cache: "no-store" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { detail?: string } | null;
+        throw new Error(payload?.detail || `${kind} could not be prepared`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setNotice(kind === "Backup" ? "Backup completed" : "Export downloaded");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : `${kind} failed`);
+    } finally {
+      setDataActivity("");
     }
   }
 
@@ -5057,25 +5237,84 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const diskFreePercent = system?.storage.disk_total_bytes
     ? Math.round((system.storage.disk_free_bytes / system.storage.disk_total_bytes) * 100)
     : 0;
+  const setupHealth = settings && system ? [
+    {
+      label: "HTTPS",
+      status: window.location.protocol === "https:" ? "Ready" : "Needs attention",
+      detail: window.location.protocol === "https:" ? "This connection is protected" : "Open Findstuff through HTTPS, such as Tailscale Serve",
+    },
+    {
+      label: "Authentication",
+      status: settings.setup.authentication.required && settings.setup.authentication.configured ? "Ready" : "Needs attention",
+      detail: settings.setup.authentication.required ? "Sign-in protection is active" : "Turn on sign-in protection before sharing access",
+    },
+    {
+      label: "Backup",
+      status: settings.setup.backup.enabled && settings.setup.backup.last_backup_at ? "Ready" : "Needs attention",
+      detail: settings.setup.backup.last_backup_at ? `Last automatic Backup ${new Date(settings.setup.backup.last_backup_at).toLocaleString()}` : settings.setup.backup.enabled ? "Waiting for the first automatic Backup" : "Automatic Backups are off",
+    },
+    {
+      label: "AI",
+      status: settings.integrations.ai.enabled && settings.integrations.ai.endpoint && settings.integrations.ai.model && settings.integrations.ai.api_key_set ? "Ready" : settings.integrations.ai.enabled ? "Needs attention" : "Optional",
+      detail: settings.integrations.ai.enabled ? "AI Scan is configured" : "Set up AI to use automatic photo recognition",
+    },
+    {
+      label: "MQTT",
+      status: settings.integrations.mqtt.enabled && settings.integrations.mqtt.host ? "Ready" : settings.integrations.mqtt.enabled ? "Needs attention" : "Optional",
+      detail: settings.integrations.mqtt.enabled ? "Home Assistant publishing is configured" : "Connect Home Assistant when you want it",
+    },
+    {
+      label: "Updates",
+      status: softwareUpdate?.enabled ? "Ready" : "Optional",
+      detail: softwareUpdate?.enabled ? "In-app updates are available" : "Update from the Linux machine",
+    },
+    {
+      label: "Storage",
+      status: diskFreePercent >= 10 && system.storage.disk_free_bytes >= 1024 ** 3 ? "Ready" : "Needs attention",
+      detail: `${formatBytes(system.storage.disk_free_bytes)} free`,
+    },
+    {
+      label: "App version",
+      status: "Ready",
+      detail: system.app.version,
+    },
+  ] : [];
 
   return (
     <section className="manage-page">
-      <button className="feature-link" onClick={onLocations}><span><Icon name="pin" /></span><div><strong>Locations & containers</strong><small>Build your home, room, shelf, drawer, and box hierarchy</small></div><Icon name="chevron" /></button>
-      <button className="feature-link" onClick={onCategories}><span><Icon name="tag" /></span><div><strong>Categories</strong><small>{categories.length} categories · hierarchy, metadata, and default locations</small></div><Icon name="chevron" /></button>
+      <details className="setup-health" open><summary><span className="summary-icon"><Icon name="check" /></span><span><strong>Setup health</strong><small>{setupHealth.filter((entry) => entry.status === "Needs attention").length ? `${setupHealth.filter((entry) => entry.status === "Needs attention").length} need attention` : "Everything important is ready"}</small></span><Icon name="chevron" /></summary><div className="manage-panel setup-health-grid">{setupHealth.map((entry) => <article key={entry.label}><span>{entry.label}</span><b className={`health-status ${entry.status.toLowerCase().replace(" ", "-")}`}>{entry.status}</b><small>{entry.detail}</small></article>)}</div></details>
+      {manageActivity && <div className="inline-activity manage-activity" role="status"><span className="activity-spinner" />{manageActivity}</div>}
+      <button className="feature-link" onClick={onLocations}><span><Icon name="pin" /></span><div><strong>Places</strong><small>Build your room, shelf, drawer, and box hierarchy</small></div><Icon name="chevron" /></button>
+      <button className="feature-link" onClick={onCategories}><span><Icon name="tag" /></span><div><strong>Categories</strong><small>{categories.length} Categories · hierarchy, details, and default Places</small></div><Icon name="chevron" /></button>
       <button className="feature-link" onClick={onOffCategoryMappings}><span><Icon name="spark" /></span><div><strong>Open Food Facts category mapping</strong><small>Review scanned categories, assignments, and JSON imports</small></div><Icon name="chevron" /></button>
 
-      <details open={aiScansOpen} onToggle={(event) => setAiScansOpen(event.currentTarget.open)}><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>AI scan proposals</strong><small>{aiScans.length ? `${aiScans.length} awaiting review or processing` : "No scans awaiting review"}</small></span><Icon name="chevron" /></summary><div className="manage-panel ai-proposal-list">
-        <p className="panel-copy">Photos are analyzed in the background. Review the suggested details before anything is added to your inventory.</p>
-        {aiScans.length === 0 && <div className="empty-inline"><span>No AI scan proposals</span></div>}
+      <details open={aiScansOpen} onToggle={(event) => setAiScansOpen(event.currentTarget.open)}><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Inbox</strong><small>{aiScans.length ? `${aiScans.length} AI suggestion${aiScans.length === 1 ? "" : "s"} to review` : "Nothing waiting for review"}</small></span><Icon name="chevron" /></summary><div className="manage-panel ai-proposal-list">
+        <p className="panel-copy">AI processes photos in the background. Review, edit, approve, or reject each suggested Item here.</p>
+        {aiReviewBusy && <div className="inline-activity" role="status"><span className="activity-spinner" />{aiReviewBusy}</div>}
+        {aiScans.some((scan) => scan.status === "pending") && <div className="ai-inbox-toolbar">
+          <button type="button" className="secondary" disabled={Boolean(aiReviewBusy)} onClick={() => setSelectedAiScans(new Set(aiScans.filter((scan) => scan.status === "pending").map((scan) => scan.public_id)))}>Select all</button>
+          {selectedAiScans.size > 0 && <button type="button" onClick={() => setSelectedAiScans(new Set())}>Clear</button>}
+          <span>{selectedAiScans.size} selected</span>
+          <button type="button" className="primary" disabled={!selectedAiScans.size || Boolean(aiReviewBusy)} onClick={() => void approveAIScans(aiScans.filter((scan) => selectedAiScans.has(scan.public_id)))}>Approve selected</button>
+          <button type="button" className="danger-button" disabled={!selectedAiScans.size || Boolean(aiReviewBusy)} onClick={() => void rejectAIScans(aiScans.filter((scan) => selectedAiScans.has(scan.public_id)))}>Reject selected</button>
+          <button type="button" className="high-confidence-action" disabled={Boolean(aiReviewBusy) || !aiScans.some((scan) => scan.status === "pending" && (scan.proposal?.confidence || 0) >= 0.85)} onClick={() => void approveAIScans(aiScans.filter((scan) => scan.status === "pending" && (scan.proposal?.confidence || 0) >= 0.85))}><Icon name="spark" size={15} />Approve all high-confidence</button>
+        </div>}
+        {aiScans.length === 0 && <div className="empty-inline"><span>Your Inbox is clear</span></div>}
         {aiScans.map((scan) => <AIScanProposalCard
           key={scan.public_id}
           scan={scan}
           categories={categories}
           locations={flatLocations}
           units={units}
-          busy={busy}
+          busy={busy || Boolean(aiReviewBusy)}
+          selected={selectedAiScans.has(scan.public_id)}
+          onSelect={(selected) => setSelectedAiScans((current) => {
+            const next = new Set(current);
+            if (selected) next.add(scan.public_id); else next.delete(scan.public_id);
+            return next;
+          })}
           onSave={(changes) => performAIScan(() => api.updateAiScan(scan.public_id, changes), "AI scan proposal updated")}
-          onApprove={() => performAIScan(() => api.approveAiScan(scan.public_id), "Item added from AI scan", true)}
+          onApprove={() => approveAIScans([scan])}
           onReject={() => performAIScan(() => api.rejectAiScan(scan.public_id), "AI scan proposal rejected")}
           onRetry={() => performAIScan(() => api.retryAiScan(scan.public_id), "AI scan queued again")}
         />)}
@@ -5097,7 +5336,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       <details><summary><span className="summary-icon"><Icon name="search" /></span><span><strong>Lost items</strong><small>{lostItems.length ? `${lostItems.length} marked lost` : "Nothing marked lost"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="lost-list">{lostItems.length === 0 && <div className="empty-inline"><span>Everything is accounted for</span></div>}{lostItems.map((item) => <article className="lost-row" key={item.public_id}><button type="button" className="lost-main" onClick={() => onOpenItem(item)}><span><Icon name="search" size={17} /></span><div><strong>{item.name}</strong><small>{item.location_path}</small></div></button><div className="lost-actions"><button className="secondary" type="button" onClick={() => void onMarkFound(item)}><Icon name="check" size={14} />Found</button><button type="button" onClick={() => void onForeverLost(item)}><Icon name="close" size={14} />Forever lost</button></div></article>)}</div></div></details>
       <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Recent activity</strong><small>{dashboard?.recent_events.length ? "Latest inventory changes" : "No changes yet"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="event-list">{!dashboard?.recent_events.length && <div className="empty-inline"><span>Changes will appear here</span></div>}{dashboard?.recent_events.slice(0, 12).map((event, index) => <div className="event" key={`${event.created_at}-${index}`}><span>{activityLabel(event.action)}</span><strong>{event.item_name}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>)}</div></div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>App info</strong><small>{system ? `${formatBytes(system.storage.total_managed_bytes)} data · ${formatBytes(system.resources.memory_rss_bytes)} RAM` : "Runtime and storage details"}</small></span><Icon name="chevron" /></summary><div className="manage-panel app-info-panel">
+      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Storage & app info</strong><small>{system ? `${formatBytes(system.storage.total_managed_bytes)} used · version ${system.app.version}` : "Storage and version"}</small></span><Icon name="chevron" /></summary><div className="manage-panel app-info-panel">
         {system ? <>
           <div className="app-metric-grid">
             <div><span>Total data</span><strong>{formatBytes(system.storage.total_managed_bytes)}</strong><small>Database + photos</small></div>
@@ -5107,16 +5346,15 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
             <div><span>App RAM</span><strong>{formatBytes(system.resources.memory_rss_bytes)}</strong><small>Current resident memory</small></div>
             <div><span>Disk free</span><strong>{formatBytes(system.storage.disk_free_bytes)}</strong><small>{diskFreePercent}% of {formatBytes(system.storage.disk_total_bytes)}</small></div>
           </div>
-          <div className="integration-list app-info-list">
-            <p><span>Inventory rows</span><small>{system.inventory.items} items · {system.inventory.locations} locations · {system.inventory.categories} categories</small></p>
+          <div className="integration-list app-info-list"><p><span>Inventory</span><small>{system.inventory.items} Items · {system.inventory.locations} Places · {system.inventory.categories} Categories</small></p><p><span>Version</span><code>{system.app.version}</code></p><p><span>Running for</span><small>{formatUptime(system.app.uptime_seconds)}</small></p></div>
+          <details className="nested-form technical-details"><summary>Technical details</summary><div className="integration-list app-info-list">
             <p><span>Other data folder usage</span><small>{formatBytes(system.storage.other_data_bytes)}</small></p>
-            <p><span>SQLite</span><small>{system.database.journal_mode.toUpperCase()} · {system.database.page_count.toLocaleString()} pages · {formatBytes(system.database.page_size)} page size</small></p>
-            <p><span>Version</span><code>{system.app.version}</code></p>
-            <p><span>Uptime</span><small>{formatUptime(system.app.uptime_seconds)} · started {new Date(system.app.started_at).toLocaleString()}</small></p>
+            <p><span>Database engine</span><small>{system.database.journal_mode.toUpperCase()} · {system.database.page_count.toLocaleString()} pages · {formatBytes(system.database.page_size)} page size</small></p>
+            <p><span>Started</span><small>{new Date(system.app.started_at).toLocaleString()}</small></p>
             <p><span>Process</span><small>PID {system.app.process_id} · Python {system.app.python_version}</small></p>
             <p><span>Database path</span><code>{system.storage.database_path}</code></p>
             <p><span>Data folder</span><code>{system.storage.data_dir}</code></p>
-          </div>
+          </div></details>
           <button className="outline-button" onClick={() => void load()}>Refresh info</button>
         </> : <div className="empty-inline"><span>Loading app information</span></div>}
       </div></details>
@@ -5148,13 +5386,15 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
 
       <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Notifications</strong><small>{notificationsEnabled ? "ntfy alerts enabled" : "Alerts are off"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><form className="form-card compact-form" onSubmit={saveNotifications}><label className="toggle"><input type="checkbox" checked={notificationsEnabled} onChange={(event) => setNotificationsEnabled(event.target.checked)} /><span><strong>Enable notifications</strong><small>Low stock and upcoming expiration alerts</small></span></label><label>ntfy topic URL<input type="url" value={notificationUrl} onChange={(event) => setNotificationUrl(event.target.value)} placeholder="https://ntfy.sh/your-private-topic" /></label><label>Access token {settings?.notifications.ntfy_token_set && <small>(saved)</small>}<input type="password" value={notificationToken} onChange={(event) => setNotificationToken(event.target.value)} placeholder="Leave blank to keep existing" /></label><label>Warn before expiration<input type="number" min="0" max="365" value={expirationDays} onChange={(event) => setExpirationDays(event.target.value)} /><small>Days before the expiration date</small></label><button className="secondary">Save notifications</button></form><button className="outline-button" onClick={() => void perform(() => api.testNotification(), "Test notification sent")}>Send test notification</button></div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="qr" /></span><span><strong>Backup & data</strong><small>Export, merge, undo, or run bulk operations</small></span><Icon name="chevron" /></summary><div className="manage-panel">
-        <div className="button-row data-download-row"><a className="primary download-button" href="/api/v1/admin/export" download>Download JSON export</a><a className="secondary download-button" href="/api/v1/admin/backup" download>Download full backup ZIP</a></div>
-        <div className="restore-backup-box"><div><strong>Restore a full backup</strong><span>Upload a Findstuff backup ZIP to replace the complete database and saved photos. A pre-restore safety backup is created automatically.</span></div><button type="button" className="danger-button" disabled={busy} onClick={() => restoreInputRef.current?.click()}>Choose backup ZIP</button><input ref={restoreInputRef} hidden type="file" accept="application/zip,.zip" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void restoreFullBackup(file); }} /></div>
+      <details><summary><span className="summary-icon"><Icon name="qr" /></span><span><strong>Backup & data</strong><small>{settings?.setup.backup.last_backup_at ? `Automatic Backup: ${new Date(settings.setup.backup.last_backup_at).toLocaleDateString()}` : "Download, restore, import, and undo"}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
+        <div className="backup-status-card"><div><strong>Automatic Backups</strong><small>{settings?.setup.backup.enabled ? `${settings.setup.backup.backup_count} saved · keeps the latest ${settings.setup.backup.retention}` : "Not enabled on this installation"}</small></div><b className={`health-status ${settings?.setup.backup.enabled && settings.setup.backup.last_backup_at ? "ready" : "needs-attention"}`}>{settings?.setup.backup.last_backup_at ? `Last made ${new Date(settings.setup.backup.last_backup_at).toLocaleString()}` : settings?.setup.backup.enabled ? "Waiting for first Backup" : "Needs attention"}</b></div>
+        {dataActivity && <div className="inline-activity" role="status"><span className="activity-spinner" />{dataActivity}</div>}
+        <div className="button-row data-download-row"><button type="button" className="primary download-button" disabled={Boolean(dataActivity)} onClick={() => void downloadData("/api/v1/admin/export", "findstuff-export.json", "Export")}>Download JSON export</button><button type="button" className="secondary download-button" disabled={Boolean(dataActivity)} onClick={() => void downloadData("/api/v1/admin/backup", "findstuff-backup.zip", "Backup")}>Download full Backup</button></div>
+        <div className="restore-backup-box"><div><strong>Restore a full Backup</strong><span>Choose a Findstuff Backup file to replace every Item, Place, Category, history record, and saved photo. A safety Backup is made first.</span></div><button type="button" className="danger-button" disabled={busy || Boolean(dataActivity)} onClick={() => restoreInputRef.current?.click()}>Choose Backup</button><input ref={restoreInputRef} hidden type="file" accept="application/zip,.zip" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void restoreFullBackup(file); }} /></div>
         <details className="nested-form import-template-box"><summary>Import templates</summary><div className="import-template-grid"><button type="button" className="secondary" onClick={() => downloadImportTemplate("items")}><Icon name="plus" size={15} />Add items</button><button type="button" className="secondary" onClick={() => downloadImportTemplate("quantity")}><Icon name="minus" size={15} />Adjust quantities</button><button type="button" className="secondary" onClick={() => downloadImportTemplate("move")}><Icon name="pin" size={15} />Move/update items</button><button type="button" className="secondary" onClick={() => downloadImportTemplate("structure")}><Icon name="tag" size={15} />Categories & locations</button></div></details>
-        <label className="upload-import"><strong>Import JSON</strong><span>Choose a Findstuff export or operations file to preview it first.</span><input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void readImport(event.target.files[0])} /></label>
+        <label className="upload-import"><strong>Import data</strong><span>Choose a Findstuff export or changes file to preview it first.</span><input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void readImport(event.target.files[0])} /></label>
         {importSummary && <div className="import-preview"><strong>{importErrors.length ? "Import needs fixes" : "Ready to merge"}</strong>{Object.entries(importSummary).map(([name, count]) => <p key={name}><span>{name}</span><b>{count}</b></p>)}{importDetails.length > 0 && <div className="import-detail-list"><span>Dry-run details</span>{importDetails.map((detail) => <article className={`import-detail ${detail.status}`} key={`${detail.index}-${detail.label}`}><b>{detail.status}</b><div><strong>{detail.label}</strong><small>{detail.message}</small></div></article>)}</div>}{importErrors.length > 0 && <div className="import-errors">{importErrors.map((error, index) => <small key={`${index}-${error}`}>{error}</small>)}</div>}<button className="primary" disabled={busy || !importPayload || importErrors.length > 0} onClick={() => void mergeImport()}>Merge into this inventory</button></div>}
-        <div className="import-history"><strong>Recent imports</strong>{importBatches.length === 0 && <div className="empty-inline"><span>No undoable imports yet</span></div>}{importBatches.map((batch) => <article className="import-batch" key={batch.public_id}><div><strong>{batch.mode === "operations" ? "Operations import" : "JSON merge"}</strong><small>{new Date(batch.created_at).toLocaleString()} · {importBatchSummary(batch)}</small>{batch.undone_at && <em>Undone {new Date(batch.undone_at).toLocaleString()}</em>}</div><button className="secondary" disabled={busy || Boolean(batch.undone_at)} onClick={() => void undoImport(batch)}>Undo</button></article>)}</div>
+        <div className="import-history"><strong>Recent imports</strong><small>Only the latest five are kept; older import history is removed automatically.</small>{importBatches.length === 0 && <div className="empty-inline"><span>No undoable imports yet</span></div>}{importBatches.map((batch) => <article className="import-batch" key={batch.public_id}><div><strong>{batch.mode === "operations" ? "Changes import" : "Data import"}</strong><small>{new Date(batch.created_at).toLocaleString()} · {importBatchSummary(batch)}</small>{batch.undone_at && <em>Undone {new Date(batch.undone_at).toLocaleString()}</em>}</div><button className="secondary" disabled={busy || Boolean(batch.undone_at)} onClick={() => void undoImport(batch)}>Undo</button></article>)}</div>
       </div></details>
 
       <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Software update</strong><small>{softwareUpdate ? softwareUpdate.status : "Check latest installed state"}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
