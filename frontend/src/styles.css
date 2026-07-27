@@ -550,6 +550,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .integration-settings { display: grid; gap: 16px; }
 .integration-config-card { display: grid; gap: 10px; }
 .integration-config-card + .integration-config-card { border-top: 1px solid var(--line); padding-top: 16px; }
+.ai-usage-card { display: grid; gap: 9px; border: 1px solid var(--line); border-radius: 13px; padding: 12px; background: var(--card-alt); }
+.ai-usage-card > div:first-child { display: grid; gap: 2px; }
+.ai-usage-card > div:first-child small, .ai-usage-card > small, .ai-usage-card > p { color: var(--muted); font-size: .65rem; line-height: 1.4; }
+.ai-usage-card > p { margin: 0; }
+.ai-usage-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.ai-usage-grid > span { display: grid; min-width: 0; gap: 2px; border-radius: 9px; padding: 8px; background: var(--card); }
+.ai-usage-grid small { color: var(--muted); font-size: .57rem; }
+.ai-usage-grid strong { overflow-wrap: anywhere; font-size: .82rem; }
+.ai-usage-grid .warning strong { color: var(--danger); }
 .integration-config-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .integration-config-heading > div { display: grid; gap: 3px; }
 .integration-config-heading small { color: var(--muted); }
@@ -615,6 +624,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .ai-item-details > p { max-height: 4.3em; overflow: auto; margin: 0; color: var(--ink-soft); font-size: .74rem; line-height: 1.45; white-space: pre-line; }
 .ai-item-details > a { width: fit-content; color: var(--accent-dark); font-size: .68rem; font-weight: 750; }
 .ai-item-details > em { color: #76512e; font-size: .67rem; font-style: normal; }
+.ai-item-specifications { display: grid; gap: 3px; border-left: 2px solid var(--accent); padding-left: 9px; color: var(--ink-soft); font-size: .69rem; }
+.ai-item-specifications > small { color: var(--muted); font-size: .59rem; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
 .ai-proposal-facts { display: flex; flex-wrap: wrap; gap: 6px; }
 .ai-proposal-facts span { display: grid; min-width: 82px; flex: 1 1 82px; gap: 1px; border-radius: 10px; padding: 7px 9px; background: var(--card-alt); }
 .ai-proposal-facts small { color: var(--muted); font-size: .57rem; text-transform: uppercase; }

@@ -18,7 +18,8 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 - Place-based **AI Scan**: take several photos quickly, let a vision model
   identify the objects in the background, then review the results in the
   **Inbox**, one suggestion at a time. Swipe, edit, approve, or reject each
-  suggested Item.
+  suggested Item. Captures are cropped and compressed before upload, and
+  Settings reports monthly AI calls, tokens, failures, and image savings.
 - Full-text search, duplicate detection, low-stock shopping lists, and history.
 - Separate Archive and permanent Delete actions, with an **Archived Items**
   manager in Settings for restoring Items or deleting them forever.
@@ -291,9 +292,20 @@ returning this diagnostic to the browser.
 The model must accept image content for AI Scan. Provider-specific endpoint,
 model, image-size, rate-limit, and billing rules still apply. Photos sent to AI
 Scan leave your server and are processed under the provider's privacy terms.
+Findstuff center-crops AI Scan captures to the visible square, caps them at
+1280 pixels, compresses them before upload, and requests compact structured
+results without verbose reasoning. Results still include a short description
+and up to eight useful specifications.
 The API key is write-only: the browser receives only whether a key is saved.
 Leaving the field empty keeps the current key; **Remove key** explicitly
 deletes it.
+
+The AI integration card shows current-month provider calls, input/output
+tokens, failures, image upload savings, and all-time calls. Provider-reported
+token counts are used when available; otherwise Findstuff shows a text
+estimate. Vision token accounting varies by provider. Retail barcode scanning
+is not included because it uses local decoding, the local cache, and Open Food
+Facts rather than the configured AI provider.
 
 Legacy `FINDSTUFF_AI_ENDPOINT`, `FINDSTUFF_AI_API_KEY`, and
 `FINDSTUFF_AI_MODEL` environment values are used only until configuration is
@@ -308,8 +320,8 @@ To use it:
    the camera remains ready while earlier photos are processed.
 4. Open **More → AI Inbox**. The Inbox is a dedicated photo-first review page,
    separate from Settings.
-5. Review the detected name, brand, model, description, links, confidence, and
-   captured image.
+5. Review the detected name, brand, model, description, specifications, links,
+   confidence, and captured image.
 6. Review one suggestion at a time. Edit its fields, swipe right to approve,
    swipe left to reject, or use the visible **Approve**, **Reject**, and
    **Edit** buttons.
@@ -530,7 +542,7 @@ the new container fails its health check. Application data is untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.3.4`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.3.5`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

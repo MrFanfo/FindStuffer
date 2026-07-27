@@ -2856,13 +2856,13 @@ function AIScanSession({ location, onClose }: {
     }, 260);
   }
 
-  function queue(blob: Blob, width?: number, height?: number) {
+  function queue(blob: Blob, width?: number, height?: number, originalSizeBytes?: number) {
     const id = uid("ai-scan");
     const preview = URL.createObjectURL(blob);
     previewsRef.current.add(preview);
     setScans((current) => [{ id, preview, status: "uploading" as const }, ...current].slice(0, 12));
     flash();
-    void api.createAiScan(location.public_id, blob, width, height).then(() => {
+    void api.createAiScan(location.public_id, blob, width, height, originalSizeBytes).then(() => {
       if (!mountedRef.current) return;
       setScans((current) => current.map((entry) => entry.id === id ? { ...entry, status: "queued" } : entry));
     }).catch((reason) => {
@@ -2878,23 +2878,35 @@ function AIScanSession({ location, onClose }: {
   async function snap() {
     const video = videoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) return;
-    const scale = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
-    const width = Math.max(1, Math.round(video.videoWidth * scale));
-    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    const sourceSize = Math.min(video.videoWidth, video.videoHeight);
+    const sourceX = Math.max(0, (video.videoWidth - sourceSize) / 2);
+    const sourceY = Math.max(0, (video.videoHeight - sourceSize) / 2);
+    const width = Math.max(1, Math.min(1280, sourceSize));
+    const height = width;
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
-    canvas.getContext("2d")?.drawImage(video, 0, 0, width, height);
-    const blob = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not capture photo")), "image/jpeg", 0.86),
+    canvas.getContext("2d")?.drawImage(
+      video,
+      sourceX,
+      sourceY,
+      sourceSize,
+      sourceSize,
+      0,
+      0,
+      width,
+      height,
     );
-    queue(blob, width, height);
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not capture photo")), "image/jpeg", 0.78),
+    );
+    queue(blob, width, height, blob.size);
   }
 
   async function choosePhoto(file: File) {
     try {
-      const resized = await resizePhoto(file);
-      queue(resized.blob, resized.width, resized.height);
+      const resized = await prepareAiScanPhoto(file);
+      queue(resized.blob, resized.width, resized.height, file.size);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not prepare photo");
     }
@@ -3073,6 +3085,43 @@ async function resizePhoto(file: File): Promise<{ blob: Blob; width?: number; he
     return { blob, width, height };
   } catch {
     return { blob: file };
+  }
+}
+
+async function prepareAiScanPhoto(file: File): Promise<{ blob: Blob; width: number; height: number }> {
+  if (!file.type.startsWith("image/")) throw new Error("Choose an image file");
+  const bitmap = await createImageBitmap(file);
+  try {
+    const sourceSize = Math.min(bitmap.width, bitmap.height);
+    const sourceX = Math.max(0, (bitmap.width - sourceSize) / 2);
+    const sourceY = Math.max(0, (bitmap.height - sourceSize) / 2);
+    const size = Math.max(1, Math.min(1280, sourceSize));
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare photo");
+    context.drawImage(
+      bitmap,
+      sourceX,
+      sourceY,
+      sourceSize,
+      sourceSize,
+      0,
+      0,
+      size,
+      size,
+    );
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (value) => value ? resolve(value) : reject(new Error("Could not prepare photo")),
+        "image/jpeg",
+        0.78,
+      ),
+    );
+    return { blob, width: size, height: size };
+  } finally {
+    bitmap.close();
   }
 }
 
@@ -4408,6 +4457,7 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(item?.name || "");
   const [description, setDescription] = useState(item?.description || "");
+  const [notes, setNotes] = useState(item?.notes || "");
   const [brand, setBrand] = useState(item?.brand || "");
   const [model, setModel] = useState(item?.model || "");
   const [barcode, setBarcode] = useState(item?.barcode || "");
@@ -4430,6 +4480,7 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, 
     if (editing || !item) return;
     setName(item.name);
     setDescription(item.description);
+    setNotes(item.notes);
     setBrand(item.brand);
     setModel(item.model);
     setBarcode(item.barcode);
@@ -4444,6 +4495,7 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, 
     await onSave({
       name,
       description,
+      notes,
       brand,
       model,
       barcode,
@@ -4548,6 +4600,7 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, 
                 {item.barcode && <span><small>Barcode</small><strong>{item.barcode}</strong></span>}
               </div>
               {item.description && <p>{item.description}</p>}
+              {item.notes && <div className="ai-item-specifications"><small>Specifications</small>{item.notes.split("\n").filter(Boolean).map((line) => <span key={line}>{line}</span>)}</div>}
               {scan.proposal?.research?.url && <a href={scan.proposal.research.url} target="_blank" rel="noreferrer">{scan.proposal.research.label}</a>}
               {scan.proposal?.warnings.map((warning) => <em key={warning}>{warning}</em>)}
             </div>
@@ -4560,6 +4613,7 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, onSave, 
             <label>Place<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{locations.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label>
             <label>Barcode<input inputMode="numeric" value={barcode} onChange={(event) => setBarcode(event.target.value)} /></label>
             <label>Description<textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+            <label>Specifications<textarea rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Material: Steel&#10;Size: 10 mm" /></label>
             <div className="button-row"><button type="button" onClick={() => setEditing(false)}>Cancel</button><button className="secondary" disabled={busy || !name.trim()}>Save changes</button></div>
           </form>}
           {!editing && <>
@@ -5246,6 +5300,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       }
     } finally {
       setManageActivity("");
+      void load();
     }
   }
 
@@ -5759,6 +5814,18 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
             <label>API key {settings?.integrations.ai.api_key_set && <small>(saved)</small>}<input type="password" autoComplete="new-password" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder="Leave blank to keep the saved key" /></label>
             <div className="button-row"><button className="secondary" disabled={busy}>Save AI settings</button><button type="button" className="outline-button" disabled={busy || Boolean(manageActivity) || !settings?.integrations.ai.endpoint} onClick={() => void testAiConnection()}>Test connection</button>{settings?.integrations.ai.api_key_set && <button type="button" disabled={busy} onClick={() => void clearAiKey()}>Remove key</button>}</div>
           </form>
+          {settings?.integrations.ai.usage && <div className="ai-usage-card">
+            <div><strong>AI usage this month</strong><small>Provider-reported tokens when available; otherwise a text estimate.</small></div>
+            <div className="ai-usage-grid">
+              <span><small>Calls</small><strong>{settings.integrations.ai.usage.calls.toLocaleString()}</strong></span>
+              <span><small>Input tokens</small><strong>{settings.integrations.ai.usage.input_tokens.toLocaleString()}</strong></span>
+              <span><small>Output tokens</small><strong>{settings.integrations.ai.usage.output_tokens.toLocaleString()}</strong></span>
+              <span className={settings.integrations.ai.usage.failed_calls ? "warning" : ""}><small>Failed</small><strong>{settings.integrations.ai.usage.failed_calls.toLocaleString()}</strong></span>
+            </div>
+            <p>{settings.integrations.ai.usage.scan_calls} image scan{settings.integrations.ai.usage.scan_calls === 1 ? "" : "s"} · {settings.integrations.ai.usage.command_calls} command{settings.integrations.ai.usage.command_calls === 1 ? "" : "s"} · {settings.integrations.ai.usage.all_time_calls} calls all time</p>
+            {settings.integrations.ai.usage.image_bytes_saved > 0 && <p>{formatBytes(settings.integrations.ai.usage.image_bytes_saved)} of image upload data avoided by resizing and compression.</p>}
+            <small>Vision-image token accounting varies by provider. Barcode scans are excluded because they use local decoding and Open Food Facts—not AI.</small>
+          </div>}
           {aiDiagnostic && <details id="ai-test-diagnostic" className="ai-diagnostic" open><summary><span>Provider response</span><Icon name="chevron" size={15} /></summary><div><p><span>HTTP status</span><strong>{aiDiagnostic.http_status}</strong></p><p><span>Model</span><code>{aiDiagnostic.model}</code></p><p><span>Response type</span><code>{aiDiagnostic.response_type || "Not provided"}</code></p>{aiDiagnostic.provider_reply && <p><span>Provider reply</span><code>{aiDiagnostic.provider_reply}</code></p>}<small>{aiDiagnostic.hint}</small><label>Safe response preview<textarea readOnly rows={10} value={aiDiagnostic.response_preview || "No response body"} /></label><em>API keys, tokens, passwords, and secrets are redacted. The preview is limited to 4,000 characters.</em></div></details>}
         </section>
         <section className="integration-config-card">

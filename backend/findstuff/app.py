@@ -1007,6 +1007,7 @@ async def post_ai_scan(
     file: Annotated[UploadFile, File()],
     width: Annotated[int | None, Form()] = None,
     height: Annotated[int | None, Form()] = None,
+    original_size_bytes: Annotated[int | None, Form()] = None,
 ) -> dict[str, Any]:
     data = await file.read(5 * 1024 * 1024 + 1)
     try:
@@ -1017,6 +1018,7 @@ async def post_ai_scan(
             declared_type=file.content_type or "",
             width=width,
             height=height,
+            original_size_bytes=original_size_bytes,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from .ai_usage import record_ai_usage
 from .db import transaction
 from .inventory import (
     ConflictError,
@@ -100,17 +101,12 @@ def compact_context(connection: sqlite3.Connection) -> dict[str, Any]:
         ]
 
     return {
-        "locations": flatten(list_location_tree(connection))[:150],
-        "items": [
-            {
-                "name": item["name"],
-                "location": item["location_path"],
-                "quantity": item["quantity"],
-                "unit": item["unit"],
-            }
+        "l": flatten(list_location_tree(connection))[:150],
+        "i": [
+            [item["name"], item["location_path"], item["quantity"], item["unit"]]
             for item in list_items(connection, limit=100)
         ],
-        "units": ["pcs", "g", "kg", "ml", "l", "m", "box", "pack"],
+        "u": ["pcs", "g", "kg", "ml", "l", "m", "box", "pack"],
     }
 
 
@@ -124,9 +120,11 @@ async def call_parser(connection: sqlite3.Connection, text: str) -> Proposal:
     prompt = (
         "Convert the user's inventory instruction into exactly one JSON action. "
         "Never invent identifiers. Use the supplied names and paths. Prices are integer minor "
-        "currency units. A removal is a negative adjust_quantity delta. Output JSON only.\n"
-        f"JSON schema: {json.dumps(schema)}\n"
-        f"Inventory context: {json.dumps(compact_context(connection))}\n"
+        "currency units. A removal is a negative adjust_quantity delta. Context keys: "
+        "l=location paths, i=[name,location,quantity,unit], u=units. Output only JSON; "
+        "no reasoning or Markdown.\n"
+        f"Schema:{json.dumps(schema, separators=(',', ':'))}\n"
+        f"Context:{json.dumps(compact_context(connection), separators=(',', ':'))}\n"
         f"User instruction: {text}"
     )
     headers = {"Content-Type": "application/json"}
@@ -135,24 +133,52 @@ async def call_parser(connection: sqlite3.Connection, text: str) -> Proposal:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(30.0), headers=headers, trust_env=False
     ) as client:
-        response = await client.post(
-            settings.endpoint,
-            json={
-                "model": settings.model,
-                "messages": [
-                    {"role": "system", "content": "You are a strict inventory JSON parser."},
-                    {"role": "user", "content": prompt},
-                ],
-                "response_format": {"type": "json_object"},
-            },
-        )
-        response.raise_for_status()
-        body = response.json()
+        try:
+            response = await client.post(
+                settings.endpoint,
+                json={
+                    "model": settings.model,
+                    "messages": [
+                        {"role": "system", "content": "Strict inventory JSON parser. No reasoning."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            response.raise_for_status()
+            body = response.json()
+        except Exception:
+            record_ai_usage(
+                connection,
+                feature="command",
+                model=settings.model,
+                success=False,
+                prompt_text=prompt,
+            )
+            raise
     try:
         content = body["choices"][0]["message"]["content"]
-        return proposal_adapter.validate_json(content)
+        proposal = proposal_adapter.validate_json(content)
     except (KeyError, IndexError, TypeError, ValueError) as exc:
+        record_ai_usage(
+            connection,
+            feature="command",
+            model=settings.model,
+            success=False,
+            response_body=body,
+            prompt_text=prompt,
+        )
         raise RuntimeError("AI provider returned an invalid structured response") from exc
+    record_ai_usage(
+        connection,
+        feature="command",
+        model=settings.model,
+        success=True,
+        response_body=body,
+        prompt_text=prompt,
+        output_text=content,
+    )
+    return proposal
 
 
 def resolve_item(connection: sqlite3.Connection, query: str) -> dict[str, Any]:

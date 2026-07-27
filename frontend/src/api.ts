@@ -451,6 +451,20 @@ export type ApplicationSettings = {
       endpoint: string;
       model: string;
       api_key_set: boolean;
+      usage: {
+        calls: number;
+        successful_calls: number;
+        failed_calls: number;
+        input_tokens: number;
+        output_tokens: number;
+        estimated_calls: number;
+        scan_calls: number;
+        command_calls: number;
+        image_bytes: number;
+        original_image_bytes: number;
+        image_bytes_saved: number;
+        all_time_calls: number;
+      };
     };
     stt_configured: boolean;
     open_food_facts: boolean;
@@ -865,12 +879,19 @@ export const api = {
     request<void>(`/api/v1/commands/${publicId}/reject`, { method: "POST" }),
   aiScans: (status = "processing,pending,failed") =>
     request<AIScanProposal[]>(`/api/v1/ai-scans?status=${encodeURIComponent(status)}`),
-  createAiScan: (locationPublicId: string, file: Blob, width?: number, height?: number) => {
+  createAiScan: (
+    locationPublicId: string,
+    file: Blob,
+    width?: number,
+    height?: number,
+    originalSizeBytes?: number,
+  ) => {
     const body = new FormData();
     body.append("location_public_id", locationPublicId);
     body.append("file", file, "ai-scan.jpg");
     if (width) body.append("width", String(width));
     if (height) body.append("height", String(height));
+    if (originalSizeBytes) body.append("original_size_bytes", String(originalSizeBytes));
     return request<AIScanProposal>("/api/v1/ai-scans", { method: "POST", body });
   },
   updateAiScan: (publicId: string, body: Record<string, unknown>) =>

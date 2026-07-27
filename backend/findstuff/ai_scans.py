@@ -13,6 +13,7 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from .ai_usage import record_ai_usage
 from .config import get_settings
 from .db import connect, transaction
 from .inventory import (
@@ -37,6 +38,7 @@ class ScanRecognition(BaseModel):
 
     name: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=2000)
+    specifications: dict[str, str] = Field(default_factory=dict)
     category: str = Field(default="", max_length=240)
     brand: str = Field(default="", max_length=240)
     model: str = Field(default="", max_length=240)
@@ -109,6 +111,7 @@ def create_scan(
     declared_type: str,
     width: int | None,
     height: int | None,
+    original_size_bytes: int | None = None,
 ) -> dict[str, Any]:
     location = get_location_row(connection, location_public_id)
     mime_type, extension = validate_image(data, declared_type)
@@ -125,8 +128,8 @@ def create_scan(
                 """
                 INSERT INTO ai_scan_proposals(
                     public_id, location_id, photo_path, mime_type, size_bytes,
-                    width, height, model
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    width, height, model, original_size_bytes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     public_id,
@@ -137,6 +140,7 @@ def create_scan(
                     width,
                     height,
                     get_ai_config(connection).model,
+                    max(len(data), original_size_bytes or 0),
                 ),
             )
     except Exception:
@@ -151,17 +155,29 @@ async def _recognize(connection: sqlite3.Connection, row: sqlite3.Row) -> ScanRe
         raise RuntimeError(
             "AI vision is not configured. Configure it in Settings > Integrations."
         )
-    categories = [entry["path"] for entry in list_categories(connection)]
+    category_paths = [entry["path"] for entry in list_categories(connection)]
     image = base64.b64encode(_scan_file(row).read_bytes()).decode("ascii")
-    schema = recognition_adapter.json_schema()
+    response_template = {
+        "name": "",
+        "description": "",
+        "specifications": {},
+        "category": "",
+        "brand": "",
+        "model": "",
+        "barcode": "",
+        "quantity": 1,
+        "unit": "pcs",
+        "confidence": 0.5,
+        "warnings": [],
+    }
     prompt = (
-        "Identify the single dominant physical inventory item in this image. Read visible "
-        "labels carefully. Return concise, basic catalog information only. Never invent a brand, "
-        "model, barcode, or specification that is not visible or reliably identifiable. Choose "
-        "category from the supplied list, or use an empty string. Mention uncertainty in warnings. "
-        "Output JSON only.\n"
-        f"Allowed category paths: {json.dumps(categories)}\n"
-        f"JSON schema: {json.dumps(schema)}"
+        "Identify the one dominant inventory item. Read visible labels. Return only compact JSON "
+        "matching the template; no reasoning or Markdown. Description: 1-2 useful sentences. "
+        "Specifications: at most 8 short key/value facts that are visible or reliably identifiable. "
+        "Never invent brand, model, barcode, or specifications. Category must exactly match one "
+        "allowed path, otherwise ''. Put uncertainty only in warnings (max 4).\n"
+        f"Categories:{json.dumps(category_paths, separators=(',', ':'))}\n"
+        f"Template:{json.dumps(response_template, separators=(',', ':'))}"
     )
     headers = {"Content-Type": "application/json"}
     if settings.api_key:
@@ -169,39 +185,73 @@ async def _recognize(connection: sqlite3.Connection, row: sqlite3.Row) -> ScanRe
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(60.0), headers=headers, trust_env=False
     ) as client:
-        response = await client.post(
-            settings.endpoint,
-            json={
-                "model": settings.model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a careful visual inventory cataloguer.",
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{row['mime_type']};base64,{image}",
-                                    "detail": "low",
+        try:
+            response = await client.post(
+                settings.endpoint,
+                json={
+                    "model": settings.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "Catalog one item. JSON only; never reveal reasoning.",
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{row['mime_type']};base64,{image}",
+                                        "detail": "low",
+                                    },
                                 },
-                            },
-                        ],
-                    },
-                ],
-                "response_format": {"type": "json_object"},
-            },
-        )
-        response.raise_for_status()
-        body = response.json()
+                            ],
+                        },
+                    ],
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            response.raise_for_status()
+            body = response.json()
+        except Exception:
+            record_ai_usage(
+                connection,
+                feature="scan",
+                model=settings.model,
+                success=False,
+                prompt_text=prompt,
+                image_bytes=row["size_bytes"],
+                original_image_bytes=row["original_size_bytes"],
+            )
+            raise
     try:
         content = body["choices"][0]["message"]["content"]
-        return recognition_adapter.validate_json(content)
+        recognition = recognition_adapter.validate_json(content)
     except (KeyError, IndexError, TypeError, ValueError) as exc:
+        record_ai_usage(
+            connection,
+            feature="scan",
+            model=settings.model,
+            success=False,
+            response_body=body,
+            prompt_text=prompt,
+            image_bytes=row["size_bytes"],
+            original_image_bytes=row["original_size_bytes"],
+        )
         raise RuntimeError("AI provider returned an invalid visual scan result") from exc
+    record_ai_usage(
+        connection,
+        feature="scan",
+        model=settings.model,
+        success=True,
+        response_body=body,
+        prompt_text=prompt,
+        output_text=content,
+        image_bytes=row["size_bytes"],
+        original_image_bytes=row["original_size_bytes"],
+    )
+    return recognition
 
 
 async def _basic_research(name: str, brand: str, model: str) -> dict[str, str] | None:
@@ -259,11 +309,16 @@ def _proposal_from_recognition(
         if research
         else []
     )
+    specifications = [
+        f"{str(key).strip()}: {str(value).strip()}"
+        for key, value in list(recognition.specifications.items())[:8]
+        if str(key).strip() and str(value).strip()
+    ]
     return {
         "item": {
             "name": recognition.name,
             "description": description[:4000],
-            "notes": "",
+            "notes": "\n".join(specifications)[:4000],
             "category_id": category_id,
             "quantity": str(recognition.quantity),
             "unit": recognition.unit,

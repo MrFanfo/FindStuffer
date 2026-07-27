@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from .ai_usage import ai_usage_summary, record_ai_usage
 from .config import get_settings
 from .db import transaction
 from .network_security import validate_http_url
@@ -128,6 +129,7 @@ def public_ai_config(connection: sqlite3.Connection) -> dict[str, Any]:
         "endpoint": config.endpoint,
         "model": config.model,
         "api_key_set": bool(config.api_key),
+        "usage": ai_usage_summary(connection),
     }
 
 
@@ -233,7 +235,19 @@ async def test_ai_connection(connection: sqlite3.Connection) -> dict[str, Any]:
                 ],
             },
         )
+    try:
+        response_body = response.json()
+    except ValueError:
+        response_body = None
     if response.is_error:
+        record_ai_usage(
+            connection,
+            feature="connection_test",
+            model=config.model,
+            success=False,
+            response_body=response_body,
+            prompt_text="Reply with the single word OK.",
+        )
         diagnostic = _ai_diagnostic(
             config,
             response,
@@ -244,8 +258,15 @@ async def test_ai_connection(connection: sqlite3.Connection) -> dict[str, Any]:
             diagnostic,
         )
     try:
-        body = response.json()
+        body = response_body if response_body is not None else response.json()
     except ValueError as exc:
+        record_ai_usage(
+            connection,
+            feature="connection_test",
+            model=config.model,
+            success=False,
+            prompt_text="Reply with the single word OK.",
+        )
         raise AIConnectionTestError(
             "AI provider did not return JSON",
             _ai_diagnostic(
@@ -257,6 +278,14 @@ async def test_ai_connection(connection: sqlite3.Connection) -> dict[str, Any]:
     try:
         content = body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
+        record_ai_usage(
+            connection,
+            feature="connection_test",
+            model=config.model,
+            success=False,
+            response_body=body,
+            prompt_text="Reply with the single word OK.",
+        )
         raise AIConnectionTestError(
             "AI provider returned an unexpected response",
             _ai_diagnostic(
@@ -275,6 +304,14 @@ async def test_ai_connection(connection: sqlite3.Connection) -> dict[str, Any]:
             if isinstance(part, dict) and part.get("type") in {"text", "output_text"}
         )
     if not isinstance(content, str) or not content.strip():
+        record_ai_usage(
+            connection,
+            feature="connection_test",
+            model=config.model,
+            success=False,
+            response_body=body,
+            prompt_text="Reply with the single word OK.",
+        )
         raise AIConnectionTestError(
             "AI provider returned an empty response",
             _ai_diagnostic(
@@ -286,6 +323,15 @@ async def test_ai_connection(connection: sqlite3.Connection) -> dict[str, Any]:
                 ),
             ),
         )
+    record_ai_usage(
+        connection,
+        feature="connection_test",
+        model=config.model,
+        success=True,
+        response_body=body,
+        prompt_text="Reply with the single word OK.",
+        output_text=content,
+    )
     return _ai_diagnostic(
         config,
         response,
