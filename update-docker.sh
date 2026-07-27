@@ -37,7 +37,7 @@ timestamp() {
 write_status() {
   local state="$1"
   local message="$2"
-  local commit="${3:-}"
+  local version="${3:-}"
   local started_at="${UPDATE_STARTED_AT:-}"
   local completed_at=""
   if [[ "$state" == "complete" || "$state" == "failed" ]]; then
@@ -45,10 +45,10 @@ write_status() {
   fi
   local temporary
   temporary="$(mktemp "$DATA_DIR/.update-status.XXXXXX")"
-  printf '{\n  "status": "%s",\n  "message": "%s",\n  "requested_at": null,\n  "started_at": "%s",\n  "completed_at": %s,\n  "commit": %s\n}\n' \
+  printf '{\n  "status": "%s",\n  "message": "%s",\n  "requested_at": null,\n  "started_at": "%s",\n  "completed_at": %s,\n  "version": %s\n}\n' \
     "$state" "$message" "$started_at" \
     "$([[ -n "$completed_at" ]] && printf '"%s"' "$completed_at" || printf 'null')" \
-    "$([[ -n "$commit" ]] && printf '"%s"' "$commit" || printf 'null')" \
+    "$([[ -n "$version" ]] && printf '"%s"' "$version" || printf 'null')" \
     >"$temporary"
   chmod 0644 "$temporary"
   if [[ "$EUID" -eq 0 ]]; then
@@ -93,7 +93,6 @@ branch="$("${GIT[@]}" symbolic-ref --quiet --short HEAD)" || {
 "${GIT[@]}" remote get-url origin >/dev/null
 "${GIT[@]}" fetch --prune origin "$branch"
 "${GIT[@]}" merge --ff-only -- "origin/$branch"
-commit="$("${GIT[@]}" rev-parse --short=12 HEAD)"
 
 if docker info >/dev/null 2>&1; then
   DOCKER=(docker)
@@ -114,8 +113,11 @@ fi
 port="$(sed -n 's/^FINDSTUFF_PORT=//p' "$ROOT/.env" | tail -n 1)"
 port="${port:-8000}"
 ready=0
+installed_version=""
 for _ in $(seq 1 45); do
-  if curl --fail --silent "http://127.0.0.1:${port}/api/v1/health" >/dev/null; then
+  health_response="$(curl --fail --silent "http://127.0.0.1:${port}/api/v1/health" || true)"
+  if [[ -n "$health_response" ]]; then
+    installed_version="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' <<<"$health_response")"
     ready=1
     break
   fi
@@ -126,6 +128,6 @@ if [[ "$ready" -ne 1 ]]; then
   exit 1
 fi
 
-write_status complete "Findstuff is up to date and healthy." "$commit"
+write_status complete "Findstuff is up to date and healthy." "$installed_version"
 update_succeeded=1
-echo "[$(timestamp)] Findstuff update complete at commit $commit."
+echo "[$(timestamp)] Findstuff update complete at version ${installed_version:-unknown}."

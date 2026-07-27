@@ -577,13 +577,16 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .suggestion-row > div:last-child { display: grid; align-content: start; gap: 7px; }
 .suggestion-row button { min-height: 39px; border: 1px solid var(--line); border-radius: 10px; padding: 0 11px; font-weight: 800; }
 .suggestion-row button:not(.primary) { color: var(--danger); background: var(--danger-soft); }
-.ai-proposal-list { display: grid; gap: 10px; }
+.ai-inbox-page { display: grid; gap: 14px; padding-bottom: 24px; }
+.ai-inbox-header { position: relative; }
+.ai-proposal-list { display: grid; gap: 14px; }
 .inline-activity { display: flex; min-height: 42px; align-items: center; gap: 9px; border-radius: 11px; padding: 8px 11px; color: var(--accent-dark); background: var(--accent-soft); font-size: .76rem; font-weight: 800; }
 .ai-inbox-toolbar { position: sticky; z-index: 4; top: 6px; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 13px; padding: 8px; background: color-mix(in srgb, var(--card) 94%, transparent); box-shadow: 0 8px 24px #18302714; backdrop-filter: blur(10px); }
 .ai-inbox-toolbar span { margin-right: auto; color: var(--muted); font-size: .7rem; font-weight: 800; }
 .ai-inbox-toolbar button { min-height: 38px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; font-size: .68rem; font-weight: 850; }
 .ai-inbox-toolbar .high-confidence-action { display: inline-flex; flex: 1 1 220px; align-items: center; justify-content: center; gap: 6px; color: #fff; background: var(--ink); }
-.ai-proposal-card { position: relative; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; padding: 11px; background: var(--card); transform: translateX(var(--swipe-offset, 0)); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; touch-action: pan-y; }
+.ai-proposal-card { position: relative; display: grid; width: min(100%, 760px); grid-template-columns: minmax(0, 1fr); gap: 13px; overflow: hidden; justify-self: center; border: 1px solid var(--line); border-radius: 17px; padding: 11px; background: var(--card); transform: translate3d(var(--swipe-offset, 0), 0, 0); transition: border-color .16s ease, box-shadow .16s ease; touch-action: pan-y; user-select: none; will-change: transform; }
+.ai-proposal-card.swipe-settling { transition: transform .2s cubic-bezier(.2, .82, .3, 1), border-color .16s ease, box-shadow .16s ease; }
 .ai-proposal-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .ai-proposal-card.processing { border-style: dashed; }
 .ai-proposal-card.failed { border-color: #e2a99d; background: var(--danger-soft); }
@@ -593,8 +596,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .ai-swipe-cue.reject { right: 10px; background: var(--danger); }
 .ai-swipe-cue.approve { left: 10px; background: var(--accent); }
 .ai-proposal-card.swiping-left .ai-swipe-cue.reject, .ai-proposal-card.swiping-right .ai-swipe-cue.approve { opacity: var(--swipe-opacity); }
-.ai-proposal-photo { position: relative; min-height: 112px; overflow: hidden; border-radius: 12px; background: var(--sage-soft); }
-.ai-proposal-photo img { width: 100%; height: 100%; min-height: 112px; object-fit: cover; }
+.ai-proposal-photo { position: relative; width: 100%; min-height: 240px; overflow: hidden; aspect-ratio: 4 / 3; border-radius: 13px; background: var(--sage-soft); }
+.ai-proposal-photo img { width: 100%; height: 100%; min-height: 240px; object-fit: contain; }
 .ai-proposal-photo > span { position: absolute; right: 5px; bottom: 5px; left: 5px; border-radius: 7px; padding: 4px 5px; color: #fff; background: #101f19d9; font-size: .58rem; font-weight: 850; text-align: center; }
 .ai-proposal-main { display: grid; min-width: 0; align-content: start; gap: 8px; }
 .ai-proposal-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
@@ -942,10 +945,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .quick-photo-controls { display: grid; grid-template-columns: .58fr 1.42fr; gap: 8px; }
 .quick-photo-controls button { min-height: 58px; border-radius: 16px; }
 .quick-shutter { min-height: 58px; border-radius: 16px; font-size: .9rem; }
-.ai-scan-sheet { gap: 10px; }
+.ai-scan-sheet { position: relative; gap: 10px; padding-top: 12px; }
+.ai-scan-close { position: absolute; z-index: 7; top: 20px; right: 20px; }
 .ai-scan-camera { min-height: min(56dvh, 570px); }
-.ai-scan-frame { position: absolute; z-index: 2; width: min(78vw, 58dvh, 450px); aspect-ratio: 1; pointer-events: none; border: 2px solid #fff; border-radius: 22px; box-shadow: 0 0 0 999px #07110d52, inset 0 0 0 1px #0005; }
+.ai-scan-target { position: absolute; z-index: 2; top: 50%; left: 50%; display: grid; width: min(78vw, 48dvh, 450px); gap: 12px; justify-items: center; transform: translate(-50%, -45%); pointer-events: none; }
+.ai-scan-frame { position: relative; width: 100%; aspect-ratio: 1; pointer-events: none; border: 2px solid #fff; border-radius: 22px; box-shadow: 0 0 0 999px #07110d52, inset 0 0 0 1px #0005; }
 .ai-scan-frame span { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); border-radius: 999px; padding: 4px 9px; color: #fff; background: #101f19d9; font-size: .62rem; font-weight: 850; text-transform: uppercase; }
+.ai-overlay-shutter { z-index: 3; display: inline-flex; min-width: 170px; min-height: 50px; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; pointer-events: auto; box-shadow: 0 10px 30px #0008; font-size: .86rem; font-weight: 900; }
 .ai-scan-status { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 9px; }
 .ai-scan-status div { display: grid; min-width: 76px; border: 1px solid #ffffff1f; border-radius: 11px; padding: 8px; background: #ffffff0d; }
 .ai-scan-status strong { color: #fff; font-size: 1.05rem; }
@@ -958,10 +964,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .ai-scan-strip img { width: 100%; height: 100%; object-fit: cover; }
 .ai-scan-strip span { position: absolute; right: 3px; bottom: 3px; left: 3px; overflow: hidden; border-radius: 5px; padding: 2px; color: #fff; background: #07110dcc; font-size: .52rem; font-weight: 800; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .ai-scan-strip small { display: none; }
-.ai-scan-controls { display: grid; grid-template-columns: .9fr 1.4fr .65fr; gap: 7px; }
+.ai-scan-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .ai-scan-controls > * { display: inline-flex; min-height: 54px; align-items: center; justify-content: center; border-radius: 14px; }
 .ai-scan-controls label { color: #fff; border-color: #ffffff38; background: #ffffff12; cursor: pointer; }
-.ai-shutter { font-size: .88rem; }
 @keyframes photo-flash { 0% { opacity: .78; } 100% { opacity: 0; } }
 
 .off-mapping-page { display: grid; gap: 14px; padding-bottom: 20px; }
@@ -1216,8 +1221,8 @@ button:active:not(:disabled) { transform: scale(.98); }
   .default-chip.editing div { justify-content: flex-end; }
   .suggestion-row { grid-template-columns: 1fr; }
   .suggestion-row > div:last-child { grid-template-columns: 1fr 1fr; }
-  .ai-proposal-card { grid-template-columns: 84px minmax(0, 1fr); gap: 9px; padding: 9px; }
-  .ai-proposal-photo, .ai-proposal-photo img { min-height: 92px; }
+  .ai-proposal-card { gap: 10px; padding: 9px; }
+  .ai-proposal-photo, .ai-proposal-photo img { min-height: 220px; }
   .ai-proposal-actions { grid-template-columns: 1fr 1fr; }
   .ai-proposal-actions .primary { grid-column: 1 / -1; }
   .ai-proposal-form { grid-column: 1 / -1; }
@@ -1225,8 +1230,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   .backup-status-card { align-items: flex-start; flex-direction: column; }
   .ai-scan-status { grid-template-columns: auto auto; }
   .ai-scan-status > small { grid-column: 1 / -1; text-align: left; }
-  .ai-scan-controls { grid-template-columns: 1fr 1.35fr; }
-  .ai-scan-controls > button:last-child { grid-column: 1 / -1; min-height: 44px; }
+  .ai-scan-controls { grid-template-columns: 1fr 1fr; }
   .location-branch, .category-branch { padding-left: calc(min(var(--depth), 3) * 11px); }
   .mapping-card { grid-template-columns: 1fr; }
   .mapping-card.compact { grid-template-columns: minmax(0, 1fr) auto; }

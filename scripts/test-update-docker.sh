@@ -31,7 +31,7 @@ git -C "$SEED" push --quiet origin HEAD:main
 
 mkdir -p "$FAKE_BIN"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$FAKE_BIN/docker"
-printf '#!/usr/bin/env bash\nexit 0\n' >"$FAKE_BIN/curl"
+printf '#!/usr/bin/env bash\nprintf '"'"'{"status":"ok","version":"9.9.9"}'"'"'\n' >"$FAKE_BIN/curl"
 chmod +x "$FAKE_BIN/docker" "$FAKE_BIN/curl"
 
 PATH="$FAKE_BIN:$PATH" "$INSTALL/update-docker.sh"
@@ -39,5 +39,5 @@ PATH="$FAKE_BIN:$PATH" "$INSTALL/update-docker.sh"
 test -f "$INSTALL/release-marker"
 test ! -e "$INSTALL/data/update-request"
 grep -q '"status": "complete"' "$INSTALL/data/update-status.json"
-grep -q '"commit": "' "$INSTALL/data/update-status.json"
+grep -q '"version": "' "$INSTALL/data/update-status.json"
 echo "Updater integration test passed."

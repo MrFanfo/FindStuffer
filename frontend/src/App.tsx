@@ -41,7 +41,7 @@ import {
   isRequestAborted,
 } from "./api";
 
-type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "off-category-mappings" | "dashboard" | "manage";
+type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "off-category-mappings" | "ai-inbox" | "dashboard" | "manage";
 type CaptureMode = "scan" | "quick" | "putaway" | "consume" | "assistant";
 type PlacesSection = "locations" | "categories";
 type ThemePreference = "light" | "dark" | "system";
@@ -1294,7 +1294,7 @@ function App() {
 
   const navView = view === "location" || view === "locations" || view === "category" || view === "categories"
     ? "places"
-    : view === "add" || view === "scan" ? "capture" : view === "off-category-mappings" ? "manage" : view;
+    : view === "add" || view === "scan" ? "capture" : view === "off-category-mappings" || view === "ai-inbox" ? "manage" : view;
   return (
     <div className="app-shell">
       {busy && <div className="activity-banner" role="status" aria-live="polite"><span className="activity-spinner" aria-hidden="true" /><strong>{activityMessage || "Saving changes…"}</strong></div>}
@@ -1453,9 +1453,10 @@ function App() {
           />
         )}
         {view === "off-category-mappings" && <OffCategoryMappingsView categories={categories} busy={busy} onBack={() => navigate("manage")} onOpenItem={setSelectedItem} onNotice={setNotice} />}
+        {view === "ai-inbox" && <AIScanInboxView categories={categories} locations={locations} units={units} busy={busy} onBack={() => navigate("manage")} onInventoryChanged={() => refresh()} notify={notify} />}
         {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onNavigate={navigate} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} />}
         {view === "manage" && (
-          <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onOffCategoryMappings={() => navigate("off-category-mappings")} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} onUnitsChanged={setUnits} onCreateType={(name) => run(() => api.createLocationType(name), "Place type added", "all")} />
+          <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onOffCategoryMappings={() => navigate("off-category-mappings")} onInbox={() => navigate("ai-inbox")} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} onUnitsChanged={setUnits} onCreateType={(name) => run(() => api.createLocationType(name), "Place type added", "all")} />
         )}
         {selectedItem && view !== "inventory" && (
           <ItemDetail
@@ -2888,16 +2889,19 @@ function AIScanSession({ location, onClose }: {
   return (
     <div className="quick-photo-backdrop ai-scan-backdrop" role="dialog" aria-modal="true" aria-label="AI scan mode">
       <section className="quick-photo-sheet ai-scan-sheet">
-        <header><div><p className="eyebrow">AI SCAN</p><h2>{location.name}</h2><span>Photograph one item at a time. Keep snapping while AI works.</span></div><button className="icon-button" onClick={onClose} aria-label="Close AI scan mode"><Icon name="close" /></button></header>
+        <button className="icon-button ai-scan-close" onClick={onClose} aria-label="Close AI scan mode"><Icon name="close" /></button>
         <div className={`quick-photo-camera ai-scan-camera ${pulse ? "pulsing" : ""}`}>
           <video ref={videoRef} playsInline muted />
-          {!cameraReady && <div><Icon name="camera" size={38} /><strong>{error ? "Use phone camera below" : "Opening camera…"}</strong></div>}
-          <div className="ai-scan-frame" aria-hidden="true"><span>One item</span></div>
+          {!cameraReady && <div className="ai-camera-placeholder"><Icon name="camera" size={38} /><strong>{error ? "Camera unavailable" : "Opening camera…"}</strong></div>}
+          <div className="ai-scan-target">
+            <div className="ai-scan-frame" aria-hidden="true"><span>One item</span></div>
+            <button className="primary ai-overlay-shutter" disabled={!cameraReady} onClick={() => void snap()} aria-label="Photograph item"><Icon name="camera" size={22} />Snap Item</button>
+          </div>
         </div>
         {error && <div className="inline-alert">{error}</div>}
-        <div className="ai-scan-status"><div><strong>{queued}</strong><span>sent to Inbox</span></div><div><strong>{uploading}</strong><span>{uploading === 1 ? "Uploading 1 photo" : `Uploading ${uploading} photos`}</span></div><small>{uploading ? "AI processing continues in the background." : "Review results in More → Inbox."}</small></div>
+        <div className="ai-scan-status"><div><strong>{queued}</strong><span>sent to Inbox</span></div><div><strong>{uploading}</strong><span>{uploading === 1 ? "Uploading 1 photo" : `Uploading ${uploading} photos`}</span></div>{uploading > 0 && <small>AI processing continues in the background.</small>}</div>
         {scans.length > 0 && <div className="ai-scan-strip">{scans.map((entry) => <div className={entry.status} key={entry.id}><img src={entry.preview} alt="AI scan capture" /><span>{entry.status === "uploading" ? "Sending" : entry.status === "queued" ? "Queued" : "Failed"}</span>{entry.error && <small>{entry.error}</small>}</div>)}</div>}
-        <div className="ai-scan-controls"><label className="secondary button-with-icon"><Icon name="camera" size={18} />Phone camera<input type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void choosePhoto(file); }} /></label><button className="primary ai-shutter" disabled={!cameraReady} onClick={() => void snap()} aria-label="Photograph item"><Icon name="camera" size={24} />Snap item</button><button onClick={onClose}>Done</button></div>
+        <div className="ai-scan-controls"><label className="secondary button-with-icon"><Icon name="camera" size={18} />Choose photo<input type="file" accept="image/*" capture="environment" hidden onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void choosePhoto(file); }} /></label><button onClick={onClose}>Done</button></div>
       </section>
     </div>
   );
@@ -4400,7 +4404,14 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, selected
   const [categoryId, setCategoryId] = useState(item?.category_id ? String(item.category_id) : "");
   const [locationId, setLocationId] = useState(scan.location_public_id);
   const [swipeOffset, setSwipeOffset] = useState(0);
-  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const [swipeSettling, setSwipeSettling] = useState(false);
+  const swipeOffsetRef = useRef(0);
+  const swipeFrame = useRef<number | null>(null);
+  const swipeStart = useRef<{ x: number; y: number; pointerId: number; axis: "x" | "y" | null } | null>(null);
+
+  useEffect(() => () => {
+    if (swipeFrame.current !== null) window.cancelAnimationFrame(swipeFrame.current);
+  }, []);
 
   useEffect(() => {
     if (editing || !item) return;
@@ -4431,35 +4442,70 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, selected
     setEditing(false);
   }
 
+  function moveSwipe(offset: number) {
+    swipeOffsetRef.current = offset;
+    if (swipeFrame.current !== null) window.cancelAnimationFrame(swipeFrame.current);
+    swipeFrame.current = window.requestAnimationFrame(() => {
+      setSwipeOffset(offset);
+      swipeFrame.current = null;
+    });
+  }
+
   function finishSwipe() {
-    const action = swipeOffset > 84 ? onApprove : swipeOffset < -84 ? onReject : null;
-    setSwipeOffset(0);
+    const offset = swipeOffsetRef.current;
+    const threshold = Math.min(110, Math.max(76, window.innerWidth * 0.2));
+    const action = offset > threshold ? onApprove : offset < -threshold ? onReject : null;
+    const direction = offset > 0 ? 1 : -1;
     swipeStart.current = null;
-    if (action && scan.status === "pending" && !busy && !editing) void action();
+    if (action && scan.status === "pending" && !busy && !editing) {
+      setSwipeSettling(true);
+      moveSwipe(direction * Math.max(window.innerWidth, 520));
+      window.setTimeout(() => {
+        void action().finally(() => {
+          moveSwipe(0);
+          setSwipeSettling(false);
+        });
+      }, 180);
+      return;
+    }
+    setSwipeSettling(true);
+    moveSwipe(0);
+    window.setTimeout(() => setSwipeSettling(false), 180);
   }
 
   return <article
-    className={`ai-proposal-card ${scan.status} ${selected ? "selected" : ""} ${swipeOffset > 0 ? "swiping-right" : swipeOffset < 0 ? "swiping-left" : ""}`}
+    className={`ai-proposal-card ${scan.status} ${selected ? "selected" : ""} ${swipeSettling ? "swipe-settling" : ""} ${swipeOffset > 0 ? "swiping-right" : swipeOffset < 0 ? "swiping-left" : ""}`}
     style={{ "--swipe-offset": `${swipeOffset}px`, "--swipe-opacity": Math.min(1, Math.abs(swipeOffset) / 70) } as CSSProperties}
-    onTouchStart={(event) => {
-      if (editing || scan.status !== "pending") return;
-      swipeStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+    onPointerDown={(event) => {
+      if (editing || scan.status !== "pending" || busy || swipeSettling || !event.isPrimary) return;
+      if (event.target instanceof Element && event.target.closest("button, input, select, textarea, label, a")) return;
+      swipeStart.current = { x: event.clientX, y: event.clientY, pointerId: event.pointerId, axis: null };
+      event.currentTarget.setPointerCapture(event.pointerId);
     }}
-    onTouchMove={(event) => {
+    onPointerMove={(event) => {
       const start = swipeStart.current;
-      if (!start || editing || scan.status !== "pending") return;
-      const x = event.touches[0].clientX - start.x;
-      const y = event.touches[0].clientY - start.y;
-      if (Math.abs(x) > Math.abs(y) + 8) setSwipeOffset(Math.max(-125, Math.min(125, x)));
+      if (!start || start.pointerId !== event.pointerId || editing || scan.status !== "pending") return;
+      const x = event.clientX - start.x;
+      const y = event.clientY - start.y;
+      if (!start.axis && Math.max(Math.abs(x), Math.abs(y)) > 8) start.axis = Math.abs(x) > Math.abs(y) + 4 ? "x" : "y";
+      if (start.axis === "x") {
+        event.preventDefault();
+        const resistance = 1 - Math.min(0.28, Math.abs(x) / Math.max(window.innerWidth, 1) * 0.28);
+        moveSwipe(Math.max(-180, Math.min(180, x * resistance)));
+      }
     }}
-    onTouchEnd={finishSwipe}
-    onTouchCancel={() => { setSwipeOffset(0); swipeStart.current = null; }}
+    onPointerUp={(event) => {
+      if (swipeStart.current?.pointerId !== event.pointerId) return;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      finishSwipe();
+    }}
+    onPointerCancel={() => { moveSwipe(0); swipeStart.current = null; }}
   >
     {scan.status === "pending" && <label className="ai-proposal-select"><input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /><span>Select</span></label>}
     <div className="ai-swipe-cue reject" aria-hidden="true">Reject</div><div className="ai-swipe-cue approve" aria-hidden="true">Approve</div>
     <div className="ai-proposal-photo"><img src={scan.photo_url} alt={item?.name || "AI Inbox photo"} /><span>{scan.status === "processing" ? "AI processing" : scan.status === "failed" ? "Needs attention" : `${Math.round((scan.proposal?.confidence || 0) * 100)}% confidence`}</span></div>
     <div className="ai-proposal-main">
-      {scan.status === "processing" && <div className="ai-proposal-wait"><strong>Analyzing photo…</strong><small>{scan.location_path} · You can leave Settings while this runs.</small></div>}
+      {scan.status === "processing" && <div className="ai-proposal-wait"><strong>Analyzing photo…</strong><small>{scan.location_path} · You can leave the Inbox while this runs.</small></div>}
       {scan.status === "failed" && <div className="ai-proposal-wait error"><strong>Scan could not be analyzed</strong><small>{scan.error || "The AI provider did not return a result."}</small><div><button className="primary" disabled={busy} onClick={() => void onRetry()}>Retry</button><button disabled={busy} onClick={() => void onReject()}>Reject</button></div></div>}
       {scan.status === "pending" && item && <>
         {!editing ? <>
@@ -4484,7 +4530,149 @@ function AIScanProposalCard({ scan, categories, locations, units, busy, selected
   </article>;
 }
 
-function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, notify, onThemeChange, onInventoryChanged, onLocations, onCategories, onOffCategoryMappings, onOpenItem, onMarkFound, onForeverLost, onUnitsChanged, onCreateType }: {
+function AIScanInboxView({ categories, locations, units, busy, onBack, onInventoryChanged, notify }: {
+  categories: Category[];
+  locations: LocationNode[];
+  units: string[];
+  busy: boolean;
+  onBack: () => void;
+  onInventoryChanged: () => Promise<void>;
+  notify: (message: string, action?: Omit<RetryNotice, "message">) => void;
+}) {
+  const [scans, setScans] = useState<AIScanProposal[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [reviewBusy, setReviewBusy] = useState("");
+  const [loading, setLoading] = useState(true);
+  const flatLocations = useMemo(() => flattenLocations(locations), [locations]);
+  const load = useCallback(async () => {
+    try {
+      setScans(await api.aiScans());
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not load the AI Inbox");
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
+  useEffect(() => { void load(); }, [load]);
+  const processing = scans.some((scan) => scan.status === "processing");
+  useEffect(() => {
+    if (!processing) return;
+    const timer = window.setInterval(() => void load(), 2500);
+    return () => window.clearInterval(timer);
+  }, [load, processing]);
+  useEffect(() => {
+    const available = new Set(scans.filter((scan) => scan.status === "pending").map((scan) => scan.public_id));
+    setSelected((current) => new Set(Array.from(current).filter((publicId) => available.has(publicId))));
+  }, [scans]);
+
+  async function performScan(
+    action: () => Promise<unknown>,
+    success: string,
+    inventoryChanged = false,
+  ) {
+    setReviewBusy("Updating Inbox…");
+    try {
+      await action();
+      notify(success);
+      await load();
+      if (inventoryChanged) await onInventoryChanged();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "The AI scan action could not be completed");
+    } finally {
+      setReviewBusy("");
+    }
+  }
+
+  async function approveScans(chosen: AIScanProposal[]) {
+    const pending = chosen.filter((scan) => scan.status === "pending");
+    if (!pending.length || reviewBusy) return;
+    setReviewBusy(`Approving ${pending.length} Item${pending.length === 1 ? "" : "s"}…`);
+    try {
+      const created: Item[] = [];
+      for (const scan of pending) created.push(await api.approveAiScan(scan.public_id));
+      setSelected(new Set());
+      await load();
+      await onInventoryChanged();
+      notify(`${created.length} Item${created.length === 1 ? "" : "s"} approved`, {
+        label: "Undo",
+        action: async () => {
+          for (const item of created) {
+            const current = await api.item(item.public_id);
+            await api.archive(current);
+          }
+          await load();
+          await onInventoryChanged();
+          notify(`${created.length} approval${created.length === 1 ? "" : "s"} undone`);
+        },
+      });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "The Items could not be approved");
+      await load();
+      await onInventoryChanged();
+    } finally {
+      setReviewBusy("");
+    }
+  }
+
+  async function rejectScans(chosen: AIScanProposal[]) {
+    const pending = chosen.filter((scan) => scan.status === "pending");
+    if (!pending.length || reviewBusy) return;
+    setReviewBusy(`Rejecting ${pending.length} proposal${pending.length === 1 ? "" : "s"}…`);
+    try {
+      for (const scan of pending) await api.rejectAiScan(scan.public_id);
+      setSelected(new Set());
+      await load();
+      notify(`${pending.length} proposal${pending.length === 1 ? "" : "s"} rejected`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "The proposals could not be rejected");
+      await load();
+    } finally {
+      setReviewBusy("");
+    }
+  }
+
+  const pendingCount = scans.filter((scan) => scan.status === "pending").length;
+  return <section className="ai-inbox-page">
+    <div className="subpage-header ai-inbox-header">
+      <button type="button" className="text-button" onClick={onBack}>Back</button>
+      <div><p className="eyebrow">AI SCAN</p><h1>Inbox</h1><p>{pendingCount ? `${pendingCount} suggestion${pendingCount === 1 ? "" : "s"} ready to review.` : processing ? "AI is working on your photos." : "Approve, edit, or reject scanned Items."}</p></div>
+    </div>
+    {reviewBusy && <div className="inline-activity" role="status"><span className="activity-spinner" />{reviewBusy}</div>}
+    {scans.some((scan) => scan.status === "pending") && <div className="ai-inbox-toolbar">
+      <button type="button" className="secondary" disabled={Boolean(reviewBusy)} onClick={() => setSelected(new Set(scans.filter((scan) => scan.status === "pending").map((scan) => scan.public_id)))}>Select all</button>
+      {selected.size > 0 && <button type="button" onClick={() => setSelected(new Set())}>Clear</button>}
+      <span>{selected.size} selected</span>
+      <button type="button" className="primary" disabled={!selected.size || Boolean(reviewBusy)} onClick={() => void approveScans(scans.filter((scan) => selected.has(scan.public_id)))}>Approve selected</button>
+      <button type="button" className="danger-button" disabled={!selected.size || Boolean(reviewBusy)} onClick={() => void rejectScans(scans.filter((scan) => selected.has(scan.public_id)))}>Reject selected</button>
+      <button type="button" className="high-confidence-action" disabled={Boolean(reviewBusy) || !scans.some((scan) => scan.status === "pending" && (scan.proposal?.confidence || 0) >= 0.85)} onClick={() => void approveScans(scans.filter((scan) => scan.status === "pending" && (scan.proposal?.confidence || 0) >= 0.85))}><Icon name="spark" size={15} />Approve all high-confidence</button>
+    </div>}
+    {loading && <div className="inline-activity" role="status"><span className="activity-spinner" />Loading Inbox…</div>}
+    {!loading && scans.length === 0 && <EmptyState icon="spark" title="Your Inbox is clear" text="New AI Scan results will appear here automatically." />}
+    <div className="ai-proposal-list">
+      {scans.map((scan) => <AIScanProposalCard
+        key={scan.public_id}
+        scan={scan}
+        categories={categories}
+        locations={flatLocations}
+        units={units}
+        busy={busy || Boolean(reviewBusy)}
+        selected={selected.has(scan.public_id)}
+        onSelect={(checked) => setSelected((current) => {
+          const next = new Set(current);
+          if (checked) next.add(scan.public_id); else next.delete(scan.public_id);
+          return next;
+        })}
+        onSave={(changes) => performScan(() => api.updateAiScan(scan.public_id, changes), "AI scan proposal updated")}
+        onApprove={() => approveScans([scan])}
+        onReject={() => performScan(() => api.rejectAiScan(scan.public_id), "AI scan proposal rejected")}
+        onRetry={() => performScan(() => api.retryAiScan(scan.public_id), "AI scan queued again")}
+      />)}
+    </div>
+  </section>;
+}
+
+function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, notify, onThemeChange, onInventoryChanged, onLocations, onCategories, onOffCategoryMappings, onInbox, onOpenItem, onMarkFound, onForeverLost, onUnitsChanged, onCreateType }: {
   items: Item[];
   dashboard: Dashboard | null;
   locations: LocationNode[];
@@ -4500,6 +4688,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   onLocations: () => void;
   onCategories: () => void;
   onOffCategoryMappings: () => void;
+  onInbox: () => void;
   onOpenItem: (item: Item) => void;
   onMarkFound: (item: Item) => Promise<void>;
   onForeverLost: (item: Item) => Promise<void>;
@@ -4511,11 +4700,6 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [settings, setSettings] = useState<ApplicationSettings | null>(null);
   const [rules, setRules] = useState<LocationRule[]>([]);
   const [suggestions, setSuggestions] = useState<EnrichmentSuggestion[]>([]);
-  const [aiScans, setAiScans] = useState<AIScanProposal[]>([]);
-  const [aiScansOpen, setAiScansOpen] = useState(false);
-  const [selectedAiScans, setSelectedAiScans] = useState<Set<string>>(() => new Set());
-  const [aiReviewBusy, setAiReviewBusy] = useState("");
-  const sawAiScansRef = useRef(false);
   const [softwareUpdate, setSoftwareUpdate] = useState<SoftwareUpdateStatus | null>(null);
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
@@ -4570,13 +4754,12 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
 
   const load = useCallback(async () => {
     try {
-      const [nextProjects, nextLoans, nextSettings, nextRules, nextSuggestions, nextAiScans, nextUpdate, nextImports] = await Promise.all([
+      const [nextProjects, nextLoans, nextSettings, nextRules, nextSuggestions, nextUpdate, nextImports] = await Promise.all([
         api.projects(),
         api.loans(),
         api.settings(),
         api.locationRules(),
         api.enrichmentSuggestions("pending"),
-        api.aiScans(),
         api.softwareUpdateStatus(),
         api.importBatches(),
       ]);
@@ -4587,7 +4770,6 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       onUnitsChanged(nextSettings.units);
       setRules(nextRules);
       setSuggestions(nextSuggestions);
-      setAiScans(nextAiScans);
       setImportBatches(nextImports);
       setNotificationsEnabled(nextSettings.notifications.enabled);
       setNotificationUrl(nextSettings.notifications.ntfy_url);
@@ -4612,24 +4794,6 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
     }
   }, [flatLocations, items, loanItem, reservableItems, reserveItem, reserveProject, ruleLocation, setNotice]);
   useEffect(() => { void load(); }, []);
-  useEffect(() => {
-    if (aiScans.length > 0 && !sawAiScansRef.current) {
-      sawAiScansRef.current = true;
-      setAiScansOpen(true);
-    }
-  }, [aiScans.length]);
-  const aiScansProcessing = aiScans.some((scan) => scan.status === "processing");
-  useEffect(() => {
-    if (!aiScansProcessing) return;
-    const timer = window.setInterval(() => {
-      void api.aiScans().then(setAiScans).catch(() => undefined);
-    }, 2500);
-    return () => window.clearInterval(timer);
-  }, [aiScansProcessing]);
-  useEffect(() => {
-    const available = new Set(aiScans.filter((scan) => scan.status === "pending").map((scan) => scan.public_id));
-    setSelectedAiScans((current) => new Set(Array.from(current).filter((publicId) => available.has(publicId))));
-  }, [aiScans]);
 
   async function perform(action: () => Promise<unknown>, success: string) {
     setManageActivity("Saving changes…");
@@ -4644,72 +4808,6 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
     }
   }
 
-  async function performAIScan(
-    action: () => Promise<unknown>,
-    success: string,
-    inventoryChanged = false,
-  ) {
-    setAiReviewBusy("Updating Inbox…");
-    try {
-      await action();
-      setNotice(success);
-      await load();
-      if (inventoryChanged) await onInventoryChanged();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "The AI scan action could not be completed");
-    } finally {
-      setAiReviewBusy("");
-    }
-  }
-
-  async function approveAIScans(scans: AIScanProposal[]) {
-    const pending = scans.filter((scan) => scan.status === "pending");
-    if (!pending.length || aiReviewBusy) return;
-    setAiReviewBusy(`Approving ${pending.length} Item${pending.length === 1 ? "" : "s"}…`);
-    try {
-      const created: Item[] = [];
-      for (const scan of pending) created.push(await api.approveAiScan(scan.public_id));
-      setSelectedAiScans(new Set());
-      await load();
-      await onInventoryChanged();
-      notify(`${created.length} Item${created.length === 1 ? "" : "s"} approved`, {
-        label: "Undo",
-        action: async () => {
-          for (const item of created) {
-            const current = await api.item(item.public_id);
-            await api.archive(current);
-          }
-          await load();
-          await onInventoryChanged();
-          notify(`${created.length} approval${created.length === 1 ? "" : "s"} undone`);
-        },
-      });
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "The Items could not be approved");
-      await load();
-      await onInventoryChanged();
-    } finally {
-      setAiReviewBusy("");
-    }
-  }
-
-  async function rejectAIScans(scans: AIScanProposal[]) {
-    const pending = scans.filter((scan) => scan.status === "pending");
-    if (!pending.length || aiReviewBusy) return;
-    setAiReviewBusy(`Rejecting ${pending.length} proposal${pending.length === 1 ? "" : "s"}…`);
-    try {
-      for (const scan of pending) await api.rejectAiScan(scan.public_id);
-      setSelectedAiScans(new Set());
-      await load();
-      notify(`${pending.length} proposal${pending.length === 1 ? "" : "s"} rejected`);
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "The proposals could not be rejected");
-      await load();
-    } finally {
-      setAiReviewBusy("");
-    }
-  }
-
   async function createProject(event: FormEvent) {
     event.preventDefault();
     await perform(() => api.createProject(projectName, projectDescription), "Project created");
@@ -4717,7 +4815,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   }
 
   async function requestUpdate() {
-    if (!window.confirm("Update Findstuff from the latest GitHub commit? The app will restart when the update finishes.")) return;
+    if (!window.confirm("Install the latest FindStuffer release? The app will restart when the update finishes.")) return;
     await perform(async () => {
       const status = await api.requestSoftwareUpdate();
       setSoftwareUpdate(status);
@@ -5323,46 +5421,23 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       detail: system.app.version,
     },
   ] : [];
+  const updateLabel = softwareUpdate?.status === "queued" || softwareUpdate?.status === "running"
+    ? "Updating…"
+    : softwareUpdate?.status === "failed" || softwareUpdate?.status === "attention"
+      ? "Needs attention"
+      : softwareUpdate?.update_available === true
+        ? "Update available"
+        : softwareUpdate?.update_available === false
+          ? "Up to date"
+          : "Check for updates";
 
   return (
     <section className="manage-page">
-      <details className="setup-health" open><summary><span className="summary-icon"><Icon name="check" /></span><span><strong>Setup health</strong><small>{setupHealth.filter((entry) => entry.status === "Needs attention").length ? `${setupHealth.filter((entry) => entry.status === "Needs attention").length} need attention` : "Everything important is ready"}</small></span><Icon name="chevron" /></summary><div className="manage-panel setup-health-grid">{setupHealth.map((entry) => <article key={entry.label}><span>{entry.label}</span><b className={`health-status ${entry.status.toLowerCase().replace(" ", "-")}`}>{entry.status}</b><small>{entry.detail}</small></article>)}</div></details>
       {manageActivity && <div className="inline-activity manage-activity" role="status"><span className="activity-spinner" />{manageActivity}</div>}
+      <button className="feature-link ai-inbox-link" onClick={onInbox}><span><Icon name="spark" /></span><div><strong>AI Inbox</strong><small>Review photos and approve, edit, or reject suggested Items</small></div><Icon name="chevron" /></button>
       <button className="feature-link" onClick={onLocations}><span><Icon name="pin" /></span><div><strong>Places</strong><small>Build your room, shelf, drawer, and box hierarchy</small></div><Icon name="chevron" /></button>
       <button className="feature-link" onClick={onCategories}><span><Icon name="tag" /></span><div><strong>Categories</strong><small>{categories.length} Categories · hierarchy, details, and default Places</small></div><Icon name="chevron" /></button>
       <button className="feature-link" onClick={onOffCategoryMappings}><span><Icon name="spark" /></span><div><strong>Open Food Facts category mapping</strong><small>Review scanned categories, assignments, and JSON imports</small></div><Icon name="chevron" /></button>
-
-      <details open={aiScansOpen} onToggle={(event) => setAiScansOpen(event.currentTarget.open)}><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Inbox</strong><small>{aiScans.length ? `${aiScans.length} AI suggestion${aiScans.length === 1 ? "" : "s"} to review` : "Nothing waiting for review"}</small></span><Icon name="chevron" /></summary><div className="manage-panel ai-proposal-list">
-        <p className="panel-copy">AI processes photos in the background. Review, edit, approve, or reject each suggested Item here.</p>
-        {aiReviewBusy && <div className="inline-activity" role="status"><span className="activity-spinner" />{aiReviewBusy}</div>}
-        {aiScans.some((scan) => scan.status === "pending") && <div className="ai-inbox-toolbar">
-          <button type="button" className="secondary" disabled={Boolean(aiReviewBusy)} onClick={() => setSelectedAiScans(new Set(aiScans.filter((scan) => scan.status === "pending").map((scan) => scan.public_id)))}>Select all</button>
-          {selectedAiScans.size > 0 && <button type="button" onClick={() => setSelectedAiScans(new Set())}>Clear</button>}
-          <span>{selectedAiScans.size} selected</span>
-          <button type="button" className="primary" disabled={!selectedAiScans.size || Boolean(aiReviewBusy)} onClick={() => void approveAIScans(aiScans.filter((scan) => selectedAiScans.has(scan.public_id)))}>Approve selected</button>
-          <button type="button" className="danger-button" disabled={!selectedAiScans.size || Boolean(aiReviewBusy)} onClick={() => void rejectAIScans(aiScans.filter((scan) => selectedAiScans.has(scan.public_id)))}>Reject selected</button>
-          <button type="button" className="high-confidence-action" disabled={Boolean(aiReviewBusy) || !aiScans.some((scan) => scan.status === "pending" && (scan.proposal?.confidence || 0) >= 0.85)} onClick={() => void approveAIScans(aiScans.filter((scan) => scan.status === "pending" && (scan.proposal?.confidence || 0) >= 0.85))}><Icon name="spark" size={15} />Approve all high-confidence</button>
-        </div>}
-        {aiScans.length === 0 && <div className="empty-inline"><span>Your Inbox is clear</span></div>}
-        {aiScans.map((scan) => <AIScanProposalCard
-          key={scan.public_id}
-          scan={scan}
-          categories={categories}
-          locations={flatLocations}
-          units={units}
-          busy={busy || Boolean(aiReviewBusy)}
-          selected={selectedAiScans.has(scan.public_id)}
-          onSelect={(selected) => setSelectedAiScans((current) => {
-            const next = new Set(current);
-            if (selected) next.add(scan.public_id); else next.delete(scan.public_id);
-            return next;
-          })}
-          onSave={(changes) => performAIScan(() => api.updateAiScan(scan.public_id, changes), "AI scan proposal updated")}
-          onApprove={() => approveAIScans([scan])}
-          onReject={() => performAIScan(() => api.rejectAiScan(scan.public_id), "AI scan proposal rejected")}
-          onRetry={() => performAIScan(() => api.retryAiScan(scan.public_id), "AI scan queued again")}
-        />)}
-      </div></details>
 
       <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Appearance</strong><small>{theme === "system" ? "Follows this device" : `${theme[0].toUpperCase()}${theme.slice(1)} theme`}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="theme-options" role="radiogroup" aria-label="Color theme">{(["light", "dark", "system"] as ThemePreference[]).map((option) => <button type="button" role="radio" aria-checked={theme === option} className={theme === option ? "active" : ""} key={option} onClick={() => onThemeChange(option)}><span className={`theme-preview ${option}`} aria-hidden="true" /><strong>{option === "system" ? "Device" : option[0].toUpperCase() + option.slice(1)}</strong><small>{option === "system" ? "Match system setting" : `${option} colors`}</small></button>)}</div></div></details>
 
@@ -5441,16 +5516,16 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         <div className="import-history"><strong>Recent imports</strong><small>Only the latest five are kept; older import history is removed automatically.</small>{importBatches.length === 0 && <div className="empty-inline"><span>No undoable imports yet</span></div>}{importBatches.map((batch) => <article className="import-batch" key={batch.public_id}><div><strong>{batch.mode === "operations" ? "Changes import" : "Data import"}</strong><small>{new Date(batch.created_at).toLocaleString()} · {importBatchSummary(batch)}</small>{batch.undone_at && <em>Undone {new Date(batch.undone_at).toLocaleString()}</em>}</div><button className="secondary" disabled={busy || Boolean(batch.undone_at)} onClick={() => void undoImport(batch)}>Undo</button></article>)}</div>
       </div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Software update</strong><small>{softwareUpdate ? softwareUpdate.status : "Check latest installed state"}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
-        <p className="panel-copy">{softwareUpdate?.enabled ? "Securely asks the host updater to fast-forward this installation from its configured Git origin, pull the container image, and restart Findstuff." : "In-app updates are disabled for this installation. Update safely on the host with ./update-docker.sh."}</p>
+      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Software update</strong><small>{updateLabel}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
+        <p className="panel-copy">{softwareUpdate?.enabled ? "Install published FindStuffer releases without leaving the app." : "In-app updates are disabled for this installation. Update safely on the Linux machine with ./update-docker.sh."}</p>
         <div className="integration-list update-status-list">
-          <p><span>Status</span><b className={`integration-status ${softwareUpdate?.status === "complete" ? "ready" : ""}`}>{softwareUpdate?.status || "unknown"}</b></p>
-          <p><span>Message</span><small>{softwareUpdate?.message || "No update status yet"}</small></p>
-          {softwareUpdate?.commit && <p><span>Commit</span><code>{softwareUpdate.commit}</code></p>}
+          <p><span>Status</span><b className={`integration-status ${updateLabel === "Up to date" ? "ready" : ""}`}>{updateLabel}</b></p>
+          <p><span>Installed version</span><code>{softwareUpdate?.current_version || system?.app.version || "Unknown"}</code></p>
+          {softwareUpdate?.latest_version && <p><span>Latest release</span>{softwareUpdate.release_url ? <a href={softwareUpdate.release_url} target="_blank" rel="noreferrer">v{softwareUpdate.latest_version}</a> : <code>{softwareUpdate.latest_version}</code>}</p>}
           {softwareUpdate?.completed_at && <p><span>Finished</span><small>{new Date(softwareUpdate.completed_at).toLocaleString()}</small></p>}
         </div>
         {softwareUpdate?.log_tail && softwareUpdate.log_tail.length > 0 && <details className="nested-form" open={softwareUpdate.status === "failed" || softwareUpdate.status === "attention"}><summary>Recent updater log · last 30 lines</summary><pre className="log-tail">{softwareUpdate.log_tail.join("\n")}</pre></details>}
-        <div className="button-row">{softwareUpdate?.enabled && <button className="primary" disabled={busy || softwareUpdate?.status === "running" || softwareUpdate?.status === "queued"} onClick={() => void requestUpdate()}><Icon name="spark" size={16} />Update Findstuff</button>}<button className="secondary" disabled={busy} onClick={() => void perform(async () => setSoftwareUpdate(await api.softwareUpdateStatus()), "Update status refreshed")}>Refresh status</button></div>
+        <div className="button-row">{softwareUpdate?.enabled && <button className="primary" disabled={busy || softwareUpdate?.status === "running" || softwareUpdate?.status === "queued" || softwareUpdate?.update_available === false} onClick={() => void requestUpdate()}><Icon name="spark" size={16} />Install update</button>}<button className="secondary" disabled={busy} onClick={() => void perform(async () => setSoftwareUpdate(await api.softwareUpdateStatus()), "Update status refreshed")}>Check again</button></div>
       </div></details>
 
       <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Integrations</strong><small>Configure AI and Home Assistant MQTT</small></span><Icon name="chevron" /></summary><div className="manage-panel integration-settings">
@@ -5487,6 +5562,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         {enrichmentFile !== null && <button className="primary wide" onClick={() => void perform(async () => { const result = await api.importEnrichmentResponse(enrichmentFile); setEnrichmentFile(null); await load(); return result; }, "Enrichment response imported")}>Validate and import suggestions</button>}
         <div className="suggestion-list">{suggestions.length === 0 && <div className="empty-inline"><span>No pending suggestions</span></div>}{suggestions.map((suggestion) => <article className="suggestion-row" key={suggestion.public_id}><div><strong>{suggestion.item_name}</strong><small>{suggestion.path} · {Math.round(suggestion.confidence * 100)}% confidence</small><code>{typeof suggestion.value === "object" ? JSON.stringify(suggestion.value) : String(suggestion.value)}</code>{suggestion.sources[0]?.url && <a href={suggestion.sources[0].url} target="_blank" rel="noreferrer">{suggestion.sources[0].label || "Source"}</a>}{suggestion.uncertainty && <em>{suggestion.uncertainty}</em>}</div><div><button className="primary" onClick={() => void perform(async () => { await api.acceptSuggestion(suggestion.public_id); await onInventoryChanged(); }, "Suggestion accepted")}>Accept</button><button onClick={() => void perform(() => api.rejectSuggestion(suggestion.public_id), "Suggestion rejected")}>Reject</button></div></article>)}</div>
       </div></details>
+      <details className="setup-health"><summary><span className="summary-icon"><Icon name="check" /></span><span><strong>Setup health</strong><small>{setupHealth.filter((entry) => entry.status === "Needs attention").length ? `${setupHealth.filter((entry) => entry.status === "Needs attention").length} need attention` : "Everything important is ready"}</small></span><Icon name="chevron" /></summary><div className="manage-panel setup-health-grid">{setupHealth.map((entry) => <article key={entry.label}><span>{entry.label}</span><b className={`health-status ${entry.status.toLowerCase().replace(" ", "-")}`}>{entry.status}</b><small>{entry.detail}</small></article>)}</div></details>
     </section>
   );
 }

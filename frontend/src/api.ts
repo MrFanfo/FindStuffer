@@ -485,7 +485,12 @@ export type SoftwareUpdateStatus = {
   requested_at: string | null;
   started_at: string | null;
   completed_at: string | null;
-  commit: string | null;
+  version: string | null;
+  current_version: string;
+  latest_version: string | null;
+  update_available: boolean | null;
+  release_url: string | null;
+  release_check_error: string | null;
   request_pending: boolean;
   log_tail: string[];
 };

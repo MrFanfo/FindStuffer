@@ -109,14 +109,15 @@ docker compose ps
 ```
 
 Replace `CHANGE_ME_10_CHARS_MIN` with at least 10 characters
-before starting. Prefer a versioned image tag:
+before starting. Keep the default update channel for one-click updates:
 
 ```env
-FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.2.1
+FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:latest
 ```
 
-`latest` follows the newest successful build from `main`; a release tag gives
-reproducible upgrades and easier rollback.
+`latest` follows the newest successful tagged release build and lets the in-app
+updater pull the next release. Advanced users can pin a versioned tag for
+reproducible deployments, but must change that tag manually to upgrade.
 
 ### Build locally
 
@@ -297,7 +298,8 @@ To use it:
 2. Tap **AI Scan**.
 3. Take several photos in succession. Each capture is queued independently, so
    the camera remains ready while earlier photos are processed.
-4. Open **More → Inbox**.
+4. Open **More → AI Inbox**. The Inbox is a dedicated photo-first review page,
+   separate from Settings.
 5. Review the detected name, brand, model, description, links, confidence, and
    captured image.
 6. Edit fields inline, swipe right to approve and left to reject, select
@@ -483,8 +485,9 @@ guide lives at `skills/findstuff-enrichment-agent/SKILL.md`.
 
 ## Updating from the app or host
 
-The normal `./install.sh` setup enables **Manage → Software update**. Pressing
-**Update Findstuff**:
+The normal `./install.sh` setup enables **More → Software update**. The panel
+compares the installed version with the latest published GitHub release.
+Pressing **Install update**:
 
 1. requires the normal administrator login;
 2. writes only `data/update-request`;
@@ -496,8 +499,9 @@ The normal `./install.sh` setup enables **Manage → Software update**. Pressing
 8. waits for the unauthenticated health endpoint before reporting success.
 
 The browser cannot choose a repository, branch, command, or filesystem path.
-The container has no Docker socket and no host root access. Progress and the
-last 30 log lines appear in the Software update panel.
+The container has no Docker socket and no host root access. Progress,
+installed/latest versions, and the last 30 log lines appear in the Software
+update panel.
 
 Check the host watcher:
 
@@ -516,10 +520,10 @@ An update stops if the Git checkout has tracked local modifications, is on a
 detached commit, cannot fast-forward, cannot reach the configured origin, or
 the new container fails its health check. Application data is untouched.
 
-`latest` is the simplest channel and follows successful builds from `main`.
-For controlled production releases, set a version in `.env`, for example
-`FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.2.0`; change that value before
-running the updater. To roll back, restore the prior image tag and run
+`latest` is the simplest channel and is required for automatic image upgrades
+from the app. For controlled production releases, set a version in `.env`, for
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.3.0`; change that value
+manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
 To deliberately disable the app button:

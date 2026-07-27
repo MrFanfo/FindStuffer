@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
+
+from . import __version__
 from .config import get_settings
+
+RELEASES_API = "https://api.github.com/repos/MrFanfo/FindStuffer/releases/latest"
+RELEASE_CACHE_SECONDS = 300
+_release_cache: tuple[float, dict[str, Any]] | None = None
 
 
 def _now() -> str:
@@ -53,6 +62,46 @@ def _docker_hint() -> str:
     )
 
 
+def _version_key(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", value)[:3])
+
+
+def _latest_release() -> dict[str, Any]:
+    global _release_cache
+    now = time.monotonic()
+    if _release_cache and now - _release_cache[0] < RELEASE_CACHE_SECONDS:
+        return _release_cache[1]
+    result: dict[str, Any] = {
+        "latest_version": None,
+        "release_url": None,
+        "release_check_error": None,
+    }
+    try:
+        with httpx.Client(
+            timeout=3,
+            trust_env=False,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": f"FindStuffer/{__version__}",
+            },
+        ) as client:
+            response = client.get(RELEASES_API)
+            response.raise_for_status()
+            payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Unexpected release response")
+        tag = payload.get("tag_name")
+        if isinstance(tag, str) and tag.strip():
+            result["latest_version"] = tag.removeprefix("v")
+        url = payload.get("html_url")
+        if isinstance(url, str) and url.startswith("https://github.com/"):
+            result["release_url"] = url
+    except (httpx.HTTPError, json.JSONDecodeError, ValueError):
+        result["release_check_error"] = "Could not check GitHub releases."
+    _release_cache = (now, result)
+    return result
+
+
 def software_update_status() -> dict[str, Any]:
     request_path, status_path, log_path = _paths()
     status: dict[str, Any] = {
@@ -61,9 +110,14 @@ def software_update_status() -> dict[str, Any]:
         "requested_at": None,
         "started_at": None,
         "completed_at": None,
-        "commit": None,
+        "version": None,
         "request_pending": request_path.exists(),
         "log_tail": _log_tail(log_path),
+        "current_version": __version__,
+        "latest_version": None,
+        "update_available": None,
+        "release_url": None,
+        "release_check_error": None,
     }
     if status_path.exists():
         try:
@@ -81,6 +135,13 @@ def software_update_status() -> dict[str, Any]:
         )
     status["request_pending"] = request_path.exists()
     status["log_tail"] = _log_tail(log_path)
+    status.pop("commit", None)
+    if get_settings().software_update_enabled:
+        release = _latest_release()
+        status.update(release)
+        latest = release["latest_version"]
+        if isinstance(latest, str):
+            status["update_available"] = _version_key(latest) > _version_key(__version__)
     return status
 
 
@@ -94,7 +155,7 @@ def request_software_update() -> dict[str, Any]:
         "requested_at": _now(),
         "started_at": None,
         "completed_at": None,
-        "commit": None,
+        "version": None,
     }
     status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
     request_path.write_text(json.dumps({"requested_at": status["requested_at"]}), encoding="utf-8")
