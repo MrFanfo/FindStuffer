@@ -1463,7 +1463,7 @@ function App() {
           />
         )}
         {view === "off-category-mappings" && <OffCategoryMappingsView categories={categories} busy={busy} onBack={() => navigate("manage")} onOpenItem={setSelectedItem} onNotice={setNotice} />}
-        {view === "default-rules" && <DefaultRulesView locations={locations} categories={categories} locationTypes={locationTypes} busy={busy} onBack={() => navigate("manage")} onChanged={() => refresh(undefined, { showBusy: false })} notify={notify} />}
+        {view === "default-rules" && <DefaultRulesView locations={locations} categories={categories} busy={busy} onBack={() => navigate("manage")} onChanged={() => refresh(undefined, { showBusy: false })} notify={notify} />}
         {view === "ai-inbox" && <AIScanInboxView categories={categories} locations={locations} units={units} busy={busy} onBack={() => navigate("manage")} onInventoryChanged={() => refresh()} notify={notify} />}
         {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onNavigate={navigate} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} />}
         {view === "manage" && (
@@ -1935,12 +1935,15 @@ function InventoryView({
 
 type SearchableFilterOption = { id: string; label: string; detail?: string };
 
-function SearchableFilterPicker({ title, icon, options, selectedId, emptyLabel, onChoose, onClose }: {
+function SearchableFilterPicker({ title, icon, options, selectedId, emptyLabel, contextLabel = "INVENTORY FILTER", emptyDetail = "Clear this filter", topLayer = false, onChoose, onClose }: {
   title: string;
   icon: IconName;
   options: SearchableFilterOption[];
   selectedId: string;
   emptyLabel: string;
+  contextLabel?: string;
+  emptyDetail?: string;
+  topLayer?: boolean;
   onChoose: (id: string) => void;
   onClose: () => void;
 }) {
@@ -1958,7 +1961,7 @@ function SearchableFilterPicker({ title, icon, options, selectedId, emptyLabel, 
     onChoose(id);
     onClose();
   }
-  return <div className="modal-backdrop picker-backdrop searchable-filter-backdrop" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><article className="picker-sheet searchable-filter-sheet"><header><button type="button" className="icon-button" onClick={onClose} aria-label="Close filter"><Icon name="close" size={17} /></button><div><p className="eyebrow">INVENTORY FILTER</p><h2>{title}</h2></div></header><label className="searchable-filter-input"><Icon name="search" size={19} /><input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${title.replace("Filter by ", "")}…`} aria-label={title} />{query && <button type="button" onClick={() => setQuery("")} aria-label="Clear filter search"><Icon name="close" size={15} /></button>}</label><div className="searchable-filter-results"><button type="button" className={!selectedId ? "selected" : ""} onClick={() => choose("")}><span className="searchable-filter-icon"><Icon name={icon} size={17} /></span><span><strong>{emptyLabel}</strong><small>Clear this filter</small></span>{!selectedId && <Icon name="check" size={17} />}</button>{visibleOptions.map((option) => <button type="button" className={selectedId === option.id ? "selected" : ""} key={option.id} onClick={() => choose(option.id)}><span className="searchable-filter-icon"><Icon name={icon} size={17} /></span><span><strong>{option.label}</strong>{option.detail && <small>{option.detail}</small>}</span>{selectedId === option.id && <Icon name="check" size={17} />}</button>)}{visibleOptions.length === 0 && <div className="empty-inline"><span>No matching options</span></div>}</div></article></div>;
+  return <div className={`modal-backdrop picker-backdrop searchable-filter-backdrop ${topLayer ? "top-layer" : ""}`} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><article className="picker-sheet searchable-filter-sheet"><header><button type="button" className="icon-button" onClick={onClose} aria-label="Close picker"><Icon name="close" size={17} /></button><div><p className="eyebrow">{contextLabel}</p><h2>{title}</h2></div></header><label className="searchable-filter-input"><Icon name="search" size={19} /><input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${title.replace("Filter by ", "")}…`} aria-label={title} />{query && <button type="button" onClick={() => setQuery("")} aria-label="Clear picker search"><Icon name="close" size={15} /></button>}</label><div className="searchable-filter-results"><button type="button" className={!selectedId ? "selected" : ""} onClick={() => choose("")}><span className="searchable-filter-icon"><Icon name={icon} size={17} /></span><span><strong>{emptyLabel}</strong><small>{emptyDetail}</small></span>{!selectedId && <Icon name="check" size={17} />}</button>{visibleOptions.map((option) => <button type="button" className={selectedId === option.id ? "selected" : ""} key={option.id} onClick={() => choose(option.id)}><span className="searchable-filter-icon"><Icon name={icon} size={17} /></span><span><strong>{option.label}</strong>{option.detail && <small>{option.detail}</small>}</span>{selectedId === option.id && <Icon name="check" size={17} />}</button>)}{visibleOptions.length === 0 && <div className="empty-inline"><span>No matching options</span></div>}</div></article></div>;
 }
 
 function formulaGuideMarkdown(categories: Category[], locations: LocationNode[], tags: string[], units: string[]): string {
@@ -4686,10 +4689,9 @@ type LocationRuleDraft = {
   enabled: boolean;
 };
 
-function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, onChanged, notify }: {
+function DefaultRulesView({ locations, categories, busy, onBack, onChanged, notify }: {
   locations: LocationNode[];
   categories: Category[];
-  locationTypes: LocationType[];
   busy: boolean;
   onBack: () => void;
   onChanged: () => Promise<void>;
@@ -4697,7 +4699,6 @@ function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, 
 }) {
   const flatLocations = useMemo(() => flattenLocations(locations), [locations]);
   const [rules, setRules] = useState<LocationRule[]>([]);
-  const [types, setTypes] = useState<LocationType[]>(locationTypes);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -4707,6 +4708,7 @@ function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, 
   const [locationFilter, setLocationFilter] = useState("all");
   const [selectedId, setSelectedId] = useState("");
   const [editorMode, setEditorMode] = useState<"create" | "edit" | null>(null);
+  const [editorPicker, setEditorPicker] = useState<"category" | "location" | null>(null);
   const [draft, setDraft] = useState<LocationRuleDraft>({
     rule_type: "name",
     match_value: "",
@@ -4714,7 +4716,6 @@ function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, 
     priority: "100",
     enabled: true,
   });
-  const [customType, setCustomType] = useState("");
 
   const loadRules = useCallback(async () => {
     try {
@@ -4727,7 +4728,6 @@ function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, 
     }
   }, []);
   useEffect(() => { void loadRules(); }, [loadRules]);
-  useEffect(() => setTypes(locationTypes), [locationTypes]);
 
   const selectedRule = rules.find((rule) => rule.public_id === selectedId) || null;
   const filteredRules = useMemo(() => {
@@ -4827,24 +4827,6 @@ function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, 
     }
   }
 
-  async function createLocationType(event: FormEvent) {
-    event.preventDefault();
-    const name = customType.trim();
-    if (!name) return;
-    setSaving(true);
-    try {
-      const created = await api.createLocationType(name);
-      setTypes((current) => current.some((entry) => entry.name === created.name) ? current : [...current, created]);
-      setCustomType("");
-      await onChanged();
-      notify("Place type added");
-    } catch (reason) {
-      notify(reason instanceof Error ? reason.message : "Could not add Place type");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   function ruleDescription(rule: LocationRule): string {
     if (rule.rule_type === "barcode") return `An Item with barcode ${rule.match_value} goes to this Place. Barcode matches are exact.`;
     if (rule.rule_type === "category") return `Items in ${rule.match_value}, including its child Categories, go to this Place.`;
@@ -4858,7 +4840,7 @@ function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, 
   return <section className="default-rules-page">
     <header className="default-rules-header">
       <button type="button" className="text-button" onClick={onBack}><Icon name="chevron" size={16} />Back to More</button>
-      <div><p className="eyebrow">DEFAULT LOCATIONS</p><h1>Rules & Place types</h1><span>Choose where matching Items should go automatically.</span></div>
+      <div><p className="eyebrow">DEFAULT LOCATIONS</p><h1>Default rules</h1><span>Choose where matching Items should go automatically.</span></div>
       <button type="button" className="primary button-with-icon" onClick={startCreate}><Icon name="plus" size={16} />New rule</button>
     </header>
 
@@ -4894,23 +4876,24 @@ function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, 
         <div className="default-rule-detail-heading"><span><Icon name={selectedRule.rule_type === "category" ? "tag" : selectedRule.rule_type === "barcode" ? "qr" : "search"} size={20} /></span><div><small>{selectedRule.rule_type === "name" ? "ITEM NAME RULE" : `${selectedRule.rule_type.toUpperCase()} RULE`}</small><h2>{selectedRule.match_value}</h2></div><b className={`integration-status ${selectedRule.enabled ? "ready" : ""}`}>{selectedRule.enabled ? "Enabled" : "Disabled"}</b></div>
         <p>{ruleDescription(selectedRule)}</p>
         <div className="default-rule-route"><div><span>When this matches</span><strong>{selectedRule.match_value}</strong></div><Icon name="chevron" /><div><span>Send to</span><strong>{selectedLocation?.path || selectedRule.location_name}</strong></div></div>
-        <dl className="default-rule-facts"><div><dt>Match type</dt><dd>{selectedRule.rule_type}</dd></div><div><dt>Priority</dt><dd>{selectedRule.priority}</dd></div><div><dt>Place</dt><dd>{selectedLocation?.path || selectedRule.location_name}</dd></div><div><dt>Rule ID</dt><dd><code>{selectedRule.public_id}</code></dd></div></dl>
-        <small className="default-rule-priority-note">Specific matches win first; priority decides between equally specific rules.</small>
+        <dl className="default-rule-facts"><div><dt>Match type</dt><dd>{selectedRule.rule_type}</dd></div><div><dt>Priority</dt><dd>{selectedRule.priority} · tie-breaker</dd></div><div><dt>Place</dt><dd>{selectedLocation?.path || selectedRule.location_name}</dd></div><div><dt>Status</dt><dd>{selectedRule.enabled ? "Enabled" : "Disabled"}</dd></div></dl>
+        <small className="default-rule-priority-note">You normally do not need to change priority. It only decides between equally specific matching rules; the higher number wins.</small>
+        <details className="nested-form default-rule-technical"><summary>Technical details</summary><div><span>Rule ID</span><code>{selectedRule.public_id}</code><small>Internal identifier used by the app and API. You do not need to manage it.</small></div></details>
         <div className="default-rule-detail-actions"><button type="button" className="primary" disabled={busy || saving} onClick={() => startEdit(selectedRule)}><Icon name="settings" size={15} />Edit rule</button><button type="button" className="secondary" disabled={busy || saving} onClick={() => void toggleRule(selectedRule)}>{selectedRule.enabled ? "Disable" : "Enable"}</button><button type="button" className="danger-button" disabled={busy || saving} onClick={() => void deleteRule(selectedRule)}><Icon name="close" size={14} />Delete</button></div>
       </aside> : <aside className="default-rule-detail-empty"><span><Icon name="settings" size={25} /></span><h2>Select a rule</h2><p>Its match behavior, destination, priority, and controls will appear here.</p></aside>}
     </div>
 
-    <details className="place-types-panel"><summary><span className="summary-icon"><Icon name="box" /></span><span><strong>Place types</strong><small>{types.length} available types</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="type-chip-row">{types.map((entry) => <span key={entry.name}>{entry.name}</span>)}</div><form className="form-card compact-form type-form" onSubmit={createLocationType}><label>New Place type<input value={customType} onChange={(event) => setCustomType(event.target.value)} placeholder="crate, suitcase, rack…" /></label><button className="secondary" disabled={busy || saving || !customType.trim()}>Add type</button></form></div></details>
-
     {editorMode && <div className="rule-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorMode(null); }}><form className="rule-editor-sheet" onSubmit={saveRule}>
       <header><div><p className="eyebrow">{editorMode === "edit" ? "EDIT DEFAULT" : "NEW DEFAULT"}</p><h2>{editorMode === "edit" ? "Modify rule" : "Create a rule"}</h2></div><button type="button" className="icon-button" onClick={() => setEditorMode(null)} aria-label="Close rule editor"><Icon name="close" /></button></header>
-      <label>Match type<select value={draft.rule_type} onChange={(event) => { const ruleType = event.target.value as LocationRuleDraft["rule_type"]; setDraft((current) => ({ ...current, rule_type: ruleType, priority: editorMode === "create" ? ruleType === "barcode" ? "500" : "100" : current.priority })); }}><option value="name">Item name contains</option><option value="barcode">Exact barcode</option><option value="category">Category or child Category</option></select></label>
-      <label>Match value<input required autoFocus inputMode={draft.rule_type === "barcode" ? "numeric" : "text"} list={draft.rule_type === "category" ? "default-rule-category-options" : undefined} value={draft.match_value} onChange={(event) => setDraft((current) => ({ ...current, match_value: event.target.value }))} placeholder={draft.rule_type === "barcode" ? "807680…" : draft.rule_type === "category" ? "Electronics > Components" : "pasta, cable, ESP32…"} /><small>{draft.rule_type === "barcode" ? "Must match the barcode exactly." : draft.rule_type === "category" ? "Matches this Category and its children." : "Matches anywhere in the Item name, ignoring case."}</small></label>
-      <datalist id="default-rule-category-options">{categories.map((category) => <option value={categoryOptionLabel(category)} key={category.id} />)}</datalist>
-      <label>Destination Place<select required value={draft.location_public_id} onChange={(event) => setDraft((current) => ({ ...current, location_public_id: event.target.value }))}>{flatLocations.map((location) => <option value={location.public_id} key={location.public_id}>{location.path}</option>)}</select></label>
-      <div className="form-row"><label>Priority<input required type="number" min="0" max="10000" value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} /><small>Higher wins between equally specific rules.</small></label><label className="toggle rule-enabled-toggle"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span><strong>Enabled</strong><small>Use this rule for suggestions</small></span></label></div>
+      <label>Match type<select value={draft.rule_type} onChange={(event) => { const ruleType = event.target.value as LocationRuleDraft["rule_type"]; setDraft((current) => ({ ...current, rule_type: ruleType, match_value: "", priority: editorMode === "create" ? ruleType === "barcode" ? "500" : "100" : current.priority })); if (ruleType === "category") setEditorPicker("category"); }}><option value="name">Item name contains</option><option value="barcode">Exact barcode</option><option value="category">Category or child Category</option></select></label>
+      {draft.rule_type === "category" ? <div className="picker-field rule-editor-picker-field"><span>Category or child Category</span><button type="button" onClick={() => setEditorPicker("category")}><Icon name="tag" size={16} /><strong>{draft.match_value || "Choose a Category"}</strong><Icon name="chevron" size={15} /></button><small>Matches the selected Category and all Categories below it.</small></div> : <label>Match value<input required autoFocus inputMode={draft.rule_type === "barcode" ? "numeric" : "text"} value={draft.match_value} onChange={(event) => setDraft((current) => ({ ...current, match_value: event.target.value }))} placeholder={draft.rule_type === "barcode" ? "807680…" : "pasta, cable, ESP32…"} /><small>{draft.rule_type === "barcode" ? "Must match the barcode exactly." : "Matches anywhere in the Item name, ignoring case."}</small></label>}
+      <div className="picker-field rule-editor-picker-field"><span>Destination Place</span><button type="button" onClick={() => setEditorPicker("location")}><Icon name="pin" size={16} /><strong>{flatLocations.find((location) => location.public_id === draft.location_public_id)?.path || "Choose a Place"}</strong><Icon name="chevron" size={15} /></button></div>
+      <label className="toggle rule-enabled-toggle"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span><strong>Enabled</strong><small>Use this rule for suggestions</small></span></label>
+      <details className="nested-form rule-editor-advanced"><summary>Advanced</summary><div><label>Priority<input required type="number" min="0" max="10000" value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} /><small>Only a tie-breaker between equally specific matches. Higher wins; most users can leave this unchanged.</small></label></div></details>
       <div className="button-row"><button type="button" onClick={() => setEditorMode(null)}>Cancel</button><button className="primary" disabled={busy || saving || !draft.match_value.trim() || !draft.location_public_id}>{saving ? "Saving…" : editorMode === "edit" ? "Save changes" : "Create rule"}</button></div>
     </form></div>}
+    {editorPicker === "category" && <SearchableFilterPicker title="Choose a Category" icon="tag" selectedId={String(categories.find((category) => categoryOptionLabel(category) === draft.match_value)?.id || "")} emptyLabel="No Category selected" emptyDetail="Return without choosing" contextLabel="DEFAULT RULE" topLayer options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: category.path }))} onChoose={(id) => { const category = categories.find((entry) => String(entry.id) === id); if (category) setDraft((current) => ({ ...current, match_value: categoryOptionLabel(category) })); }} onClose={() => setEditorPicker(null)} />}
+    {editorPicker === "location" && <SearchableFilterPicker title="Choose destination Place" icon="pin" selectedId={draft.location_public_id} emptyLabel="No Place selected" emptyDetail="Return without choosing" contextLabel="DEFAULT RULE" topLayer options={flatLocations.map((location) => ({ id: location.public_id, label: location.name, detail: location.path }))} onChoose={(id) => { if (id) setDraft((current) => ({ ...current, location_public_id: id })); }} onClose={() => setEditorPicker(null)} />}
   </section>;
 }
 
@@ -4984,6 +4967,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [manageActivity, setManageActivity] = useState("");
   const [enrichmentFile, setEnrichmentFile] = useState<unknown>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
+  const [customPlaceType, setCustomPlaceType] = useState("");
   const [customUnit, setCustomUnit] = useState("");
   const flatLocations = useMemo(() => flattenLocations(locations), [locations]);
   const reservableItems = useMemo(
@@ -5307,6 +5291,17 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       onUnitsChanged(result.units);
     }, "Unit added");
     setCustomUnit("");
+  }
+
+  async function addPlaceType(event: FormEvent) {
+    event.preventDefault();
+    const name = customPlaceType.trim();
+    if (!name) return;
+    await perform(async () => {
+      await api.createLocationType(name);
+      await onInventoryChanged();
+    }, "Place type added");
+    setCustomPlaceType("");
   }
 
   async function removeUnit(unit: string) {
@@ -5709,11 +5704,11 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       </div></details>
       <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Recent activity</strong><small>{dashboard?.recent_events.length ? "Latest inventory changes" : "No changes yet"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="event-list">{!dashboard?.recent_events.length && <div className="empty-inline"><span>Changes will appear here</span></div>}{dashboard?.recent_events.slice(0, 12).map((event, index) => <div className="event" key={`${event.created_at}-${index}`}><span>{activityLabel(event.action)}</span><strong>{event.item_name}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>)}</div></div></details>
 
-      <button className="feature-link" onClick={onDefaultRules}><span><Icon name="settings" /></span><div><strong>Default locations & types</strong><small>{rules.length} rules · {locationTypes.length} types · search, edit, and inspect</small></div><Icon name="chevron" /></button>
+      <button className="feature-link" onClick={onDefaultRules}><span><Icon name="settings" /></span><div><strong>Default locations</strong><small>{rules.length} rules · search, edit, and inspect automatic destinations</small></div><Icon name="chevron" /></button>
 
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Units of measure</strong><small>{units.length} saved units</small></span><Icon name="chevron" /></summary><div className="manage-panel">
-        <form className="form-card compact-form type-form" onSubmit={addUnit}><label>New unit<input value={customUnit} onChange={(event) => setCustomUnit(event.target.value)} placeholder="tray, bottle, reel, sheet…" maxLength={24} /></label><button className="secondary" disabled={!customUnit.trim()}>Add unit</button></form>
-        <div className="type-chip-row">{units.map((entry) => <span key={entry}>{entry}<button type="button" aria-label={`Remove ${entry}`} onClick={() => void removeUnit(entry)}><Icon name="close" size={12} /></button></span>)}</div>
+      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Customization</strong><small>{locationTypes.length} Place types · {units.length} units of measure</small></span><Icon name="chevron" /></summary><div className="manage-panel customization-panel">
+        <section className="customization-group"><div><strong>Place types</strong><small>Names available when creating or editing a Place</small></div><div className="type-chip-row">{locationTypes.map((entry) => <span key={entry.name}>{entry.name}</span>)}</div><form className="form-card compact-form type-form" onSubmit={addPlaceType}><label>New Place type<input value={customPlaceType} onChange={(event) => setCustomPlaceType(event.target.value)} placeholder="crate, suitcase, rack…" maxLength={40} /></label><button className="secondary" disabled={!customPlaceType.trim()}>Add Place type</button></form></section>
+        <section className="customization-group"><div><strong>Units of measure</strong><small>Units available when recording Item quantities</small></div><div className="type-chip-row">{units.map((entry) => <span key={entry}>{entry}<button type="button" aria-label={`Remove ${entry}`} onClick={() => void removeUnit(entry)}><Icon name="close" size={12} /></button></span>)}</div><form className="form-card compact-form type-form" onSubmit={addUnit}><label>New unit<input value={customUnit} onChange={(event) => setCustomUnit(event.target.value)} placeholder="tray, bottle, reel, sheet…" maxLength={24} /></label><button className="secondary" disabled={!customUnit.trim()}>Add unit</button></form></section>
       </div></details>
 
       <details><summary><span className="summary-icon"><Icon name="box" /></span><span><strong>Projects & reservations</strong><small>{projects.filter((project) => project.status === "active").length} active projects</small></span><Icon name="chevron" /></summary><div className="manage-panel">
