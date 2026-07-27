@@ -93,6 +93,43 @@ def queue_missing_enrichment(
     return len(rows)
 
 
+def count_missing_enrichment(
+    connection: sqlite3.Connection,
+    *,
+    provider: str = "open_food_facts",
+) -> int:
+    if provider != "open_food_facts":
+        raise ConflictError("Unsupported enrichment provider")
+    row = connection.execute(
+        """
+        WITH RECURSIVE food_categories(id) AS (
+            SELECT id FROM categories WHERE slug IN ('groceries', 'consumables')
+            UNION ALL
+            SELECT categories.id FROM categories
+            JOIN food_categories ON categories.parent_id = food_categories.id
+        )
+        SELECT COUNT(*) AS count
+        FROM items
+        LEFT JOIN categories ON categories.id = items.category_id
+        LEFT JOIN products ON products.id = items.product_id
+        WHERE items.archived_at IS NULL
+          AND (
+              categories.id IN (SELECT id FROM food_categories)
+              OR products.source = 'Open Food Facts'
+          )
+          AND COALESCE(NULLIF(items.barcode_override, ''), products.barcode, '') != ''
+          AND NOT EXISTS (
+              SELECT 1 FROM enrichment_jobs
+              WHERE enrichment_jobs.item_id = items.id
+                AND enrichment_jobs.provider = ?
+                AND enrichment_jobs.status IN ('queued', 'running', 'completed')
+          )
+        """,
+        (provider,),
+    ).fetchone()
+    return int(row["count"])
+
+
 async def run_one(connection: sqlite3.Connection, job_id: int) -> None:
     job = connection.execute(
         """

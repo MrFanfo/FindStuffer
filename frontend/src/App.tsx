@@ -41,7 +41,7 @@ import {
   isRequestAborted,
 } from "./api";
 
-type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "off-category-mappings" | "ai-inbox" | "dashboard" | "manage";
+type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "manage";
 type CaptureMode = "scan" | "quick" | "putaway" | "consume" | "assistant";
 type PlacesSection = "locations" | "categories";
 type ThemePreference = "light" | "dark" | "system";
@@ -636,6 +636,8 @@ function viewFromParameter(value: string | null): View | null {
     categories: "places",
     category: "places",
     dashboard: "dashboard",
+    "default-rules": "default-rules",
+    defaults: "default-rules",
     find: "inventory",
     home: "dashboard",
     inventory: "inventory",
@@ -1302,7 +1304,7 @@ function App() {
 
   const navView = view === "location" || view === "locations" || view === "category" || view === "categories"
     ? "places"
-    : view === "add" || view === "scan" ? "capture" : view === "off-category-mappings" || view === "ai-inbox" ? "manage" : view;
+    : view === "add" || view === "scan" ? "capture" : view === "default-rules" || view === "off-category-mappings" || view === "ai-inbox" ? "manage" : view;
   return (
     <div className="app-shell">
       {busy && <div className="activity-banner" role="status" aria-live="polite"><span className="activity-spinner" aria-hidden="true" /><strong>{activityMessage || "Saving changes…"}</strong></div>}
@@ -1461,10 +1463,11 @@ function App() {
           />
         )}
         {view === "off-category-mappings" && <OffCategoryMappingsView categories={categories} busy={busy} onBack={() => navigate("manage")} onOpenItem={setSelectedItem} onNotice={setNotice} />}
+        {view === "default-rules" && <DefaultRulesView locations={locations} categories={categories} locationTypes={locationTypes} busy={busy} onBack={() => navigate("manage")} onChanged={() => refresh(undefined, { showBusy: false })} notify={notify} />}
         {view === "ai-inbox" && <AIScanInboxView categories={categories} locations={locations} units={units} busy={busy} onBack={() => navigate("manage")} onInventoryChanged={() => refresh()} notify={notify} />}
         {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onNavigate={navigate} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} />}
         {view === "manage" && (
-          <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onOffCategoryMappings={() => navigate("off-category-mappings")} onInbox={() => navigate("ai-inbox")} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} onUnitsChanged={setUnits} onCreateType={(name) => run(() => api.createLocationType(name), "Place type added", "all")} />
+          <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onDefaultRules={() => navigate("default-rules")} onOffCategoryMappings={() => navigate("off-category-mappings")} onInbox={() => navigate("ai-inbox")} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} onUnitsChanged={setUnits} />
         )}
         {selectedItem && view !== "inventory" && (
           <ItemDetail
@@ -4675,7 +4678,243 @@ function AIScanInboxView({ categories, locations, units, busy, onBack, onInvento
   </section>;
 }
 
-function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, notify, onThemeChange, onInventoryChanged, onLocations, onCategories, onOffCategoryMappings, onInbox, onOpenItem, onMarkFound, onForeverLost, onUnitsChanged, onCreateType }: {
+type LocationRuleDraft = {
+  rule_type: "name" | "barcode" | "category";
+  match_value: string;
+  location_public_id: string;
+  priority: string;
+  enabled: boolean;
+};
+
+function DefaultRulesView({ locations, categories, locationTypes, busy, onBack, onChanged, notify }: {
+  locations: LocationNode[];
+  categories: Category[];
+  locationTypes: LocationType[];
+  busy: boolean;
+  onBack: () => void;
+  onChanged: () => Promise<void>;
+  notify: (message: string, action?: Omit<RetryNotice, "message">) => void;
+}) {
+  const flatLocations = useMemo(() => flattenLocations(locations), [locations]);
+  const [rules, setRules] = useState<LocationRule[]>([]);
+  const [types, setTypes] = useState<LocationType[]>(locationTypes);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | LocationRule["rule_type"]>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [selectedId, setSelectedId] = useState("");
+  const [editorMode, setEditorMode] = useState<"create" | "edit" | null>(null);
+  const [draft, setDraft] = useState<LocationRuleDraft>({
+    rule_type: "name",
+    match_value: "",
+    location_public_id: flatLocations[0]?.public_id || "unassigned",
+    priority: "100",
+    enabled: true,
+  });
+  const [customType, setCustomType] = useState("");
+
+  const loadRules = useCallback(async () => {
+    try {
+      setError("");
+      setRules(await api.locationRules());
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load default rules");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { void loadRules(); }, [loadRules]);
+  useEffect(() => setTypes(locationTypes), [locationTypes]);
+
+  const selectedRule = rules.find((rule) => rule.public_id === selectedId) || null;
+  const filteredRules = useMemo(() => {
+    const search = query.trim().toLocaleLowerCase();
+    return rules.filter((rule) => {
+      if (typeFilter !== "all" && rule.rule_type !== typeFilter) return false;
+      if (statusFilter === "enabled" && !rule.enabled) return false;
+      if (statusFilter === "disabled" && rule.enabled) return false;
+      if (locationFilter !== "all" && rule.location_public_id !== locationFilter) return false;
+      if (!search) return true;
+      const location = flatLocations.find((entry) => entry.public_id === rule.location_public_id);
+      return [rule.match_value, rule.rule_type, rule.location_name, location?.path || "", String(rule.priority)]
+        .some((value) => value.toLocaleLowerCase().includes(search));
+    });
+  }, [flatLocations, locationFilter, query, rules, statusFilter, typeFilter]);
+  const hasFilters = Boolean(query.trim() || typeFilter !== "all" || statusFilter !== "all" || locationFilter !== "all");
+
+  function startCreate() {
+    setSelectedId("");
+    setDraft({
+      rule_type: "name",
+      match_value: "",
+      location_public_id: flatLocations[0]?.public_id || "unassigned",
+      priority: "100",
+      enabled: true,
+    });
+    setEditorMode("create");
+  }
+
+  function startEdit(rule: LocationRule) {
+    setDraft({
+      rule_type: rule.rule_type,
+      match_value: rule.match_value,
+      location_public_id: rule.location_public_id,
+      priority: String(rule.priority),
+      enabled: rule.enabled,
+    });
+    setEditorMode("edit");
+  }
+
+  async function saveRule(event: FormEvent) {
+    event.preventDefault();
+    const matchValue = draft.match_value.trim();
+    const priority = Number(draft.priority);
+    if (!matchValue || !draft.location_public_id || !Number.isInteger(priority) || priority < 0 || priority > 10000) return;
+    setSaving(true);
+    try {
+      const body = {
+        rule_type: draft.rule_type,
+        match_value: matchValue,
+        location_public_id: draft.location_public_id,
+        priority,
+        enabled: draft.enabled,
+      };
+      const saved = editorMode === "edit" && selectedRule
+        ? await api.updateLocationRule(selectedRule.public_id, body)
+        : await api.createLocationRule(body);
+      await loadRules();
+      await onChanged();
+      setSelectedId(saved.public_id);
+      setEditorMode(null);
+      notify(editorMode === "edit" ? "Default rule updated" : "Default rule created");
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : "Could not save default rule");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteRule(rule: LocationRule) {
+    if (!window.confirm(`Delete this default rule?\n\n${rule.match_value} → ${rule.location_name}`)) return;
+    setSaving(true);
+    try {
+      await api.deleteLocationRule(rule.public_id);
+      setSelectedId("");
+      await loadRules();
+      await onChanged();
+      notify("Default rule deleted");
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : "Could not delete default rule");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleRule(rule: LocationRule) {
+    setSaving(true);
+    try {
+      const updated = await api.updateLocationRule(rule.public_id, { enabled: !rule.enabled });
+      setRules((current) => current.map((entry) => entry.public_id === updated.public_id ? updated : entry));
+      await onChanged();
+      notify(updated.enabled ? "Default rule enabled" : "Default rule disabled");
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : "Could not update default rule");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createLocationType(event: FormEvent) {
+    event.preventDefault();
+    const name = customType.trim();
+    if (!name) return;
+    setSaving(true);
+    try {
+      const created = await api.createLocationType(name);
+      setTypes((current) => current.some((entry) => entry.name === created.name) ? current : [...current, created]);
+      setCustomType("");
+      await onChanged();
+      notify("Place type added");
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : "Could not add Place type");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function ruleDescription(rule: LocationRule): string {
+    if (rule.rule_type === "barcode") return `An Item with barcode ${rule.match_value} goes to this Place. Barcode matches are exact.`;
+    if (rule.rule_type === "category") return `Items in ${rule.match_value}, including its child Categories, go to this Place.`;
+    return `An Item whose name contains “${rule.match_value}” goes to this Place. Matching ignores letter case.`;
+  }
+
+  const selectedLocation = selectedRule
+    ? flatLocations.find((entry) => entry.public_id === selectedRule.location_public_id) || null
+    : null;
+
+  return <section className="default-rules-page">
+    <header className="default-rules-header">
+      <button type="button" className="text-button" onClick={onBack}><Icon name="chevron" size={16} />Back to More</button>
+      <div><p className="eyebrow">DEFAULT LOCATIONS</p><h1>Rules & Place types</h1><span>Choose where matching Items should go automatically.</span></div>
+      <button type="button" className="primary button-with-icon" onClick={startCreate}><Icon name="plus" size={16} />New rule</button>
+    </header>
+
+    <div className="default-rules-toolbar">
+      <label className="default-rules-search"><Icon name="search" size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search rules or Places" aria-label="Search default rules" />{query && <button type="button" onClick={() => setQuery("")} aria-label="Clear rule search"><Icon name="close" size={14} /></button>}</label>
+      <label><span>Type</span><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}><option value="all">All types</option><option value="name">Item name</option><option value="barcode">Barcode</option><option value="category">Category</option></select></label>
+      <label><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}><option value="all">Any status</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+      <label><span>Place</span><select value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}><option value="all">Every Place</option>{flatLocations.map((location) => <option value={location.public_id} key={location.public_id}>{location.path}</option>)}</select></label>
+      {hasFilters && <button type="button" className="outline-button" onClick={() => { setQuery(""); setTypeFilter("all"); setStatusFilter("all"); setLocationFilter("all"); }}>Clear filters</button>}
+    </div>
+
+    <div className={`default-rules-layout ${selectedRule ? "has-detail" : ""}`}>
+      <div className="default-rule-list-pane">
+        <div className="default-rule-list-summary"><strong>{filteredRules.length} rule{filteredRules.length === 1 ? "" : "s"}</strong><small>{rules.length} total</small></div>
+        {loading && <div className="inline-activity"><span className="activity-spinner" />Loading rules…</div>}
+        {error && <div className="inline-alert">{error}<button type="button" onClick={() => void loadRules()}>Try again</button></div>}
+        {!loading && !error && filteredRules.length === 0 && <EmptyState icon="filter" title={rules.length ? "No matching rules" : "No default rules yet"} text={rules.length ? "Try clearing one of the filters." : "Create a rule to automatically suggest a Place."} />}
+        <div className="default-rule-list">
+          {filteredRules.map((rule) => {
+            const location = flatLocations.find((entry) => entry.public_id === rule.location_public_id);
+            return <button type="button" className={`${selectedId === rule.public_id ? "selected" : ""} ${rule.enabled ? "" : "disabled"}`} key={rule.public_id} onClick={() => setSelectedId(rule.public_id)}>
+              <span className="default-rule-type"><Icon name={rule.rule_type === "category" ? "tag" : rule.rule_type === "barcode" ? "qr" : "search"} size={17} /></span>
+              <span className="default-rule-copy"><small>{rule.rule_type === "name" ? "ITEM NAME" : rule.rule_type.toUpperCase()}</small><strong>{rule.match_value}</strong><em><Icon name="pin" size={12} />{location?.path || rule.location_name}</em></span>
+              <span className={`rule-state ${rule.enabled ? "ready" : ""}`}>{rule.enabled ? "On" : "Off"}</span>
+              <Icon name="chevron" size={15} />
+            </button>;
+          })}
+        </div>
+      </div>
+
+      {selectedRule ? <aside className="default-rule-detail">
+        <button type="button" className="default-rule-mobile-back" onClick={() => setSelectedId("")}><Icon name="chevron" size={15} />All rules</button>
+        <div className="default-rule-detail-heading"><span><Icon name={selectedRule.rule_type === "category" ? "tag" : selectedRule.rule_type === "barcode" ? "qr" : "search"} size={20} /></span><div><small>{selectedRule.rule_type === "name" ? "ITEM NAME RULE" : `${selectedRule.rule_type.toUpperCase()} RULE`}</small><h2>{selectedRule.match_value}</h2></div><b className={`integration-status ${selectedRule.enabled ? "ready" : ""}`}>{selectedRule.enabled ? "Enabled" : "Disabled"}</b></div>
+        <p>{ruleDescription(selectedRule)}</p>
+        <div className="default-rule-route"><div><span>When this matches</span><strong>{selectedRule.match_value}</strong></div><Icon name="chevron" /><div><span>Send to</span><strong>{selectedLocation?.path || selectedRule.location_name}</strong></div></div>
+        <dl className="default-rule-facts"><div><dt>Match type</dt><dd>{selectedRule.rule_type}</dd></div><div><dt>Priority</dt><dd>{selectedRule.priority}</dd></div><div><dt>Place</dt><dd>{selectedLocation?.path || selectedRule.location_name}</dd></div><div><dt>Rule ID</dt><dd><code>{selectedRule.public_id}</code></dd></div></dl>
+        <small className="default-rule-priority-note">Specific matches win first; priority decides between equally specific rules.</small>
+        <div className="default-rule-detail-actions"><button type="button" className="primary" disabled={busy || saving} onClick={() => startEdit(selectedRule)}><Icon name="settings" size={15} />Edit rule</button><button type="button" className="secondary" disabled={busy || saving} onClick={() => void toggleRule(selectedRule)}>{selectedRule.enabled ? "Disable" : "Enable"}</button><button type="button" className="danger-button" disabled={busy || saving} onClick={() => void deleteRule(selectedRule)}><Icon name="close" size={14} />Delete</button></div>
+      </aside> : <aside className="default-rule-detail-empty"><span><Icon name="settings" size={25} /></span><h2>Select a rule</h2><p>Its match behavior, destination, priority, and controls will appear here.</p></aside>}
+    </div>
+
+    <details className="place-types-panel"><summary><span className="summary-icon"><Icon name="box" /></span><span><strong>Place types</strong><small>{types.length} available types</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="type-chip-row">{types.map((entry) => <span key={entry.name}>{entry.name}</span>)}</div><form className="form-card compact-form type-form" onSubmit={createLocationType}><label>New Place type<input value={customType} onChange={(event) => setCustomType(event.target.value)} placeholder="crate, suitcase, rack…" /></label><button className="secondary" disabled={busy || saving || !customType.trim()}>Add type</button></form></div></details>
+
+    {editorMode && <div className="rule-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorMode(null); }}><form className="rule-editor-sheet" onSubmit={saveRule}>
+      <header><div><p className="eyebrow">{editorMode === "edit" ? "EDIT DEFAULT" : "NEW DEFAULT"}</p><h2>{editorMode === "edit" ? "Modify rule" : "Create a rule"}</h2></div><button type="button" className="icon-button" onClick={() => setEditorMode(null)} aria-label="Close rule editor"><Icon name="close" /></button></header>
+      <label>Match type<select value={draft.rule_type} onChange={(event) => { const ruleType = event.target.value as LocationRuleDraft["rule_type"]; setDraft((current) => ({ ...current, rule_type: ruleType, priority: editorMode === "create" ? ruleType === "barcode" ? "500" : "100" : current.priority })); }}><option value="name">Item name contains</option><option value="barcode">Exact barcode</option><option value="category">Category or child Category</option></select></label>
+      <label>Match value<input required autoFocus inputMode={draft.rule_type === "barcode" ? "numeric" : "text"} list={draft.rule_type === "category" ? "default-rule-category-options" : undefined} value={draft.match_value} onChange={(event) => setDraft((current) => ({ ...current, match_value: event.target.value }))} placeholder={draft.rule_type === "barcode" ? "807680…" : draft.rule_type === "category" ? "Electronics > Components" : "pasta, cable, ESP32…"} /><small>{draft.rule_type === "barcode" ? "Must match the barcode exactly." : draft.rule_type === "category" ? "Matches this Category and its children." : "Matches anywhere in the Item name, ignoring case."}</small></label>
+      <datalist id="default-rule-category-options">{categories.map((category) => <option value={categoryOptionLabel(category)} key={category.id} />)}</datalist>
+      <label>Destination Place<select required value={draft.location_public_id} onChange={(event) => setDraft((current) => ({ ...current, location_public_id: event.target.value }))}>{flatLocations.map((location) => <option value={location.public_id} key={location.public_id}>{location.path}</option>)}</select></label>
+      <div className="form-row"><label>Priority<input required type="number" min="0" max="10000" value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} /><small>Higher wins between equally specific rules.</small></label><label className="toggle rule-enabled-toggle"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span><strong>Enabled</strong><small>Use this rule for suggestions</small></span></label></div>
+      <div className="button-row"><button type="button" onClick={() => setEditorMode(null)}>Cancel</button><button className="primary" disabled={busy || saving || !draft.match_value.trim() || !draft.location_public_id}>{saving ? "Saving…" : editorMode === "edit" ? "Save changes" : "Create rule"}</button></div>
+    </form></div>}
+  </section>;
+}
+
+function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, notify, onThemeChange, onInventoryChanged, onLocations, onCategories, onDefaultRules, onOffCategoryMappings, onInbox, onOpenItem, onMarkFound, onForeverLost, onUnitsChanged }: {
   items: Item[];
   dashboard: Dashboard | null;
   locations: LocationNode[];
@@ -4690,13 +4929,13 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   onInventoryChanged: () => Promise<void>;
   onLocations: () => void;
   onCategories: () => void;
+  onDefaultRules: () => void;
   onOffCategoryMappings: () => void;
   onInbox: () => void;
   onOpenItem: (item: Item) => void;
   onMarkFound: (item: Item) => Promise<void>;
   onForeverLost: (item: Item) => Promise<void>;
   onUnitsChanged: (units: string[]) => void;
-  onCreateType: (name: string) => Promise<void>;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -4704,6 +4943,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [rules, setRules] = useState<LocationRule[]>([]);
   const [suggestions, setSuggestions] = useState<EnrichmentSuggestion[]>([]);
   const [archivedItems, setArchivedItems] = useState<Item[]>([]);
+  const [missingEnrichmentCount, setMissingEnrichmentCount] = useState<number | null>(null);
   const [softwareUpdate, setSoftwareUpdate] = useState<SoftwareUpdateStatus | null>(null);
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
@@ -4744,10 +4984,6 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
   const [manageActivity, setManageActivity] = useState("");
   const [enrichmentFile, setEnrichmentFile] = useState<unknown>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
-  const [ruleType, setRuleType] = useState<"name" | "barcode" | "category">("name");
-  const [ruleMatch, setRuleMatch] = useState("");
-  const [ruleLocation, setRuleLocation] = useState("unassigned");
-  const [customType, setCustomType] = useState("");
   const [customUnit, setCustomUnit] = useState("");
   const flatLocations = useMemo(() => flattenLocations(locations), [locations]);
   const reservableItems = useMemo(
@@ -4758,13 +4994,14 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
 
   const load = useCallback(async () => {
     try {
-      const [nextProjects, nextLoans, nextSettings, nextRules, nextSuggestions, nextArchivedItems, nextUpdate, nextImports] = await Promise.all([
+      const [nextProjects, nextLoans, nextSettings, nextRules, nextSuggestions, nextArchivedItems, nextEnrichmentStatus, nextUpdate, nextImports] = await Promise.all([
         api.projects(),
         api.loans(),
         api.settings(),
         api.locationRules(),
         api.enrichmentSuggestions("pending"),
         api.archivedItems(),
+        api.enrichmentStatus(),
         api.softwareUpdateStatus(),
         api.importBatches(),
       ]);
@@ -4776,6 +5013,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       setRules(nextRules);
       setSuggestions(nextSuggestions);
       setArchivedItems(nextArchivedItems);
+      setMissingEnrichmentCount(nextEnrichmentStatus.missing);
       setImportBatches(nextImports);
       setNotificationsEnabled(nextSettings.notifications.enabled);
       setNotificationUrl(nextSettings.notifications.ntfy_url);
@@ -4794,11 +5032,10 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       if (!reserveProject && nextProjects[0]) setReserveProject(nextProjects[0].public_id);
       if (!reserveItem && reservableItems[0]) setReserveItem(reservableItems[0].public_id);
       if (!loanItem && items[0]) setLoanItem(items[0].public_id);
-      if (!ruleLocation && flatLocations[0]) setRuleLocation(flatLocations[0].public_id);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not load management data");
     }
-  }, [flatLocations, items, loanItem, reservableItems, reserveItem, reserveProject, ruleLocation, setNotice]);
+  }, [items, loanItem, reservableItems, reserveItem, reserveProject, setNotice]);
   useEffect(() => { void load(); }, []);
 
   async function perform(action: () => Promise<unknown>, success: string) {
@@ -5059,23 +5296,6 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       publish_interval_seconds: Number(mqttPublishInterval),
     }), "Saved MQTT password removed");
     setMqttPassword("");
-  }
-
-  async function createRule(event: FormEvent) {
-    event.preventDefault();
-    await perform(() => api.createLocationRule({
-      rule_type: ruleType,
-      match_value: ruleMatch,
-      location_public_id: ruleLocation,
-      priority: ruleType === "barcode" ? 500 : 100,
-    }), "Default location rule saved");
-    setRuleMatch("");
-  }
-
-  async function createType(event: FormEvent) {
-    event.preventDefault();
-    await onCreateType(customType);
-    setCustomType("");
   }
 
   async function addUnit(event: FormEvent) {
@@ -5489,12 +5709,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       </div></details>
       <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Recent activity</strong><small>{dashboard?.recent_events.length ? "Latest inventory changes" : "No changes yet"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="event-list">{!dashboard?.recent_events.length && <div className="empty-inline"><span>Changes will appear here</span></div>}{dashboard?.recent_events.slice(0, 12).map((event, index) => <div className="event" key={`${event.created_at}-${index}`}><span>{activityLabel(event.action)}</span><strong>{event.item_name}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>)}</div></div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="pin" /></span><span><strong>Default locations & types</strong><small>{rules.length} rules · {locationTypes.length} location types</small></span><Icon name="chevron" /></summary><div className="manage-panel">
-        <form className="form-card compact-form" onSubmit={createRule}><div className="form-row"><label>Match type<select value={ruleType} onChange={(event) => setRuleType(event.target.value as "name" | "barcode" | "category")}><option value="name">Item/name contains</option><option value="barcode">Exact barcode</option><option value="category">Category contains</option></select></label><label>Match value<input required list={ruleType === "category" ? "category-rule-options" : undefined} value={ruleMatch} onChange={(event) => setRuleMatch(event.target.value)} placeholder={ruleType === "barcode" ? "807680..." : ruleType === "category" ? "Electronics > Components" : "pasta, milk, ESP32…"} /><datalist id="category-rule-options">{categories.map((entry) => <option key={entry.id} value={categoryOptionLabel(entry)} />)}</datalist></label></div><label>Default location<select value={ruleLocation} onChange={(event) => setRuleLocation(event.target.value)}>{flatLocations.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label><button className="secondary" disabled={!ruleMatch.trim()}>Save default rule</button></form>
-        <div className="rules-list">{rules.length === 0 && <div className="empty-inline"><span>No default rules yet</span></div>}{rules.map((rule) => <div className="rule-row" key={rule.public_id}><div><strong>{rule.rule_type}: {rule.match_value}</strong><small>→ {rule.location_name}</small></div><button aria-label={`Delete ${rule.rule_type} rule ${rule.match_value}`} onClick={() => { if (window.confirm(`Delete this ${rule.rule_type} default?\n\n${rule.match_value} → ${rule.location_name}`)) void perform(() => api.deleteLocationRule(rule.public_id), "Default rule removed"); }}><Icon name="close" size={15} /></button></div>)}</div>
-        <form className="form-card compact-form type-form" onSubmit={createType}><label>Custom location type<input value={customType} onChange={(event) => setCustomType(event.target.value)} placeholder="crate, suitcase, rack…" /></label><button className="secondary" disabled={!customType.trim()}>Add type</button></form>
-        <div className="type-chip-row">{locationTypes.map((entry) => <span key={entry.name}>{entry.name}</span>)}</div>
-      </div></details>
+      <button className="feature-link" onClick={onDefaultRules}><span><Icon name="settings" /></span><div><strong>Default locations & types</strong><small>{rules.length} rules · {locationTypes.length} types · search, edit, and inspect</small></div><Icon name="chevron" /></button>
 
       <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Units of measure</strong><small>{units.length} saved units</small></span><Icon name="chevron" /></summary><div className="manage-panel">
         <form className="form-card compact-form type-form" onSubmit={addUnit}><label>New unit<input value={customUnit} onChange={(event) => setCustomUnit(event.target.value)} placeholder="tray, bottle, reel, sheet…" maxLength={24} /></label><button className="secondary" disabled={!customUnit.trim()}>Add unit</button></form>
@@ -5566,16 +5781,17 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         <div className="integration-list"><p><span>Open Food Facts</span><b className="integration-status ready">Ready</b></p><p><span>Speech-to-text</span><b className="integration-status">{settings?.integrations.stt_configured ? "Ready" : "Browser only"}</b></p></div>
         <p className="panel-copy">Secrets are write-only: the app never returns the AI key or MQTT password through its API, JSON exports, or backup ZIPs. Re-enter them after restoring a backup.</p>
       </div></details>
-      <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Enrichment queue</strong><small>Run safe metadata lookups for barcode items</small></span><Icon name="chevron" /></summary><div className="manage-panel"><p className="panel-copy">This queues barcode items that have not already been enriched, then processes a small batch. On the Pi, the maintenance timer runs this periodically.</p><div className="button-row"><button className="secondary" onClick={() => void perform(() => api.queueMissingEnrichment(), "Missing enrichment jobs queued")}>Queue missing</button><button className="primary" onClick={() => void perform(() => api.runEnrichment(), "Enrichment batch processed")}>Run batch now</button></div><small>Current provider: Open Food Facts. Google scraping is intentionally not used.</small></div></details>
+      <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Enrichment queue</strong><small>{missingEnrichmentCount === null ? "Checking barcode Items…" : missingEnrichmentCount ? `${missingEnrichmentCount} barcode Item${missingEnrichmentCount === 1 ? "" : "s"} missing enrichment` : "No barcode Items are missing enrichment"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className={`enrichment-missing-card ${missingEnrichmentCount === 0 ? "complete" : ""}`}><span><Icon name={missingEnrichmentCount === 0 ? "check" : "qr"} size={21} /></span><div><strong>{missingEnrichmentCount ?? "—"}</strong><small>barcode Item{missingEnrichmentCount === 1 ? "" : "s"} missing enrichment</small></div></div><p className="panel-copy">Queue eligible barcode Items that Open Food Facts has not enriched yet, then process a small batch. Automatic maintenance handles this periodically.</p><div className="button-row"><button className="secondary" disabled={!missingEnrichmentCount} onClick={() => void perform(() => api.queueMissingEnrichment(), "Missing enrichment jobs queued")}>Queue missing</button><button className="primary" onClick={() => void perform(() => api.runEnrichment(), "Enrichment batch processed")}>Run batch now</button></div><small>Current provider: Open Food Facts.</small></div></details>
       <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>External enrichment review</strong><small>{suggestions.length} pending imported suggestion{suggestions.length === 1 ? "" : "s"}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
         <p className="panel-copy">Export missing/weak metadata, let an external agent research it, import the response, then review patches before they change your inventory.</p>
         <div className="button-row"><button className="secondary" onClick={() => void perform(downloadEnrichmentExport, "Enrichment request downloaded")}>Export request JSON</button><label className="upload-import compact-upload"><strong>Import response JSON</strong><input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void readEnrichmentResponse(event.target.files[0])} /></label></div>
         {enrichmentFile !== null && <button className="primary wide" onClick={() => void perform(async () => { const result = await api.importEnrichmentResponse(enrichmentFile); setEnrichmentFile(null); await load(); return result; }, "Enrichment response imported")}>Validate and import suggestions</button>}
         <div className="suggestion-list">{suggestions.length === 0 && <div className="empty-inline"><span>No pending suggestions</span></div>}{suggestions.map((suggestion) => <article className="suggestion-row" key={suggestion.public_id}><div><strong>{suggestion.item_name}</strong><small>{suggestion.path} · {Math.round(suggestion.confidence * 100)}% confidence</small><code>{typeof suggestion.value === "object" ? JSON.stringify(suggestion.value) : String(suggestion.value)}</code>{suggestion.sources[0]?.url && <a href={suggestion.sources[0].url} target="_blank" rel="noreferrer">{suggestion.sources[0].label || "Source"}</a>}{suggestion.uncertainty && <em>{suggestion.uncertainty}</em>}</div><div><button className="primary" onClick={() => void perform(async () => { await api.acceptSuggestion(suggestion.public_id); await onInventoryChanged(); }, "Suggestion accepted")}>Accept</button><button onClick={() => void perform(() => api.rejectSuggestion(suggestion.public_id), "Suggestion rejected")}>Reject</button></div></article>)}</div>
       </div></details>
-      <details className="setup-health"><summary><span className="summary-icon"><Icon name="check" /></span><span><strong>Setup health</strong><small>{setupHealth.filter((entry) => entry.status === "Needs attention").length ? `${setupHealth.filter((entry) => entry.status === "Needs attention").length} need attention` : "Everything important is ready"}</small></span><Icon name="chevron" /></summary><div className="manage-panel setup-health-grid">{setupHealth.map((entry) => <article key={entry.label}><span>{entry.label}</span><b className={`health-status ${entry.status.toLowerCase().replace(" ", "-")}`}>{entry.status}</b><small>{entry.detail}</small></article>)}</div></details>
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>App info</strong><small>{system ? `${formatBytes(system.storage.total_managed_bytes)} used · version ${system.app.version}` : "Storage, resources, and version"}</small></span><Icon name="chevron" /></summary><div className="manage-panel app-info-panel">
+      <details className="app-info-section"><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>App info</strong><small>{setupHealth.some((entry) => entry.status === "Needs attention") ? `${setupHealth.filter((entry) => entry.status === "Needs attention").length} need attention` : system ? `Everything ready · version ${system.app.version}` : "Health, storage, resources, and version"}</small></span><Icon name="chevron" /></summary><div className="manage-panel app-info-panel">
+        <section className="app-info-health"><div className="section-heading"><div><h2>Setup health</h2><span>Connection, protection, Backups, integrations, and updates</span></div></div><div className="setup-health-grid">{setupHealth.map((entry) => <article key={entry.label}><span>{entry.label}</span><b className={`health-status ${entry.status.toLowerCase().replace(" ", "-")}`}>{entry.status}</b><small>{entry.detail}</small></article>)}</div></section>
         {system ? <>
+          <div className="section-heading app-info-metrics-heading"><div><h2>Storage & resources</h2><span>Current usage on this FindStuffer machine</span></div></div>
           <div className="app-metric-grid">
             <div><span>Total data</span><strong>{formatBytes(system.storage.total_managed_bytes)}</strong><small>Database + photos</small></div>
             <div><span>Database</span><strong>{formatBytes(system.storage.database_bytes)}</strong><small>{formatBytes(system.storage.database_main_bytes)} main · {formatBytes(system.storage.database_wal_bytes)} WAL</small></div>

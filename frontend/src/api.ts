@@ -941,6 +941,8 @@ export const api = {
     request<{ processed: number }>("/api/v1/enrichment/run", { method: "POST" }),
   queueMissingEnrichment: () =>
     request<{ queued: number }>("/api/v1/enrichment/queue-missing", { method: "POST" }),
+  enrichmentStatus: () =>
+    request<{ missing: number }>("/api/v1/enrichment/status"),
   createEnrichmentExport: () =>
     request<EnrichmentExport>("/api/v1/enrichment/exports", {
       method: "POST",

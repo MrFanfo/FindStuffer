@@ -74,6 +74,7 @@ from .db import database_dependency, migrate, transaction
 from .enrichment import (
     apply_candidate,
     clear_enrichment_history,
+    count_missing_enrichment,
     get_full_product_data,
     list_enrichment,
     queue_enrichment,
@@ -1536,6 +1537,11 @@ async def queue_missing(
     limit: int = Query(default=25, ge=1, le=250),
 ) -> dict[str, int]:
     return {"queued": queue_missing_enrichment(database, limit=limit)}
+
+
+@app.get("/api/v1/enrichment/status", tags=["enrichment"])
+async def enrichment_status(database: Database) -> dict[str, int]:
+    return {"missing": count_missing_enrichment(database)}
 
 
 @app.post("/api/v1/enrichment/exports", tags=["enrichment"])
