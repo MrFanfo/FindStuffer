@@ -139,7 +139,10 @@ async def call_parser(connection: sqlite3.Connection, text: str) -> Proposal:
                 json={
                     "model": settings.model,
                     "messages": [
-                        {"role": "system", "content": "Strict inventory JSON parser. No reasoning."},
+                        {
+                            "role": "system",
+                            "content": "Strict inventory JSON parser. No reasoning.",
+                        },
                         {"role": "user", "content": prompt},
                     ],
                     "response_format": {"type": "json_object"},

@@ -173,7 +173,8 @@ async def _recognize(connection: sqlite3.Connection, row: sqlite3.Row) -> ScanRe
     prompt = (
         "Identify the one dominant inventory item. Read visible labels. Return only compact JSON "
         "matching the template; no reasoning or Markdown. Description: 1-2 useful sentences. "
-        "Specifications: at most 8 short key/value facts that are visible or reliably identifiable. "
+        "Specifications: at most 8 short key/value facts that are visible or reliably "
+        "identifiable. "
         "Never invent brand, model, barcode, or specifications. Category must exactly match one "
         "allowed path, otherwise ''. Put uncertainty only in warnings (max 4).\n"
         f"Categories:{json.dumps(category_paths, separators=(',', ':'))}\n"
