@@ -2466,8 +2466,8 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
     expiration_week = today + timedelta(days=7)
     expiration_horizon = today + timedelta(days=30)
     expiration_quarter = today + timedelta(days=90)
-    category_counts: dict[str, int] = defaultdict(int)
-    location_counts: dict[str, int] = defaultdict(int)
+    category_counts: dict[tuple[int | None, str], int] = defaultdict(int)
+    location_counts: dict[tuple[str, str], int] = defaultdict(int)
     values: dict[str, dict[str, int]] = defaultdict(
         lambda: {"purchase_minor": 0, "estimated_minor": 0}
     )
@@ -2479,6 +2479,14 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
     unassigned = 0
     missing_photo = 0
     missing_category = 0
+    priced_items = 0
+    stock_counts = {"In stock": 0, "Low": 0, "Empty": 0}
+    age_counts = {
+        "Added this month": 0,
+        "1–3 months": 0,
+        "3–12 months": 0,
+        "Older": 0,
+    }
     completeness_counts = {
         "location": 0,
         "category": 0,
@@ -2494,8 +2502,15 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
         "No expiry": 0,
     }
     for item in items:
-        category_counts[item.get("category_path") or "Uncategorised"] += 1
-        location_counts[item.get("location_path") or "Unassigned"] += 1
+        category_counts[
+            (item.get("category_id"), item.get("category_path") or "Uncategorised")
+        ] += 1
+        location_counts[
+            (
+                str(item.get("location_public_id") or "unassigned"),
+                item.get("location_path") or "Unassigned",
+            )
+        ] += 1
         if item.get("location_public_id") == "unassigned":
             unassigned += 1
         else:
@@ -2507,6 +2522,13 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
         quantity = Decimal(str(item.get("quantity") or "0"))
         if quantity <= 0:
             zero_stock += 1
+            stock_counts["Empty"] += 1
+        elif item.get("low_stock_threshold") is not None and quantity <= Decimal(
+            str(item["low_stock_threshold"])
+        ):
+            stock_counts["Low"] += 1
+        else:
+            stock_counts["In stock"] += 1
         if item.get("low_stock_threshold") is not None and Decimal(
             str(item["quantity"])
         ) <= Decimal(str(item["low_stock_threshold"])):
@@ -2534,6 +2556,20 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
             missing_photo += 1
         if item.get("description") or item.get("notes"):
             completeness_counts["details"] += 1
+        if item.get("purchase_price_minor") is not None or item.get(
+            "estimated_price_minor"
+        ) is not None:
+            priced_items += 1
+        created_on = date.fromisoformat(str(item["created_at"])[:10])
+        age_days = (today - created_on).days
+        if age_days <= 30:
+            age_counts["Added this month"] += 1
+        elif age_days <= 90:
+            age_counts["1–3 months"] += 1
+        elif age_days <= 365:
+            age_counts["3–12 months"] += 1
+        else:
+            age_counts["Older"] += 1
         purchase_currency = item.get("purchase_currency")
         if purchase_currency and item.get("purchase_price_minor") is not None:
             values[str(purchase_currency)]["purchase_minor"] += int(
@@ -2622,6 +2658,29 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
         """,
         (start.isoformat(),),
     ).fetchall()
+    source_names = [str(row["source"] or "unknown") for row in source_rows]
+    source_activity: list[dict[str, Any]] = []
+    if source_names:
+        source_placeholders = ", ".join("?" for _ in source_names)
+        source_activity = [
+            {
+                "date": row["day"],
+                "source": row["source"] or "unknown",
+                "changes": int(row["event_count"]),
+            }
+            for row in connection.execute(
+                f"""
+                SELECT date(created_at) AS day, COALESCE(source, 'unknown') AS source,
+                       count(*) AS event_count
+                FROM inventory_events
+                WHERE date(created_at) >= ?
+                  AND COALESCE(source, 'unknown') IN ({source_placeholders})
+                GROUP BY day, COALESCE(source, 'unknown')
+                ORDER BY day, source
+                """,
+                (start.isoformat(), *source_names),
+            )
+        ]
     consumed = connection.execute(
         """
         SELECT items.public_id, items.name, items.unit,
@@ -2690,6 +2749,8 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
             "unassigned": unassigned,
             "missing_category": missing_category,
             "missing_photo": missing_photo,
+            "missing_details": item_count - completeness_counts["details"],
+            "priced_items": priced_items,
             "health_score": health_score,
         },
         "activity_summary": {
@@ -2708,15 +2769,21 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
             for currency, totals in sorted(values.items())
         ],
         "categories": [
-            {"label": label, "item_count": count}
-            for label, count in sorted(
-                category_counts.items(), key=lambda entry: (-entry[1], entry[0].casefold())
+            {"category_id": category_id, "label": label, "item_count": count}
+            for (category_id, label), count in sorted(
+                category_counts.items(),
+                key=lambda entry: (-entry[1], entry[0][1].casefold()),
             )[:10]
         ],
         "locations": [
-            {"label": label, "item_count": count}
-            for label, count in sorted(
-                location_counts.items(), key=lambda entry: (-entry[1], entry[0].casefold())
+            {
+                "location_public_id": location_public_id,
+                "label": label,
+                "item_count": count,
+            }
+            for (location_public_id, label), count in sorted(
+                location_counts.items(),
+                key=lambda entry: (-entry[1], entry[0][1].casefold()),
             )[:10]
         ],
         "activity": activity,
@@ -2734,6 +2801,15 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
                 "count": int(row["event_count"]),
             }
             for row in source_rows
+        ],
+        "source_activity": source_activity,
+        "stock": [
+            {"label": label, "count": count}
+            for label, count in stock_counts.items()
+        ],
+        "inventory_age": [
+            {"label": label, "count": count}
+            for label, count in age_counts.items()
         ],
         "completeness": completeness,
         "expiration": [

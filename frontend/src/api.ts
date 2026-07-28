@@ -108,6 +108,7 @@ export type Item = {
   links: Array<{ label: string; url: string }>;
   tags: string[];
   archived_at: string | null;
+  created_at: string;
   updated_at: string;
   primary_photo_url?: string | null;
 };
@@ -257,6 +258,8 @@ export type Analytics = {
     unassigned: number;
     missing_category: number;
     missing_photo: number;
+    missing_details: number;
+    priced_items: number;
     health_score: number;
   };
   activity_summary: {
@@ -273,8 +276,16 @@ export type Analytics = {
     purchase_minor: number;
     estimated_minor: number;
   }>;
-  categories: Array<{ label: string; item_count: number }>;
-  locations: Array<{ label: string; item_count: number }>;
+  categories: Array<{
+    category_id: number | null;
+    label: string;
+    item_count: number;
+  }>;
+  locations: Array<{
+    location_public_id: string;
+    label: string;
+    item_count: number;
+  }>;
   activity: Array<{
     date: string;
     changes: number;
@@ -285,6 +296,9 @@ export type Analytics = {
   }>;
   action_mix: Array<{ key: string; label: string; count: number }>;
   source_mix: Array<{ source: string; count: number }>;
+  source_activity: Array<{ date: string; source: string; changes: number }>;
+  stock: Array<{ label: string; count: number }>;
+  inventory_age: Array<{ label: string; count: number }>;
   completeness: Array<{
     key: string;
     label: string;

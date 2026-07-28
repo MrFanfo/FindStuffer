@@ -40,6 +40,8 @@ def test_analytics_reports_health_value_activity_and_consumption(tmp_path: Path)
         assert result["summary"]["zero_stock"] == 0
         assert result["summary"]["missing_photo"] == 1
         assert result["summary"]["missing_category"] == 1
+        assert result["summary"]["missing_details"] == 1
+        assert result["summary"]["priced_items"] == 1
         assert result["summary"]["health_score"] == 25
         assert result["values"] == [
             {"currency": "EUR", "purchase_minor": 750, "estimated_minor": 0}
@@ -52,6 +54,15 @@ def test_analytics_reports_health_value_activity_and_consumption(tmp_path: Path)
         }
         assert result["completeness"][0]["percent"] == 100
         assert result["completeness"][1]["percent"] == 0
+        assert result["stock"] == [
+            {"label": "In stock", "count": 0},
+            {"label": "Low", "count": 1},
+            {"label": "Empty", "count": 0},
+        ]
+        assert sum(entry["count"] for entry in result["inventory_age"]) == 1
+        assert result["categories"][0]["category_id"] is None
+        assert result["locations"][0]["location_public_id"] == location["public_id"]
+        assert result["source_activity"][0]["source"] in {"manual", "test"}
         assert result["top_consumed"][0]["name"] == "Rice"
         assert result["top_consumed"][0]["quantity"] == "2"
         assert result["top_changed"][0]["name"] == "Rice"
