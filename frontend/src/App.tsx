@@ -5634,7 +5634,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
     URL.revokeObjectURL(url);
   }
 
-  function downloadImportTemplate(kind: "items" | "quantity" | "move" | "structure") {
+  function downloadImportTemplate() {
     const availableCategories = categories.map((category) => ({
       id: category.id,
       path: categoryOptionLabel(category),
@@ -5646,17 +5646,31 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         ]),
       ),
     }));
-    const compactCategories = availableCategories.map((category) => ({
-      id: category.id,
-      path: category.path,
-    }));
     const availableLocations = flatLocations.map((location) => ({
       public_id: location.public_id,
       path: location.path,
       kind: location.kind,
     }));
-    const categoryReferences = kind === "items" || kind === "quantity" || kind === "move" ? compactCategories : availableCategories;
     const templateHelp = {
+      purpose: "Give this file to a chatbot together with a plain-language list of the inventory changes you want. The chatbot must return one completed findstuff-ops-v1 JSON document for Findstuff to preview.",
+      suggested_chatbot_prompt: [
+        "Read the instructions and available values in the attached Findstuff operations template.",
+        "Create the operations needed for the changes I describe below.",
+        "Return only valid JSON with format exactly findstuff-ops-v1 and an operations array. Do not return Markdown, commentary, or code fences.",
+        "Do not guess ambiguous existing records. Use IDs or full paths from the template where possible, and ask me for clarification if a safe match is not possible.",
+        "My requested changes:",
+        "- Replace this line with what to add, adjust, move, update, archive, or reorganize.",
+      ],
+      workflow: [
+        "In Findstuff, open Manage > Backup & data > Import operations with a chatbot.",
+        "Download this template. It is generated with the current categories, locations, location kinds, and units.",
+        "Attach the template to a chatbot and describe the changes in ordinary language. You can request several kinds of change in one conversation.",
+        "Save the chatbot's JSON response as a .json file without reformatting it.",
+        "Back in Findstuff, choose that JSON under Import data. Findstuff previews every operation against a temporary copy of the current inventory.",
+        "Review all counts and dry-run details. If there are errors, do not merge; give the errors to the chatbot and ask it for corrected JSON.",
+        "When the preview is clean, click Merge into this inventory.",
+        "If needed, use Undo under Recent imports. Findstuff retains the latest five tracked imports.",
+      ],
       file_format: {
         format: "The root object must keep format exactly equal to findstuff-ops-v1. This tells Findstuff this is an operations import, not a full database export.",
         operations: "The root operations field must be an array. Each array entry is one change to preview and then apply in order.",
@@ -5664,8 +5678,8 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         unknown_fields: "Do not invent field names. Use only the fields documented here unless the user explicitly asks for custom notes text.",
       },
       how_to_use: [
-        "Fill operations with the changes requested by the user.",
-        "Delete example operations that are not needed.",
+        "Fill the root operations array with only the changes requested by the user.",
+        "The examples are reference material inside instructions.operation_examples; do not copy examples unless the user actually requested those changes.",
         "Use category path strings from _available_categories.path and location path strings from _available_locations.path whenever possible.",
         "For add item operations, do not create an item if the same name already exists in the same category. Use modify with add_quantity or remove_quantity to change stock.",
         "For modify/delete operations, include match. Prefer public_id/id when known; otherwise use a unique path, name, or barcode.",
@@ -5681,6 +5695,71 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
           { op: "add", type: "item", data: { name: "USB-C cable", category: "Electronics > Cables", location: "Studio > Drawer", quantity: "2", unit: "pcs" } },
           { op: "modify", type: "item", match: { name: "USB-C cable" }, data: { add_quantity: "3" } },
           { op: "delete", type: "location", match: { path: "Garage > Old box" } },
+        ],
+      },
+      operation_examples: {
+        add_items: [
+          {
+            op: "add",
+            type: "item",
+            data: {
+              name: "Example item name",
+              category: availableCategories[0]?.path || "",
+              location: availableLocations[0]?.path || "",
+              quantity: "1",
+              unit: units[0] || "pcs",
+              notes: "",
+              tags: ["example"],
+              barcode: "",
+            },
+          },
+        ],
+        adjust_quantities: [
+          {
+            op: "modify",
+            type: "item",
+            match: { name: "Existing item name" },
+            data: { add_quantity: "3" },
+          },
+          {
+            op: "modify",
+            type: "item",
+            match: { barcode: "1234567890123" },
+            data: { remove_quantity: "1" },
+          },
+        ],
+        move_or_update_items: [
+          {
+            op: "modify",
+            type: "item",
+            match: { name: "Existing item name" },
+            data: {
+              location: availableLocations[0]?.path || "",
+              category: availableCategories[0]?.path || "",
+              notes: "Updated note",
+            },
+          },
+        ],
+        add_categories_and_locations: [
+          {
+            op: "add",
+            type: "category",
+            data: {
+              name: "New subcategory",
+              parent: availableCategories[0]?.path || "",
+              default_location: availableLocations[0]?.path || null,
+            },
+          },
+          {
+            op: "add",
+            type: "location",
+            data: {
+              name: "New box or shelf",
+              kind: locationTypes[0]?.name || "location",
+              parent: availableLocations[0]?.path || "",
+              description: "",
+            },
+          },
         ],
       },
       item_match_fields: ["public_id", "name", "barcode"],
@@ -5705,7 +5784,8 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         expiration_date: "YYYY-MM-DD or null",
         purchase_price_minor: "integer cents, for example 1299 for EUR 12.99",
         purchase_currency: "3-letter currency code, for example EUR",
-        estimated_value_minor: "integer cents",
+        estimated_price_minor: "integer cents",
+        estimated_price_currency: "3-letter currency code, for example EUR",
         links: [{ label: "Manual", url: "https://example.com/manual.pdf" }],
       },
       item_rules: [
@@ -5715,7 +5795,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         "quantity replaces the current quantity. add_quantity and remove_quantity adjust the current quantity and should be used for stock changes.",
         "links must be an array of objects. Each link object needs label and url.",
         "expiration_date must be YYYY-MM-DD or null.",
-        "purchase_price_minor and estimated_value_minor are integer minor currency units, for example cents.",
+        "purchase_price_minor and estimated_price_minor are integer minor currency units, for example cents.",
       ],
       category_data_fields: {
         name: "required when adding a category",
@@ -5752,102 +5832,12 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       instructions: templateHelp,
       _available_units: units,
       _available_location_kinds: locationTypes.map((entry) => entry.name),
-      _available_categories: categoryReferences,
+      _available_categories: availableCategories,
       _available_locations: availableLocations,
+      operations: [],
     };
-    if (kind === "items") {
-      downloadJsonTemplate("findstuff-template-add-items.json", {
-        ...base,
-        operations: [
-          {
-            op: "add",
-            type: "item",
-            data: {
-              name: "Example item name",
-              category: availableCategories[0]?.path || "",
-              location: availableLocations[0]?.path || "",
-              quantity: "1",
-              unit: "pcs",
-              notes: "",
-              tags: ["example"],
-              barcode: "",
-            },
-          },
-        ],
-      });
-    } else if (kind === "quantity") {
-      downloadJsonTemplate("findstuff-template-adjust-quantity.json", {
-        ...base,
-        operations: [
-          {
-            op: "modify",
-            type: "item",
-            match: { name: "Existing item name" },
-            data: { add_quantity: "3" },
-          },
-          {
-            op: "modify",
-            type: "item",
-            match: { barcode: "1234567890123" },
-            data: { remove_quantity: "1" },
-          },
-        ],
-      });
-    } else if (kind === "move") {
-      downloadJsonTemplate("findstuff-template-move-update-items.json", {
-        ...base,
-        operations: [
-          {
-            op: "modify",
-            type: "item",
-            match: { name: "Existing item name" },
-            data: {
-              location: availableLocations[0]?.path || "",
-              category: availableCategories[0]?.path || "",
-              notes: "Updated note",
-            },
-          },
-        ],
-      });
-    } else {
-      downloadJsonTemplate("findstuff-template-categories-locations.json", {
-        ...base,
-        operations: [
-          {
-            op: "add",
-            type: "category",
-            data: {
-              name: "New subcategory",
-              parent: availableCategories[0]?.path || "",
-              default_location: availableLocations[0]?.path || null,
-              metadata_enabled: {
-                expiration: false,
-                batches: false,
-                maintenance: false,
-                reservation: true,
-                enrichment: false,
-                photos: true,
-                identity: true,
-                specs: true,
-                price: true,
-                links: true,
-              },
-            },
-          },
-          {
-            op: "add",
-            type: "location",
-            data: {
-              name: "New box or shelf",
-              kind: "box",
-              parent: availableLocations[0]?.path || "",
-              description: "",
-            },
-          },
-        ],
-      });
-    }
-    setNotice("Import template downloaded");
+    downloadJsonTemplate("findstuff-operations-template.json", base);
+    setNotice("Operations template downloaded");
   }
 
   async function undoImport(batch: ImportBatch) {
@@ -6006,7 +5996,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         {dataActivity && <div className="inline-activity" role="status"><span className="activity-spinner" />{dataActivity}</div>}
         <div className="button-row data-download-row"><button type="button" className="primary download-button" disabled={Boolean(dataActivity)} onClick={() => void downloadData("/api/v1/admin/export", "findstuff-export.json", "Export")}>Download JSON export</button><button type="button" className="secondary download-button" disabled={Boolean(dataActivity)} onClick={() => void downloadData("/api/v1/admin/backup", "findstuff-backup.zip", "Backup")}>Download full Backup</button></div>
         <div className="restore-backup-box"><div><strong>Restore a full Backup</strong><span>Choose a Findstuff Backup file to replace every Item, Place, Category, history record, and saved photo. A safety Backup is made first.</span></div><button type="button" className="danger-button" disabled={busy || Boolean(dataActivity)} onClick={() => restoreInputRef.current?.click()}>Choose Backup</button><input ref={restoreInputRef} hidden type="file" accept="application/zip,.zip" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void restoreFullBackup(file); }} /></div>
-        <details className="nested-form import-template-box"><summary>Import templates</summary><div className="import-template-grid"><button type="button" className="secondary" onClick={() => downloadImportTemplate("items")}><Icon name="plus" size={15} />Add items</button><button type="button" className="secondary" onClick={() => downloadImportTemplate("quantity")}><Icon name="minus" size={15} />Adjust quantities</button><button type="button" className="secondary" onClick={() => downloadImportTemplate("move")}><Icon name="pin" size={15} />Move/update items</button><button type="button" className="secondary" onClick={() => downloadImportTemplate("structure")}><Icon name="tag" size={15} />Categories & locations</button></div></details>
+        <details className="nested-form import-template-box"><summary>Import operations with a chatbot</summary><div className="import-template-grid"><p className="panel-copy">Download one guide containing every operation type plus your current Categories, Places, Place types, and units. Attach it to a chatbot, describe the changes you want, then bring its JSON response back here for preview.</p><button type="button" className="secondary button-with-icon" onClick={downloadImportTemplate}><Icon name="spark" size={15} />Download operations template</button></div></details>
         <label className="upload-import"><strong>Import data</strong><span>Choose a Findstuff export or changes file to preview it first.</span><input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void readImport(event.target.files[0])} /></label>
         {importSummary && <div className="import-preview"><strong>{importErrors.length ? "Import needs fixes" : "Ready to merge"}</strong>{Object.entries(importSummary).map(([name, count]) => <p key={name}><span>{name}</span><b>{count}</b></p>)}{importDetails.length > 0 && <div className="import-detail-list"><span>Dry-run details</span>{importDetails.map((detail) => <article className={`import-detail ${detail.status}`} key={`${detail.index}-${detail.label}`}><b>{detail.status}</b><div><strong>{detail.label}</strong><small>{detail.message}</small></div></article>)}</div>}{importErrors.length > 0 && <div className="import-errors">{importErrors.map((error, index) => <small key={`${index}-${error}`}>{error}</small>)}</div>}<button className="primary" disabled={busy || !importPayload || importErrors.length > 0} onClick={() => void mergeImport()}>Merge into this inventory</button></div>}
         <div className="import-history"><strong>Recent imports</strong><small>Only the latest five are kept; older import history is removed automatically.</small>{importBatches.length === 0 && <div className="empty-inline"><span>No undoable imports yet</span></div>}{importBatches.map((batch) => <article className="import-batch" key={batch.public_id}><div><strong>{batch.mode === "operations" ? "Changes import" : "Data import"}</strong><small>{new Date(batch.created_at).toLocaleString()} · {importBatchSummary(batch)}</small>{batch.undone_at && <em>Undone {new Date(batch.undone_at).toLocaleString()}</em>}</div><button className="secondary" disabled={busy || Boolean(batch.undone_at)} onClick={() => void undoImport(batch)}>Undo</button></article>)}</div>

@@ -515,6 +515,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .upload-import input { margin-top: 8px; }
 .import-template-box { background: #fbfaf5; }
 .import-template-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-top: 1px solid var(--line); padding: 10px; }
+.import-template-grid > .panel-copy, .import-template-grid > .button-with-icon { grid-column: 1 / -1; }
 .import-template-grid button { justify-content: center; gap: 7px; }
 .import-preview { border-radius: 12px; padding: 13px; background: var(--sage-soft); }
 .import-preview p, .integration-list p { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 7px 0; }

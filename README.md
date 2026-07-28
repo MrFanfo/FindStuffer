@@ -466,10 +466,14 @@ photos and records the failure under `data/.restore/restore-status.json`.
 
 ### Ordered operations JSON
 
-The built-in import templates create `findstuff-ops-v1` documents for adding,
-moving, modifying, or archiving locations, categories, and items. Operations
-run in order and are previewed before application. Full fields, matching rules,
-examples, and deletion constraints are documented in
+The built-in operations template is a chatbot-ready `findstuff-ops-v1` guide
+for adding, moving, modifying, or archiving locations, categories, and items.
+It includes all operation types plus the current category/location paths,
+location kinds, and units. Give it to a chatbot with a plain-language request,
+then import the returned JSON. Operations run in order, are dry-run previewed
+before application, and the latest five tracked imports can be undone. The
+complete workflow, prompt example, fields, matching rules, and safety limits are
+documented in
 [docs/IMPORT_OPERATIONS.md](docs/IMPORT_OPERATIONS.md).
 
 ### External enrichment with ChatGPT or another agent
@@ -542,7 +546,7 @@ the new container fails its health check. Application data is untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.4.2`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.4.3`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
