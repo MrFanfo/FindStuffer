@@ -224,10 +224,50 @@ export type AICommand = {
   proposal: {
     summary: string;
     warnings: string[];
-    action: Record<string, unknown> & { type: string };
+    operations: Array<{
+      op: "add" | "modify" | "delete";
+      type: "item" | "category" | "location";
+      match?: Record<string, unknown>;
+      data?: Record<string, unknown>;
+    }>;
+  };
+  preview: {
+    valid: boolean;
+    counts: Record<string, number>;
+    errors: string[];
+    details: ImportPreviewDetail[];
   };
   requires_confirmation: boolean;
   search_results?: Item[] | null;
+};
+
+export type Analytics = {
+  generated_at: string;
+  days: number;
+  summary: {
+    active_items: number;
+    archived_items: number;
+    locations: number;
+    categories: number;
+    low_stock: number;
+    expiring_30_days: number;
+    unassigned: number;
+    missing_photo: number;
+  };
+  values: Array<{
+    currency: string;
+    purchase_minor: number;
+    estimated_minor: number;
+  }>;
+  categories: Array<{ label: string; item_count: number }>;
+  locations: Array<{ label: string; item_count: number }>;
+  activity: Array<{ date: string; changes: number }>;
+  top_consumed: Array<{
+    public_id: string;
+    name: string;
+    unit: string;
+    quantity: string;
+  }>;
 };
 
 export type AIScanProposal = {
@@ -705,6 +745,16 @@ export const api = {
   bootstrap: (query = "", options?: RequestInit, includeZero = false) =>
     request<Bootstrap>(`/api/v1/bootstrap?q=${encodeURIComponent(query)}&limit=250&include_zero=${includeZero ? "true" : "false"}`, options),
   dashboard: (options?: RequestInit) => request<Dashboard>("/api/v1/dashboard", options),
+  analytics: (days = 90) =>
+    request<Analytics>(`/api/v1/analytics?days=${encodeURIComponent(String(days))}`),
+  syncOfflineOperation: (
+    operationId: string,
+    kind: "create_item" | "adjust_quantity",
+    payload: Record<string, unknown>,
+  ) => request<{ operation_id: string; status: string; result: Item }>("/api/v1/offline/sync", {
+    method: "POST",
+    body: JSON.stringify({ operation_id: operationId, kind, payload }),
+  }),
   categories: () => request<Category[]>("/api/v1/categories"),
   createCategory: (name: string, parent_id: number | null = null) =>
     request<Category>("/api/v1/categories", {
@@ -872,7 +922,21 @@ export const api = {
       body: JSON.stringify({ text }),
     }),
   confirmCommand: (publicId: string) =>
-    request<{ status: string; result: Item }>(`/api/v1/commands/${publicId}/confirm`, {
+    request<{
+      status: string;
+      result: {
+        valid?: boolean;
+        created?: {
+          operations?: number;
+          add?: number;
+          modify?: number;
+          delete?: number;
+          skipped?: number;
+        };
+        errors?: string[];
+        import_public_id?: string;
+      };
+    }>(`/api/v1/commands/${publicId}/confirm`, {
       method: "POST",
     }),
   rejectCommand: (publicId: string) =>

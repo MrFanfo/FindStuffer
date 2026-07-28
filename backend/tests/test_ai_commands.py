@@ -51,3 +51,60 @@ def test_ai_proposal_is_resolved_then_explicitly_confirmed(tmp_path: Path) -> No
         assert event["source"] == "ai"
     finally:
         connection.close()
+
+
+def test_ai_operations_are_applied_as_one_undoable_import(tmp_path: Path) -> None:
+    path = tmp_path / "ai-operations.sqlite3"
+    migrate(path)
+    connection = connect(path)
+    try:
+        resolved = {
+            "format": "findstuff-ops-v1",
+            "operations": [
+                {
+                    "op": "add",
+                    "type": "location",
+                    "data": {"name": "AI shelf", "kind": "shelf"},
+                },
+                {
+                    "op": "add",
+                    "type": "item",
+                    "data": {
+                        "name": "Test boards",
+                        "quantity": 3,
+                        "unit": "pcs",
+                        "location": "AI shelf",
+                    },
+                },
+            ],
+        }
+        expires = datetime.now(UTC) + timedelta(minutes=5)
+        connection.execute(
+            """
+            INSERT INTO ai_commands(
+                public_id, raw_text, proposal_json, resolved_json, status, expires_at
+            ) VALUES ('cmd_operations', 'create a shelf and add boards', '{}', ?,
+                      'proposed', ?)
+            """,
+            (
+                json.dumps(resolved),
+                expires.strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        )
+
+        result = confirm_command(connection, "cmd_operations")
+
+        assert result["status"] == "applied"
+        assert result["result"]["created"]["add"] == 2
+        assert result["result"]["import_public_id"].startswith("imp_")
+        item = connection.execute(
+            "SELECT name FROM items WHERE name = 'Test boards'"
+        ).fetchone()
+        assert item["name"] == "Test boards"
+        batch = connection.execute(
+            "SELECT undo_json FROM import_batches WHERE public_id = ?",
+            (result["result"]["import_public_id"],),
+        ).fetchone()
+        assert len(json.loads(batch["undo_json"])) == 2
+    finally:
+        connection.close()

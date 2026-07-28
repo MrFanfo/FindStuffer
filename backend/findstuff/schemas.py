@@ -17,6 +17,12 @@ class NaturalLanguageCommand(StrictModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
+class OfflineOperation(StrictModel):
+    operation_id: str = Field(min_length=8, max_length=120)
+    kind: Literal["create_item", "adjust_quantity"]
+    payload: dict[str, Any]
+
+
 class ShoppingEntryCreate(StrictModel):
     name: str = Field(min_length=1, max_length=240)
     item_public_id: str | None = None

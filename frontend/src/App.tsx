@@ -5,6 +5,7 @@ import {
   AICommand,
   AIConnectionDiagnostic,
   AIScanProposal,
+  Analytics,
   ApplicationSettings,
   AuthStatus,
   BarcodeResult,
@@ -40,8 +41,18 @@ import {
   isAuthenticationError,
   isRequestAborted,
 } from "./api";
+import {
+  deleteOfflineOperation,
+  listOfflineOperations,
+  loadOfflineSnapshot,
+  OfflineOperation,
+  offlineOperationId,
+  putOfflineOperation,
+  saveOfflineSnapshot,
+  setOfflineOperationError,
+} from "./offline";
 
-type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "manage";
+type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "manage";
 type CaptureMode = "scan" | "quick" | "putaway" | "consume" | "assistant";
 type PlacesSection = "locations" | "categories";
 type ThemePreference = "light" | "dark" | "system";
@@ -425,6 +436,15 @@ function friendlyErrorMessage(error: unknown, fallback: string): string {
   return error.message || fallback;
 }
 
+function isOfflineFailure(error: unknown): boolean {
+  if (!navigator.onLine) return true;
+  return error instanceof Error && (
+    error.message === "Failed to fetch"
+    || error.message.includes("NetworkError")
+    || error.message.includes("Load failed")
+  );
+}
+
 function activityLabel(action: string): string {
   const labels: Record<string, string> = {
     adjust_quantity: "Quantity changed",
@@ -700,7 +720,9 @@ function viewFromParameter(value: string | null): View | null {
     inventory: "inventory",
     locations: "places",
     manage: "manage",
-    more: "manage",
+    more: "extra",
+    extra: "extra",
+    analytics: "analytics",
     "off-category-mappings": "off-category-mappings",
     places: "places",
     scan: "capture",
@@ -735,7 +757,7 @@ const nav: Array<{ id: View; label: string; icon: IconName }> = [
   { id: "inventory", label: "Inventory", icon: "search" },
   { id: "capture", label: "Capture", icon: "scan" },
   { id: "places", label: "Places", icon: "pin" },
-  { id: "manage", label: "More", icon: "more" },
+  { id: "extra", label: "Extra", icon: "more" },
 ];
 
 function App() {
@@ -755,6 +777,9 @@ function App() {
   const [activityMessage, setActivityMessage] = useState("");
   const [inventorySearchBusy, setInventorySearchBusy] = useState(false);
   const [pendingItems, setPendingItems] = useState<Set<string>>(() => new Set());
+  const [offlineOperations, setOfflineOperations] = useState<OfflineOperation[]>([]);
+  const [offlineMode, setOfflineMode] = useState(!navigator.onLine);
+  const [syncingOffline, setSyncingOffline] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [addLocation, setAddLocation] = useState("unassigned");
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
@@ -1001,14 +1026,16 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const offlineMessage = "You're offline. Reconnect to load the inventory.";
+    const offlineMessage = "Offline mode. New captures and quantity changes will sync later.";
     const handleOffline = () => {
+      setOfflineMode(true);
       setConnectionIssue(offlineMessage);
       notify(offlineMessage);
     };
     const handleOnline = () => {
-      notify("Back online. Refreshing...");
-      void refresh("", { showBusy: false });
+      setOfflineMode(false);
+      notify("Back online. Syncing saved changes…");
+      void syncOfflineQueue();
     };
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
@@ -1020,17 +1047,37 @@ function App() {
 
   useEffect(() => {
     localStorage.removeItem(LEGACY_APP_CACHE_KEY);
+    void listOfflineOperations().then((operations) => {
+      setOfflineOperations(operations);
+      setPendingItems((current) => new Set([
+        ...current,
+        ...operations
+          .filter((operation) => operation.kind === "adjust_quantity")
+          .map((operation) => operation.payload.item_public_id),
+      ]));
+    }).catch(() => undefined);
     api.bootstrap("", undefined, inventoryIncludeZero)
       .then((snapshot) => {
         applyBootstrap(snapshot);
+        setOfflineMode(false);
+        void saveOfflineSnapshot(snapshot);
         setNotice("");
       })
-      .catch((error) => {
+      .catch(async (error) => {
         if (isAuthenticationError(error)) {
           setAuth({ authenticated: false, user: null });
           setDashboard(null);
           setConnectionIssue("");
           setNotice("");
+          return;
+        }
+        const cached = await loadOfflineSnapshot().catch(() => null);
+        if (cached) {
+          applyBootstrap(cached.value);
+          setOfflineMode(true);
+          const message = `Offline inventory loaded · saved ${new Date(cached.savedAt).toLocaleString()}`;
+          setConnectionIssue(message);
+          notify(message);
           return;
         }
         const message = error instanceof Error ? error.message : "Unable to connect";
@@ -1047,6 +1094,20 @@ function App() {
         });
       });
   }, [applyBootstrap, inventoryIncludeZero, notify]); // Initialize once; searches are explicitly submitted.
+
+  useEffect(() => {
+    if (!auth?.authenticated || items.length === 0) return;
+    const snapshot: Bootstrap = {
+      auth,
+      categories,
+      dashboard: dashboard || EMPTY_DASHBOARD,
+      items,
+      location_types: locationTypes,
+      locations,
+      units,
+    };
+    void saveOfflineSnapshot(snapshot).catch(() => undefined);
+  }, [auth, categories, dashboard, items, locationTypes, locations, units]);
 
   useEffect(() => {
     if (!auth?.authenticated) return;
@@ -1141,6 +1202,23 @@ function App() {
     } catch (error) {
       const retryDelta = delta;
       const retryBase = queued.confirmed;
+      if (isOfflineFailure(error)) {
+        adjustmentQueue.current.delete(publicId);
+        const operation: OfflineOperation = {
+          id: offlineOperationId(),
+          kind: "adjust_quantity",
+          createdAt: new Date().toISOString(),
+          payload: {
+            item_public_id: publicId,
+            item_name: retryBase.name,
+            delta: retryDelta,
+          },
+        };
+        await putOfflineOperation(operation);
+        setOfflineOperations(await listOfflineOperations());
+        notify(`${retryBase.name}: quantity change saved offline`);
+        return;
+      }
       applyLocalItem(queued.confirmed);
       finishQueue(publicId);
       notify(friendlyErrorMessage(error, "Quantity was not saved"), {
@@ -1352,6 +1430,36 @@ function App() {
       scheduleInventoryRefresh();
       return item;
     } catch (error) {
+      if (isOfflineFailure(error)) {
+        const operationId = offlineOperationId();
+        const tags = Array.isArray(body.tags)
+          ? body.tags.filter((tag): tag is string => typeof tag === "string")
+          : [];
+        let resizedPhoto: Awaited<ReturnType<typeof resizePhoto>> | null = null;
+        if (photoFile) resizedPhoto = await resizePhoto(photoFile);
+        const operation: OfflineOperation = {
+          id: operationId,
+          kind: "create_item",
+          createdAt: new Date().toISOString(),
+          payload: { ...body, tags },
+          imageUrl,
+          photo: resizedPhoto?.blob,
+          photoWidth: resizedPhoto?.width,
+          photoHeight: resizedPhoto?.height,
+        };
+        await putOfflineOperation(operation);
+        const placeholder = makeOfflineItem(
+          body,
+          operationId,
+          locations,
+          categories,
+          Boolean(photoFile),
+        );
+        setItems((current) => [placeholder, ...current]);
+        setOfflineOperations(await listOfflineOperations());
+        notify(`${placeholder.name} saved offline · it will sync when Findstuff reconnects`);
+        return placeholder;
+      }
       notify(friendlyErrorMessage(error, "Could not add scanned item"), {
         label: "Retry",
         action: async () => { await createScannedItem(body, imageUrl, photoFile); },
@@ -1359,6 +1467,74 @@ function App() {
       throw error;
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function syncOfflineQueue() {
+    if (!navigator.onLine || syncingOffline) return;
+    setSyncingOffline(true);
+    try {
+      const queued = await listOfflineOperations().catch(() => []);
+      let synced = 0;
+      for (const operation of queued) {
+        try {
+          const response = await api.syncOfflineOperation(
+            operation.id,
+            operation.kind,
+            operation.payload,
+          );
+          let item = response.result;
+          if (operation.kind === "create_item") {
+            if (operation.imageUrl) {
+              await api.importPhotoFromUrl(item, operation.imageUrl);
+            }
+            if (operation.photo) {
+              await api.uploadPhoto(
+                item,
+                operation.photo,
+                operation.photoWidth,
+                operation.photoHeight,
+              );
+            }
+            if (operation.imageUrl || operation.photo) item = await api.item(item.public_id);
+            setItems((current) => [
+              item,
+              ...current.filter((entry) => (
+                entry.public_id !== operation.id && entry.public_id !== item.public_id
+              )),
+            ]);
+          } else {
+            applyLocalItem(item);
+            setPendingItems((current) => {
+              const next = new Set(current);
+              next.delete(operation.payload.item_public_id);
+              return next;
+            });
+          }
+          await deleteOfflineOperation(operation.id);
+          synced += 1;
+        } catch (error) {
+          if (isAuthenticationError(error) || isOfflineFailure(error)) break;
+          await setOfflineOperationError(
+            operation.id,
+            friendlyErrorMessage(error, "Could not synchronize this offline change"),
+          ).catch(() => undefined);
+        }
+      }
+      const remaining = await listOfflineOperations().catch(() => []);
+      setOfflineOperations(remaining);
+      if (synced) {
+        notify(
+          remaining.length
+            ? `${synced} offline change${synced === 1 ? "" : "s"} synced · ${remaining.length} need attention`
+            : `${synced} offline change${synced === 1 ? "" : "s"} synced`,
+        );
+        await refresh("", { showBusy: false });
+      } else if (!remaining.length) {
+        await refresh("", { showBusy: false });
+      }
+    } finally {
+      setSyncingOffline(false);
     }
   }
 
@@ -1385,10 +1561,17 @@ function App() {
 
   const navView = view === "location" || view === "locations" || view === "category" || view === "categories"
     ? "places"
-    : view === "add" || view === "scan" ? "capture" : view === "default-rules" || view === "off-category-mappings" || view === "ai-inbox" ? "manage" : view;
+    : view === "add" || view === "scan"
+      ? "capture"
+      : view === "default-rules" || view === "off-category-mappings" || view === "ai-inbox"
+        ? "extra"
+        : view === "manage" || view === "analytics"
+          ? "extra"
+          : view;
   return (
     <div className="app-shell">
       {busy && <div className="activity-banner" role="status" aria-live="polite"><span className="activity-spinner" aria-hidden="true" /><strong>{activityMessage || "Saving changes…"}</strong></div>}
+      {(offlineMode || offlineOperations.length > 0) && <div className={`offline-sync-banner ${offlineMode ? "offline" : ""}`} role="status"><span><Icon name={offlineMode ? "more" : "check"} size={17} /><strong>{offlineMode ? "Offline capture" : `${offlineOperations.length} saved change${offlineOperations.length === 1 ? "" : "s"}`}</strong><small>{offlineMode ? `${offlineOperations.length} waiting to sync` : offlineOperations.some((operation) => operation.error) ? "Some changes need attention" : "Ready to synchronize"}</small></span><button type="button" disabled={offlineMode || syncingOffline} onClick={() => void syncOfflineQueue()}>{syncingOffline ? "Syncing…" : "Sync now"}</button></div>}
 
       {notice && <div className={`toast ${retryNotice?.message === notice ? "has-action" : ""}`} role="status"><span className="toast-check"><Icon name="spark" size={16} /></span><p>{notice}</p>{retryNotice?.message === notice && <button className="toast-action" onClick={() => { const pendingAction = retryNotice; setRetryNotice(null); notify(`${pendingAction.label} in progress…`); void pendingAction.action().catch((error) => notify(friendlyErrorMessage(error, `${pendingAction.label} failed`))); }}>{retryNotice.label}</button>}<button onClick={() => { setNotice(""); setRetryNotice(null); }} aria-label="Dismiss message"><Icon name="close" size={16} /></button></div>}
 
@@ -1552,6 +1735,8 @@ function App() {
         {view === "default-rules" && <DefaultRulesView locations={locations} categories={categories} busy={busy} onBack={() => navigate("manage")} onChanged={() => refresh(undefined, { showBusy: false })} notify={notify} />}
         {view === "ai-inbox" && <AIScanInboxView categories={categories} locations={locations} units={units} busy={busy} onBack={() => navigate("manage")} onInventoryChanged={() => refresh()} notify={notify} />}
         {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onNavigate={navigate} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} />}
+        {view === "extra" && <ExtraView offlineOperations={offlineOperations} offlineMode={offlineMode} syncing={syncingOffline} onAnalytics={() => navigate("analytics")} onSettings={() => navigate("manage")} onSync={() => syncOfflineQueue()} onDiscard={async (id) => { await deleteOfflineOperation(id); setOfflineOperations(await listOfflineOperations()); if (navigator.onLine) await refresh("", { showBusy: false }); }} />}
+        {view === "analytics" && <AnalyticsView onBack={() => navigate("extra")} />}
         {view === "manage" && (
           <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onDefaultRules={() => navigate("default-rules")} onOffCategoryMappings={() => navigate("off-category-mappings")} onInbox={() => navigate("ai-inbox")} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} onUnitsChanged={setUnits} />
         )}
@@ -2302,12 +2487,18 @@ function AICommandBox({ busy, onApplied }: { busy: boolean; onApplied: () => Pro
   const [command, setCommand] = useState<AICommand | null>(null);
   const [error, setError] = useState("");
   const [listening, setListening] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [appliedSummary, setAppliedSummary] = useState("");
 
   async function parse(event: FormEvent) {
     event.preventDefault();
     setError("");
+    setAppliedSummary("");
+    setParsing(true);
     try { setCommand(await api.parseCommand(text)); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not parse command"); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not compose operations"); }
+    finally { setParsing(false); }
   }
 
   function dictate() {
@@ -2329,12 +2520,20 @@ function AICommandBox({ busy, onApplied }: { busy: boolean; onApplied: () => Pro
 
   async function confirm() {
     if (!command) return;
+    setError("");
+    setApplying(true);
     try {
-      await api.confirmCommand(command.public_id);
+      const response = await api.confirmCommand(command.public_id);
       await onApplied();
+      const changed = Number(response.result.created?.add || 0)
+        + Number(response.result.created?.modify || 0)
+        + Number(response.result.created?.delete || 0);
+      const failures = response.result.errors?.length || 0;
+      setAppliedSummary(`${changed} operation${changed === 1 ? "" : "s"} applied${failures ? ` · ${failures} could not be applied` : ""}. You can undo this batch from Settings & data → Recent imports.`);
       setCommand(null);
       setText("");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not apply command"); }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not apply operations"); }
+    finally { setApplying(false); }
   }
 
   async function reject() {
@@ -2344,10 +2543,19 @@ function AICommandBox({ busy, onApplied }: { busy: boolean; onApplied: () => Pro
 
   return (
     <section className="ai-box">
-      <div className="ai-heading"><span><Icon name="spark" size={22} /></span><div><p className="eyebrow">AI ASSISTANT</p><h2>Or just say it</h2><p>Describe several details at once. Nothing changes until you confirm.</p></div></div>
-      <form onSubmit={parse}><label className="sr-only" htmlFor="ai-command">Inventory instruction</label><textarea id="ai-command" value={text} onChange={(event) => setText(event.target.value)} placeholder="Add 3 ESP32-C3 boards in the studio drawer, bought for €8 each." rows={3} /><div className="ai-buttons"><button type="button" className="secondary button-with-icon" onClick={dictate}><Icon name="mic" size={17} />{listening ? "Listening…" : "Dictate"}</button><button className="primary" disabled={busy || !text.trim()}>Review command</button></div></form>
+      <div className="ai-heading"><span><Icon name="spark" size={22} /></span><div><p className="eyebrow">VOICE / AI</p><h2>Operations composer</h2><p>Ask for several additions, moves, quantity changes, Categories, or Places in one instruction. Findstuff previews every operation before anything changes.</p></div></div>
+      <form onSubmit={parse}><label className="sr-only" htmlFor="ai-command">Inventory operations</label><textarea id="ai-command" value={text} onChange={(event) => { setText(event.target.value); setCommand(null); }} placeholder="Create a Workshop shelf, add 3 ESP32 boards there, move my soldering iron to it, and reduce USB cables by 2." rows={4} /><div className="ai-buttons"><button type="button" className="secondary button-with-icon" disabled={parsing || applying} onClick={dictate}><Icon name="mic" size={17} />{listening ? "Listening…" : "Dictate"}</button><button className="primary" disabled={busy || parsing || applying || !text.trim()}>{parsing ? "Composing…" : command ? "Preview again" : "Compose & preview"}</button></div></form>
       {error && <div className="inline-alert" role="alert">{error}</div>}
-      {command && <div className="proposal"><p className="eyebrow">READY FOR REVIEW</p><h3>{command.proposal.summary}</h3><dl>{Object.entries(command.proposal.action).filter(([key]) => !["type", "current", "item_public_id", "location_public_id", "destination_public_id", "expected_version"].includes(key)).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{value === null ? "—" : String(value)}</dd></div>)}</dl>{command.proposal.warnings?.map((warning) => <p className="warning" key={warning}>{warning}</p>)}{command.search_results ? <div className="mini-results">{command.search_results.map((item) => <p key={item.public_id}><strong>{item.name}</strong><span>{item.location_path}</span></p>)}</div> : command.requires_confirmation && <div className="proposal-actions"><button onClick={() => void reject()}>Cancel</button><button className="primary button-with-icon" onClick={() => void confirm()}><Icon name="check" size={17} />Confirm change</button></div>}</div>}
+      {appliedSummary && <div className="composer-success" role="status"><Icon name="check" size={18} /><span>{appliedSummary}</span></div>}
+      {command && <div className="proposal composer-preview">
+        <div className="composer-preview-heading"><div><p className="eyebrow">IMPORT PREVIEW</p><h3>{command.proposal.summary}</h3></div><b className={command.preview.valid ? "ready" : "blocked"}>{command.preview.valid ? "Ready" : "Needs changes"}</b></div>
+        <div className="composer-counts">{Object.entries(command.preview.counts).filter(([, value]) => value > 0).map(([label, value]) => <span key={label}><strong>{value}</strong>{label.replaceAll("_", " ")}</span>)}</div>
+        <div className="composer-operation-list">{command.preview.details.map((detail) => <article key={`${detail.index}-${detail.action}-${detail.entity}`} className={detail.status}><b>{detail.index}</b><div><strong>{detail.action} {detail.entity}</strong><span>{detail.label}</span><small>{detail.message}</small></div><Icon name={detail.status === "error" ? "close" : "check"} size={17} /></article>)}</div>
+        {command.proposal.warnings?.map((warning) => <p className="warning" key={warning}>{warning}</p>)}
+        {command.preview.errors.map((message) => <p className="warning" key={message}>{message}</p>)}
+        <p className="composer-undo-note">Applied as one import batch. Recent imports keeps the latest five batches available for rollback.</p>
+        <div className="proposal-actions"><button type="button" disabled={applying} onClick={() => void reject()}>Revise</button><button type="button" className="primary button-with-icon" disabled={!command.requires_confirmation || applying} onClick={() => void confirm()}><Icon name="check" size={17} />{applying ? "Applying…" : `Apply ${command.proposal.operations.length} operation${command.proposal.operations.length === 1 ? "" : "s"}`}</button></div>
+      </div>}
     </section>
   );
 }
@@ -4027,6 +4235,58 @@ function defaultBarcodeName(code: string) {
   return `Product ${code}`;
 }
 
+function makeOfflineItem(
+  body: Record<string, unknown>,
+  operationId: string,
+  locations: LocationNode[],
+  categories: Category[],
+  hasPhoto: boolean,
+): Item {
+  const locationId = String(body.location_public_id || "unassigned");
+  const location = flattenLocations(locations).find((entry) => entry.public_id === locationId);
+  const categoryId = typeof body.category_id === "number" ? body.category_id : null;
+  const category = categories.find((entry) => entry.id === categoryId);
+  return {
+    public_id: operationId,
+    version: 1,
+    name: String(body.name || "Offline capture"),
+    description: String(body.description || ""),
+    notes: String(body.notes || ""),
+    category_id: categoryId,
+    category_name: category?.name || null,
+    category_slug: category?.slug || null,
+    category_parent_id: category?.parent_id || null,
+    category_path: category?.path || null,
+    location_public_id: locationId,
+    location_name: location?.name || "Unassigned",
+    location_path: location?.path || "Unassigned",
+    quantity: String(body.quantity || "1"),
+    unit: String(body.unit || "pcs"),
+    purchase_price_minor: typeof body.purchase_price_minor === "number" ? body.purchase_price_minor : null,
+    purchase_currency: typeof body.purchase_currency === "string" ? body.purchase_currency : null,
+    estimated_price_minor: typeof body.estimated_price_minor === "number" ? body.estimated_price_minor : null,
+    estimated_price_currency: typeof body.estimated_price_currency === "string" ? body.estimated_price_currency : null,
+    estimated_price_at: null,
+    weight_g: typeof body.weight_g === "number" ? body.weight_g : null,
+    length_mm: typeof body.length_mm === "number" ? body.length_mm : null,
+    width_mm: typeof body.width_mm === "number" ? body.width_mm : null,
+    height_mm: typeof body.height_mm === "number" ? body.height_mm : null,
+    serial_number: String(body.serial_number || ""),
+    model: String(body.model || ""),
+    brand: String(body.brand || ""),
+    expiration_date: typeof body.expiration_date === "string" ? body.expiration_date : null,
+    low_stock_threshold: body.low_stock_threshold === null || body.low_stock_threshold === undefined
+      ? null
+      : String(body.low_stock_threshold),
+    barcode: String(body.barcode || ""),
+    links: Array.isArray(body.links) ? body.links as Array<{ label: string; url: string }> : [],
+    tags: Array.isArray(body.tags) ? body.tags.filter((entry): entry is string => typeof entry === "string") : [],
+    archived_at: null,
+    updated_at: new Date().toISOString(),
+    primary_photo_url: hasPhoto ? "" : null,
+  };
+}
+
 function suggestScannedCategory(categories: Category[], product: BarcodeResult["product"]): string {
   if (!product) return "";
   const sourceLabels = product.categories.map((label) => label.replace(/^[a-z]{2}:/i, "").replaceAll("-", " ").toLocaleLowerCase());
@@ -4221,8 +4481,13 @@ function ScanView({ items, locations, categories, units, busy, initialMode, init
       });
       setMessage(result.existing_item ? "Already saved. Adjust the quantity below." : result.found ? "Product recognized. Keep scanning or review below." : "Code added. Add details in the review list.");
     } catch (error) {
-      updateScannedEntry(normalized, (entry) => ({ ...entry, status: "error", error: error instanceof Error ? error.message : "Lookup failed" }));
-      setMessage(error instanceof Error ? error.message : "Lookup failed");
+      if (isOfflineFailure(error) && mode !== "consume") {
+        updateScannedEntry(normalized, (entry) => ({ ...entry, status: "ready", error: "" }));
+        setMessage("Offline code captured. Add a name and save it; product lookup can happen after synchronization.");
+      } else {
+        updateScannedEntry(normalized, (entry) => ({ ...entry, status: "error", error: error instanceof Error ? error.message : "Lookup failed" }));
+        setMessage(error instanceof Error ? error.message : "Lookup failed");
+      }
     } finally {
       lookupInFlight.current.delete(normalized);
     }
@@ -6086,6 +6351,114 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       </div></details>
     </section>
   );
+}
+
+function ExtraView({
+  offlineOperations,
+  offlineMode,
+  syncing,
+  onAnalytics,
+  onSettings,
+  onSync,
+  onDiscard,
+}: {
+  offlineOperations: OfflineOperation[];
+  offlineMode: boolean;
+  syncing: boolean;
+  onAnalytics: () => void;
+  onSettings: () => void;
+  onSync: () => Promise<void>;
+  onDiscard: (id: string) => Promise<void>;
+}) {
+  return <section className="extra-page">
+    <div className="page-heading"><div><p className="eyebrow">EXTRA</p><h1>More ways to use Findstuff</h1><p>Analytics lives here now. Future tools can grow here without crowding the main inventory workflow.</p></div></div>
+    <div className="extra-tool-grid">
+      <button type="button" className="extra-tool-card featured" onClick={onAnalytics}><span><Icon name="spark" size={24} /></span><div><strong>Analytics</strong><small>Inventory health, value, activity, Places, Categories, and consumption.</small></div><Icon name="chevron" size={18} /></button>
+      <button type="button" className="extra-tool-card" onClick={onSettings}><span><Icon name="settings" size={24} /></span><div><strong>Settings & data</strong><small>Backups, imports, integrations, customization, projects, and system information.</small></div><Icon name="chevron" size={18} /></button>
+    </div>
+    <section className="offline-queue-card">
+      <header><div><p className="eyebrow">PWA OFFLINE CAPTURE</p><h2>{offlineOperations.length ? `${offlineOperations.length} change${offlineOperations.length === 1 ? "" : "s"} waiting` : "Everything is synchronized"}</h2></div><b className={offlineMode ? "offline" : "ready"}>{offlineMode ? "Offline" : "Online"}</b></header>
+      <p>Add Items—with compressed photos—and adjust quantities while Findstuff is unreachable. This device synchronizes them in order after reconnecting.</p>
+      {offlineOperations.length > 0 && <div className="offline-operation-list">{offlineOperations.map((operation) => <article key={operation.id} className={operation.error ? "error" : ""}><span><Icon name={operation.kind === "create_item" ? "plus" : "minus"} size={15} /></span><div><strong>{operation.kind === "create_item" ? String(operation.payload.name || "New item") : operation.payload.item_name}</strong><small>{operation.kind === "create_item" ? "Offline item capture" : `${operation.payload.delta > 0 ? "+" : ""}${operation.payload.delta} quantity`} · {new Date(operation.createdAt).toLocaleString()}</small>{operation.error && <em>{operation.error}</em>}</div>{operation.error && !offlineMode && <button type="button" onClick={() => void onDiscard(operation.id)}>Discard</button>}</article>)}</div>}
+      <button type="button" className="primary wide" disabled={offlineMode || syncing || offlineOperations.length === 0} onClick={() => void onSync()}>{syncing ? "Synchronizing…" : "Synchronize now"}</button>
+      <small>Unsynced captures remain only on this device until synchronization completes.</small>
+    </section>
+  </section>;
+}
+
+function analyticsMoney(minor: number, currency: string): string {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(minor / 100);
+}
+
+function AnalyticsView({ onBack }: { onBack: () => void }) {
+  const [days, setDays] = useState(90);
+  const [data, setData] = useState<Analytics | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    api.analytics(days)
+      .then((result) => { if (active) setData(result); })
+      .catch((reason) => { if (active) setError(friendlyErrorMessage(reason, "Could not load analytics")); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [days]);
+
+  const maxCategory = Math.max(1, ...(data?.categories.map((entry) => entry.item_count) || [1]));
+  const maxLocation = Math.max(1, ...(data?.locations.map((entry) => entry.item_count) || [1]));
+  const activityBuckets = useMemo(() => {
+    if (!data?.activity.length) return [];
+    const bucketSize = Math.max(1, Math.ceil(data.activity.length / 14));
+    const buckets: Array<{ label: string; changes: number }> = [];
+    for (let index = 0; index < data.activity.length; index += bucketSize) {
+      const group = data.activity.slice(index, index + bucketSize);
+      buckets.push({
+        label: new Date(`${group[group.length - 1].date}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        changes: group.reduce((sum, entry) => sum + entry.changes, 0),
+      });
+    }
+    return buckets;
+  }, [data]);
+  const maxActivity = Math.max(1, ...activityBuckets.map((entry) => entry.changes));
+
+  return <section className="analytics-page">
+    <header className="subpage-header"><button className="icon-button" onClick={onBack} aria-label="Back to Extra"><Icon name="chevron" size={18} /></button><div><p className="eyebrow">EXTRA · ANALYTICS</p><h1>Inventory analytics</h1><p>Operational signals calculated locally by Findstuff. Currencies and units remain separate.</p></div></header>
+    <div className="analytics-toolbar"><label>Activity period<select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option></select></label>{data && <small>Updated {new Date(data.generated_at).toLocaleString()}</small>}</div>
+    {loading && <div className="analytics-loading"><span className="activity-spinner" />Calculating analytics…</div>}
+    {error && <div className="inline-alert" role="alert">{error}</div>}
+    {data && !loading && <>
+      <div className="analytics-metrics">
+        {[
+          ["Active Items", data.summary.active_items],
+          ["Low stock", data.summary.low_stock],
+          ["Expiring in 30 days", data.summary.expiring_30_days],
+          ["Unassigned", data.summary.unassigned],
+          ["Missing photos", data.summary.missing_photo],
+          ["Archived", data.summary.archived_items],
+        ].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{value}</strong></article>)}
+      </div>
+      <section className="analytics-section">
+        <div className="section-heading"><div><h2>Inventory value</h2><span>Unit price × current quantity, kept separate by currency</span></div></div>
+        {data.values.length ? <div className="value-card-grid">{data.values.map((entry) => <article key={entry.currency}><strong>{entry.currency}</strong><div><span>Purchase value<b>{analyticsMoney(entry.purchase_minor, entry.currency)}</b></span><span>Estimated value<b>{analyticsMoney(entry.estimated_minor, entry.currency)}</b></span></div></article>)}</div> : <div className="empty-inline"><span>Add purchase or estimated prices to calculate value.</span></div>}
+      </section>
+      <section className="analytics-section">
+        <div className="section-heading"><div><h2>Activity</h2><span>{data.days}-day inventory changes</span></div></div>
+        <div className="activity-chart" aria-label={`Inventory changes over ${data.days} days`}>{activityBuckets.map((entry) => <div key={entry.label} title={`${entry.label}: ${entry.changes} changes`}><span style={{ height: `${Math.max(4, entry.changes / maxActivity * 100)}%` }} /><small>{entry.label}</small></div>)}</div>
+      </section>
+      <div className="analytics-columns">
+        <section className="analytics-section"><div className="section-heading"><div><h2>Top Categories</h2><span>Active Item records</span></div></div><div className="rank-bars">{data.categories.map((entry) => <article key={entry.label}><div><strong>{entry.label}</strong><b>{entry.item_count}</b></div><span><i style={{ width: `${entry.item_count / maxCategory * 100}%` }} /></span></article>)}</div></section>
+        <section className="analytics-section"><div className="section-heading"><div><h2>Top Places</h2><span>Active Item records</span></div></div><div className="rank-bars">{data.locations.map((entry) => <article key={entry.label}><div><strong>{entry.label}</strong><b>{entry.item_count}</b></div><span><i style={{ width: `${entry.item_count / maxLocation * 100}%` }} /></span></article>)}</div></section>
+      </div>
+      <section className="analytics-section"><div className="section-heading"><div><h2>Most consumed</h2><span>Quantity removed during this period, kept in each Item’s unit</span></div></div>{data.top_consumed.length ? <div className="consumption-list">{data.top_consumed.map((entry, index) => <article key={entry.public_id}><b>{index + 1}</b><span><strong>{entry.name}</strong><small>{entry.quantity} {entry.unit} consumed</small></span></article>)}</div> : <div className="empty-inline"><span>No quantity consumption recorded in this period.</span></div>}</section>
+    </>}
+  </section>;
 }
 
 function DashboardView({

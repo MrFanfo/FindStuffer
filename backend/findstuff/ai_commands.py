@@ -11,12 +11,14 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from .ai_usage import record_ai_usage
 from .db import transaction
+from .extended import apply_import_merge, import_preview
 from .inventory import (
     ConflictError,
     NotFoundError,
     adjust_quantity,
     create_item,
     find_category_id,
+    list_categories,
     list_items,
     list_location_tree,
     move_item,
@@ -92,6 +94,16 @@ class Proposal(AIModel):
 
 
 proposal_adapter = TypeAdapter(Proposal)
+
+
+class OperationsProposal(AIModel):
+    schema_version: Literal["1"] = "1"
+    summary: str
+    operations: list[dict[str, Any]] = Field(min_length=1, max_length=100)
+    warnings: list[str] = []
+
+
+operations_proposal_adapter = TypeAdapter(OperationsProposal)
 
 
 def compact_context(connection: sqlite3.Connection) -> dict[str, Any]:
@@ -184,6 +196,122 @@ async def call_parser(connection: sqlite3.Connection, text: str) -> Proposal:
     return proposal
 
 
+def operations_context(connection: sqlite3.Connection) -> dict[str, Any]:
+    locations: list[dict[str, str]] = []
+
+    def collect(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            locations.append(
+                {
+                    "public_id": str(node["public_id"]),
+                    "path": str(node["path"]),
+                    "kind": str(node["kind"]),
+                }
+            )
+            collect(node["children"])
+
+    collect(list_location_tree(connection))
+    items = list_items(connection, limit=300, include_zero=True)
+    units = sorted(
+        {
+            str(item["unit"])
+            for item in items
+            if str(item.get("unit") or "").strip()
+        }
+        | {"pcs", "box", "pack", "bag", "g", "kg", "ml", "l"}
+    )
+    return {
+        "locations": locations[:300],
+        "categories": [
+            {"id": category["id"], "path": category["path"]}
+            for category in list_categories(connection)[:300]
+        ],
+        "items": [
+            {
+                "public_id": item["public_id"],
+                "name": item["name"],
+                "barcode": item["barcode"],
+                "category": item["category_path"],
+                "location": item["location_path"],
+                "quantity": item["quantity"],
+                "unit": item["unit"],
+            }
+            for item in items
+        ],
+        "units": units,
+    }
+
+
+async def call_operations_parser(
+    connection: sqlite3.Connection, text: str
+) -> OperationsProposal:
+    settings = get_ai_config(connection)
+    if not settings.enabled or not settings.endpoint or not settings.model:
+        raise RuntimeError(
+            "AI parser is not configured. Configure it in Settings > Integrations."
+        )
+    schema = operations_proposal_adapter.json_schema()
+    prompt = (
+        "Convert the user's request into an ordered Findstuff operations plan. "
+        "It may contain multiple add, modify, or delete operations for item, category, "
+        "and location records. Use only the supplied IDs, exact item names, and full paths. "
+        "Prefer public_id/id matches when present. For stock changes use add_quantity or "
+        "remove_quantity, not an absolute quantity. Put parent structure operations before "
+        "operations that refer to them. Never guess an ambiguous existing record. "
+        "Return only JSON matching the schema; no reasoning or Markdown.\n"
+        f"Schema:{json.dumps(schema, separators=(',', ':'))}\n"
+        f"Context:{json.dumps(operations_context(connection), separators=(',', ':'))}\n"
+        f"User request:{text}"
+    )
+    headers = {"Content-Type": "application/json"}
+    if settings.api_key:
+        headers["Authorization"] = f"Bearer {settings.api_key}"
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(45.0), headers=headers, trust_env=False
+    ) as client:
+        try:
+            response = await client.post(
+                settings.endpoint,
+                json={
+                    "model": settings.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a strict inventory operations planner. "
+                                "Return valid JSON only."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            response.raise_for_status()
+            body = response.json()
+            content = body["choices"][0]["message"]["content"]
+            proposal = operations_proposal_adapter.validate_json(content)
+        except Exception:
+            record_ai_usage(
+                connection,
+                feature="command",
+                model=settings.model,
+                success=False,
+                prompt_text=prompt,
+            )
+            raise
+    record_ai_usage(
+        connection,
+        feature="command",
+        model=settings.model,
+        success=True,
+        response_body=body,
+        prompt_text=prompt,
+        output_text=content,
+    )
+    return proposal
+
+
 def resolve_item(connection: sqlite3.Connection, query: str) -> dict[str, Any]:
     matches = list_items(connection, query=query, limit=6)
     exact = [item for item in matches if item["name"].casefold() == query.casefold()]
@@ -241,15 +369,18 @@ def resolve_proposal(connection: sqlite3.Connection, proposal: Proposal) -> dict
 
 
 async def parse_command(connection: sqlite3.Connection, text: str) -> dict[str, Any]:
-    proposal = await call_parser(connection, text)
-    resolved = resolve_proposal(connection, proposal)
+    proposal = await call_operations_parser(connection, text)
+    resolved = {
+        "format": "findstuff-ops-v1",
+        "operations": proposal.operations,
+        "_composer": {
+            "summary": proposal.summary,
+            "warnings": proposal.warnings,
+        },
+    }
+    preview = import_preview(resolved, connection)
     public_id = new_public_id("cmd")
-    action = resolved["action"]
-    search_results = None
     status = "proposed"
-    if action["type"] == "search_items":
-        search_results = list_items(connection, query=action["query"], limit=50)
-        status = "applied"
     expires = datetime.now(UTC) + timedelta(minutes=30)
     with transaction(connection):
         connection.execute(
@@ -268,15 +399,20 @@ async def parse_command(connection: sqlite3.Connection, text: str) -> dict[str, 
                 status,
                 get_ai_config(connection).model,
                 expires.strftime("%Y-%m-%d %H:%M:%S"),
-                status,
+                "proposed",
             ),
         )
     return {
         "public_id": public_id,
         "status": status,
-        "proposal": resolved,
-        "requires_confirmation": status == "proposed",
-        "search_results": search_results,
+        "proposal": {
+            "summary": proposal.summary,
+            "warnings": proposal.warnings,
+            "operations": proposal.operations,
+        },
+        "preview": preview,
+        "requires_confirmation": bool(preview["valid"] and proposal.operations),
+        "search_results": None,
     }
 
 
@@ -296,6 +432,37 @@ def confirm_command(connection: sqlite3.Connection, public_id: str) -> dict[str,
     if command["expires_at"] <= datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"):
         raise ConflictError("Command proposal has expired")
     resolved = json.loads(command["resolved_json"])
+    if resolved.get("format") == "findstuff-ops-v1":
+        with transaction(connection):
+            cursor = connection.execute(
+                """
+                UPDATE ai_commands
+                SET status = 'applying', confirmed_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'proposed'
+                """,
+                (command["id"],),
+            )
+            if cursor.rowcount != 1:
+                raise ConflictError("Command is already being applied")
+        try:
+            result = apply_import_merge(connection, resolved)
+        except Exception as exc:
+            with transaction(connection):
+                connection.execute(
+                    "UPDATE ai_commands SET status = 'failed', error = ? WHERE id = ?",
+                    (str(exc), command["id"]),
+                )
+            raise
+        with transaction(connection):
+            connection.execute(
+                """
+                UPDATE ai_commands
+                SET status = 'applied', applied_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (command["id"],),
+            )
+        return {"public_id": public_id, "status": "applied", "result": result}
     action = resolved["action"]
     with transaction(connection):
         connection.execute(

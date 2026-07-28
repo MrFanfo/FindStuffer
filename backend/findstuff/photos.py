@@ -44,6 +44,20 @@ def store_photo(
 ) -> dict[str, Any]:
     item = get_item_row(connection, item_public_id)
     mime_type, extension = validate_image(data, declared_type)
+    digest = hashlib.sha256(data).hexdigest()
+    existing = connection.execute(
+        """
+        SELECT photos.*, items.public_id AS item_public_id
+        FROM photos
+        JOIN items ON items.id = photos.item_id
+        WHERE photos.item_id = ? AND photos.sha256 = ?
+        ORDER BY photos.id
+        LIMIT 1
+        """,
+        (item["id"], digest),
+    ).fetchone()
+    if existing:
+        return serialize_photo(existing)
     public_id = new_public_id("pho")
     relative = Path("photos") / item_public_id / f"{public_id}{extension}"
     absolute = get_settings().data_dir / relative
@@ -69,7 +83,7 @@ def store_photo(
                     len(data),
                     width,
                     height,
-                    hashlib.sha256(data).hexdigest(),
+                    digest,
                     item["id"],
                 ),
             )

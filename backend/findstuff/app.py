@@ -114,6 +114,7 @@ from .inventory import (
     NotFoundError,
     add_item_relationship,
     adjust_quantity,
+    analytics,
     archive_item,
     category_contents,
     category_data_settings,
@@ -181,6 +182,7 @@ from .off_categories import (
     list_mappings,
     set_mapping,
 )
+from .offline import apply_offline_operation
 from .photos import delete_photo, get_photo, import_photo_from_url, list_photos, store_photo
 from .schemas import (
     AdminLogin,
@@ -213,6 +215,7 @@ from .schemas import (
     NaturalLanguageCommand,
     NotificationSettingsUpdate,
     OffCategoryMappingUpdate,
+    OfflineOperation,
     ProjectCreate,
     ProjectStatusUpdate,
     QuantityAdjustment,
@@ -485,6 +488,25 @@ async def bootstrap(
 @app.get("/api/v1/dashboard", tags=["dashboard"])
 async def get_dashboard(database: Database) -> dict[str, Any]:
     return dashboard(database)
+
+
+@app.get("/api/v1/analytics", tags=["dashboard"])
+async def get_analytics(
+    database: Database, days: int = Query(default=90, ge=7, le=3650)
+) -> dict[str, Any]:
+    return analytics(database, days)
+
+
+@app.post("/api/v1/offline/sync", tags=["offline"])
+async def sync_offline_operation(
+    payload: OfflineOperation, database: Database
+) -> dict[str, Any]:
+    try:
+        return apply_offline_operation(
+            database, payload.operation_id, payload.kind, payload.payload
+        )
+    except (ConflictError, NotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/dashboard/low-stock", tags=["dashboard"])
@@ -982,6 +1004,8 @@ async def refresh_barcode(code: str, database: Database) -> dict[str, Any]:
 async def post_command(payload: NaturalLanguageCommand, database: Database) -> dict[str, Any]:
     try:
         return await parse_command(database, payload.text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="AI provider request failed") from exc
     except RuntimeError as exc:

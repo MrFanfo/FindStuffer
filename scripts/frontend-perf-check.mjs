@@ -515,22 +515,35 @@ async function runChecks(options, seed) {
       await window.__findstuffPerf.waitFor(() => Boolean(document.querySelector(".inventory-page input[type='search']")));
       window.__findstuffPerf.setValue(".search-large input[type='search']", "Frontend Perf");
       window.__findstuffPerf.clickSelector(".search-submit");
-      await window.__findstuffPerf.waitFor(() => document.querySelectorAll(".item-card").length > 0, 6000);
+      await window.__findstuffPerf.sleep(100);
+      await window.__findstuffPerf.waitFor(() =>
+        document.querySelectorAll(".item-card").length > 0 &&
+        !document.querySelector(".activity-banner"),
+      6000);
     }, [], 7000);
 
     for (let index = 0; index < Math.max(1, options.iterations); index += 1) {
       const itemName = `Frontend Perf Added ${seed.suffix}-${index}`;
       await measure(samples, "add_item", async () => {
-        await evalPage(browser.cdp, async (name) => {
+        await evalPage(browser.cdp, async () => {
           window.__findstuffPerf.clickButtonText("Capture", ".bottom-nav");
           await window.__findstuffPerf.waitFor(() => Boolean(document.querySelector(".scan-page")));
           window.__findstuffPerf.clickButtonText("Quick add", ".capture-modes");
           await window.__findstuffPerf.waitFor(() => Boolean(document.querySelector(".scan-entry")));
-          window.__findstuffPerf.setLabelValue("Name", name);
-          await window.__findstuffPerf.waitFor(() => {
-            const button = Array.from(document.querySelectorAll(".scan-entry button")).find((entry) => (entry.textContent || "").includes("Save item"));
-            return button && !button.disabled;
-          });
+          document.querySelector(".scan-entry input[placeholder='Item name']").focus();
+        });
+        await browser.cdp.send("Input.insertText", { text: itemName });
+        await evalPage(browser.cdp, async (name) => {
+          try {
+            await window.__findstuffPerf.waitFor(() => {
+              const button = Array.from(document.querySelectorAll(".scan-entry button")).find((entry) => (entry.textContent || "").includes("Save item"));
+              return button && !button.disabled;
+            });
+          } catch {
+            const field = document.querySelector(".scan-entry input[placeholder='Item name']");
+            const save = Array.from(document.querySelectorAll(".scan-entry button")).find((entry) => (entry.textContent || "").includes("Save item"));
+            throw new Error(`Quick capture did not become saveable (name=${field?.value || "missing"}, disabled=${save?.disabled ?? "missing"}, activity=${document.querySelector(".activity-banner")?.textContent || "none"})`);
+          }
           window.__findstuffPerf.clickButtonText("Save item", ".scan-entry");
           await window.__findstuffPerf.waitFor(() => !document.querySelector(".scan-entry"), 7000);
           window.__findstuffPerf.clickButtonText("Inventory", ".bottom-nav");

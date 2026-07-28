@@ -4,7 +4,8 @@ import json
 import re
 import secrets
 import sqlite3
-from datetime import date, timedelta
+from collections import defaultdict
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -2449,6 +2450,130 @@ def dashboard(connection: sqlite3.Connection) -> dict[str, Any]:
         "expiring_count": counts["expiring_count"],
         "needs_details_count": counts["needs_details_count"],
         "recent_events": [dict(row) for row in recent],
+    }
+
+
+def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
+    safe_days = max(7, min(int(days), 3650))
+    items = list_items(connection, limit=2000, include_archived=False, include_zero=True)
+    archived_count = connection.execute(
+        "SELECT count(*) FROM items WHERE archived_at IS NOT NULL"
+    ).fetchone()[0]
+    today = date.today()
+    expiration_horizon = today + timedelta(days=30)
+    category_counts: dict[str, int] = defaultdict(int)
+    location_counts: dict[str, int] = defaultdict(int)
+    values: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"purchase_minor": 0, "estimated_minor": 0}
+    )
+    low_stock = 0
+    expiring = 0
+    unassigned = 0
+    missing_photo = 0
+    for item in items:
+        category_counts[item.get("category_path") or "Uncategorised"] += 1
+        location_counts[item.get("location_path") or "Unassigned"] += 1
+        if item.get("location_public_id") == "unassigned":
+            unassigned += 1
+        if item.get("low_stock_threshold") is not None and Decimal(
+            str(item["quantity"])
+        ) <= Decimal(str(item["low_stock_threshold"])):
+            low_stock += 1
+        if (
+            item.get("expiration_date")
+            and today.isoformat() <= item["expiration_date"] <= expiration_horizon.isoformat()
+        ):
+            expiring += 1
+        if not item.get("primary_photo_url"):
+            missing_photo += 1
+        quantity = Decimal(str(item.get("quantity") or "0"))
+        purchase_currency = item.get("purchase_currency")
+        if purchase_currency and item.get("purchase_price_minor") is not None:
+            values[str(purchase_currency)]["purchase_minor"] += int(
+                Decimal(int(item["purchase_price_minor"])) * quantity
+            )
+        estimated_currency = item.get("estimated_price_currency")
+        if estimated_currency and item.get("estimated_price_minor") is not None:
+            values[str(estimated_currency)]["estimated_minor"] += int(
+                Decimal(int(item["estimated_price_minor"])) * quantity
+            )
+
+    start = today - timedelta(days=safe_days - 1)
+    activity_rows = connection.execute(
+        """
+        SELECT date(created_at) AS day, count(*) AS changes
+        FROM inventory_events
+        WHERE date(created_at) >= ?
+        GROUP BY date(created_at)
+        ORDER BY day
+        """,
+        (start.isoformat(),),
+    ).fetchall()
+    activity_by_day = {row["day"]: int(row["changes"]) for row in activity_rows}
+    activity = [
+        {
+            "date": (start + timedelta(days=offset)).isoformat(),
+            "changes": activity_by_day.get(
+                (start + timedelta(days=offset)).isoformat(), 0
+            ),
+        }
+        for offset in range(safe_days)
+    ]
+    consumed = connection.execute(
+        """
+        SELECT items.public_id, items.name, items.unit,
+               -sum(inventory_events.quantity_delta_milli) AS consumed_milli
+        FROM inventory_events
+        JOIN items ON items.id = inventory_events.item_id
+        WHERE inventory_events.quantity_delta_milli < 0
+          AND date(inventory_events.created_at) >= ?
+        GROUP BY items.id
+        ORDER BY consumed_milli DESC, items.name COLLATE NOCASE
+        LIMIT 8
+        """,
+        (start.isoformat(),),
+    ).fetchall()
+    return {
+        "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+        "days": safe_days,
+        "summary": {
+            "active_items": len(items),
+            "archived_items": int(archived_count),
+            "locations": connection.execute(
+                "SELECT count(*) FROM locations WHERE archived_at IS NULL"
+            ).fetchone()[0],
+            "categories": connection.execute("SELECT count(*) FROM categories").fetchone()[0],
+            "low_stock": low_stock,
+            "expiring_30_days": expiring,
+            "unassigned": unassigned,
+            "missing_photo": missing_photo,
+        },
+        "values": [
+            {"currency": currency, **totals}
+            for currency, totals in sorted(values.items())
+        ],
+        "categories": [
+            {"label": label, "item_count": count}
+            for label, count in sorted(
+                category_counts.items(), key=lambda entry: (-entry[1], entry[0].casefold())
+            )[:10]
+        ],
+        "locations": [
+            {"label": label, "item_count": count}
+            for label, count in sorted(
+                location_counts.items(), key=lambda entry: (-entry[1], entry[0].casefold())
+            )[:10]
+        ],
+        "activity": activity,
+        "top_consumed": [
+            {
+                "public_id": row["public_id"],
+                "name": row["name"],
+                "unit": row["unit"],
+                "quantity": from_milli(row["consumed_milli"]),
+            }
+            for row in consumed
+        ],
     }
 
 

@@ -20,6 +20,15 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
   **Inbox**, one suggestion at a time. Swipe, edit, approve, or reject each
   suggested Item. Captures are cropped and compressed before upload, and
   Settings reports monthly AI calls, tokens, failures, and image savings.
+- A **Voice/AI Operations composer** in Capture turns one spoken or typed
+  request into an ordered batch of Item, Category, and Place changes. Every
+  operation uses the regular import preview and nothing is applied before
+  confirmation; the resulting batch can be rolled back from Recent imports.
+- An **Extra** hub with inventory analytics for stock health, value by
+  currency, activity, top Categories and Places, and consumption.
+- PWA offline capture keeps the latest inventory snapshot on the device and
+  queues new Items, compressed photos, scanned codes, and quantity changes.
+  Queued operations synchronize in order after the app reconnects or reopens.
 - Full-text search, duplicate detection, low-stock shopping lists, and history.
 - Separate Archive and permanent Delete actions, with an **Archived Items**
   manager in Settings for restoring Items or deleting them forever.
@@ -330,6 +339,39 @@ To use it:
 
 AI results never become Items before approval.
 
+### Voice/AI Operations composer
+
+Open **Capture → Voice/AI**, dictate or type the complete outcome you want, and
+select **Compose & preview**. A single request can add, modify, move, or archive
+Items and can create or update Categories and Places. The configured model
+returns ordered Findstuff operations; Findstuff then validates them against a
+temporary copy of the current database and shows the real import preview.
+
+Review every line before selecting **Apply operations**. The application uses
+the same import engine as `docs/IMPORT_OPERATIONS.md`, records the changes as
+one batch, and keeps that batch among the latest five entries in **Extra →
+Settings & data → Recent imports**, where it can be rolled back.
+
+### Offline PWA capture
+
+After Findstuff has been opened online at least once, the installed PWA can
+open its cached shell and latest inventory snapshot without a connection. New
+Items, photos, barcode values, and quantity adjustments are saved in IndexedDB
+on that device. An offline banner shows how many changes are waiting.
+
+When connectivity returns—or the PWA is reopened online—Findstuff sends the
+queue in creation order. Each operation has a persistent idempotency key, so a
+retry cannot apply the same create or quantity change twice. Failed operations
+remain visible under **Extra** for retry or discard. Unsynchronized data exists
+only on the capture device, so do not clear its site data before synchronization.
+
+### Analytics
+
+Open **Extra → Analytics** for current inventory health, purchase and estimated
+value separated by currency, activity over 30/90/365 days, top Categories and
+Places, and the most-consumed Items. Analytics is calculated by the Findstuff
+server from local inventory and history data; it is not sent to the AI provider.
+
 ### Speech-to-text
 
 Browser dictation works where the browser supports it. An external multipart
@@ -546,7 +588,7 @@ the new container fails its health check. Application data is untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.4.3`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.4.4`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
