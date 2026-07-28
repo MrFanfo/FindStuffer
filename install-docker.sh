@@ -65,7 +65,7 @@ install_docker() {
   fi
   as_root apt-get update
   as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    docker.io ca-certificates curl git
+    docker.io ca-certificates curl
   if apt-cache show docker-compose-v2 >/dev/null 2>&1; then
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2
   elif apt-cache show docker-compose-plugin >/dev/null 2>&1; then
@@ -81,8 +81,7 @@ install_docker() {
 command -v docker >/dev/null 2>&1 || install_docker
 docker compose version >/dev/null 2>&1 || install_docker
 
-for required_command in curl git; do
-  if ! command -v "$required_command" >/dev/null 2>&1; then
+if ! command -v curl >/dev/null 2>&1; then
     if [[ -f /etc/os-release ]]; then
       # shellcheck disable=SC1091
       source /etc/os-release
@@ -90,16 +89,14 @@ for required_command in curl git; do
     case "${ID:-} ${ID_LIKE:-}" in
       *debian*|*ubuntu*)
         as_root apt-get update
-        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          "$required_command"
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y curl
         ;;
       *)
-        echo "$required_command is required; install it and rerun this script." >&2
+        echo "curl is required; install it and rerun this script." >&2
         exit 1
         ;;
     esac
-  fi
-done
+fi
 
 if docker info >/dev/null 2>&1; then
   DOCKER=(docker)
@@ -177,7 +174,7 @@ install_systemd_updater() {
   {
     printf '%s\n' \
       '[Unit]' \
-      'Description=Update Findstuff containers from the configured Git origin' \
+      'Description=Update Findstuff from its published container image' \
       'After=docker.service network-online.target' \
       'Wants=docker.service network-online.target' \
       '' \

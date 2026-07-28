@@ -558,16 +558,16 @@ Pressing **Install update**:
 1. requires the normal administrator login;
 2. writes only `data/update-request`;
 3. wakes the root-owned `findstuff-update.path` systemd watcher;
-4. checks that tracked files in this checkout are clean;
-5. fetches the existing `origin` and current branch;
-6. accepts only a fast-forward update;
-7. pulls the configured container image and recreates the service; and
-8. waits for the unauthenticated health endpoint before reporting success.
+4. resolves and pulls the configured published container image;
+5. recreates the service from that image; and
+6. waits for the unauthenticated health endpoint before reporting success.
 
 The browser cannot choose a repository, branch, command, or filesystem path.
 The container has no Docker socket and no host root access. Progress,
 installed/latest versions, and the last 30 log lines appear in the Software
-update panel.
+update panel. The updater never reads, fetches, merges, resets, or otherwise
+changes the Git checkout, so development work and uncommitted tracked files do
+not affect installed-app updates.
 
 Check the host watcher:
 
@@ -582,13 +582,13 @@ You can perform exactly the same update directly from the checkout:
 ./update-docker.sh
 ```
 
-An update stops if the Git checkout has tracked local modifications, is on a
-detached commit, cannot fast-forward, cannot reach the configured origin, or
-the new container fails its health check. Application data is untouched.
+An update stops if Docker cannot pull the configured image, Compose cannot
+recreate the service, or the new container fails its health check. Application
+data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.4.4`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.4.5`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

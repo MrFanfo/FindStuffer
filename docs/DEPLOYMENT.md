@@ -74,20 +74,19 @@ When systemd is active, `./install.sh` installs:
 - `/etc/systemd/system/findstuff-update.service`.
 
 The authenticated Update button writes `data/update-request`. The path unit
-starts the one-shot service, which calls the checkout’s `update-docker.sh
---from-app`. The script:
+starts the one-shot service, which calls the installation’s
+`update-docker.sh --from-app`. The script:
 
 - locks against concurrent updates;
 - ignores all request-file content;
-- refuses tracked local modifications and detached checkouts;
-- derives the branch and remote from the existing checkout;
-- runs a fetch and `merge --ff-only`;
-- pulls and recreates the Compose service;
+- resolves the configured published container image;
+- pulls and recreates the Compose service without invoking Git;
 - verifies `/api/v1/health`; and
 - writes a bounded status document and log for the UI.
 
 This design keeps Docker/root access outside the web process. Manual updates
-use the same script:
+use the same script. The Git checkout may contain in-progress development
+changes because it is never inspected or modified by an installed-app update:
 
 ```bash
 ./update-docker.sh
@@ -168,7 +167,8 @@ Common causes:
   `FINDSTUFF_UID:FINDSTUFF_GID`.
 - **Update stays queued:** the path unit is not active or the checkout moved
   after installation; rerun `./install.sh`.
-- **Update refuses dirty files:** commit or restore tracked checkout changes.
+- **Update cannot pull an image:** confirm `FINDSTUFF_IMAGE` references a
+  published GHCR tag/channel and that the host can reach the registry.
 - **Camera unavailable:** use HTTPS or localhost; plain LAN HTTP is not a
   secure browser context.
 - **Image unavailable:** wait for the repository Container workflow to publish

@@ -72,27 +72,10 @@ trap on_exit EXIT
 exec > >(tee -a "$LOG_PATH") 2>&1
 echo
 echo "[$UPDATE_STARTED_AT] Starting Findstuff update."
-write_status running "Fetching the configured Git origin and refreshing containers."
+write_status running "Pulling the configured published container image."
 rm -f "$REQUEST_PATH"
 
 cd "$ROOT"
-GIT=(git -c "safe.directory=$ROOT" -C "$ROOT")
-
-if [[ ! -d "$ROOT/.git" ]]; then
-  echo "This installation is not a Git checkout."
-  exit 1
-fi
-if [[ -n "$("${GIT[@]}" status --porcelain --untracked-files=no)" ]]; then
-  echo "Tracked files have local changes. Commit or restore them before updating."
-  exit 1
-fi
-branch="$("${GIT[@]}" symbolic-ref --quiet --short HEAD)" || {
-  echo "The checkout is detached. Switch to the release branch before updating."
-  exit 1
-}
-"${GIT[@]}" remote get-url origin >/dev/null
-"${GIT[@]}" fetch --prune origin "$branch"
-"${GIT[@]}" merge --ff-only -- "origin/$branch"
 
 if docker info >/dev/null 2>&1; then
   DOCKER=(docker)
@@ -106,6 +89,12 @@ else
   exit 1
 fi
 
+configured_image="$("${DOCKER[@]}" compose config --images | head -n 1)"
+if [[ -z "$configured_image" ]]; then
+  echo "Docker Compose did not resolve a Findstuff container image." >&2
+  exit 1
+fi
+echo "Pulling published image: $configured_image"
 "${DOCKER[@]}" compose pull
 "${DOCKER[@]}" compose up -d --remove-orphans
 "${DOCKER[@]}" compose ps
