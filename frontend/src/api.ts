@@ -250,9 +250,23 @@ export type Analytics = {
     locations: number;
     categories: number;
     low_stock: number;
+    zero_stock: number;
+    expired: number;
+    expiring_7_days: number;
     expiring_30_days: number;
     unassigned: number;
+    missing_category: number;
     missing_photo: number;
+    health_score: number;
+  };
+  activity_summary: {
+    current_events: number;
+    prior_events: number;
+    percent_change: number | null;
+    active_days: number;
+    average_daily: number;
+    busiest_day: string | null;
+    busiest_day_events: number;
   };
   values: Array<{
     currency: string;
@@ -261,12 +275,35 @@ export type Analytics = {
   }>;
   categories: Array<{ label: string; item_count: number }>;
   locations: Array<{ label: string; item_count: number }>;
-  activity: Array<{ date: string; changes: number }>;
+  activity: Array<{
+    date: string;
+    changes: number;
+    created: number;
+    quantity_in: number;
+    quantity_out: number;
+    moved: number;
+  }>;
+  action_mix: Array<{ key: string; label: string; count: number }>;
+  source_mix: Array<{ source: string; count: number }>;
+  completeness: Array<{
+    key: string;
+    label: string;
+    complete: number;
+    total: number;
+    percent: number;
+  }>;
+  expiration: Array<{ label: string; count: number }>;
   top_consumed: Array<{
     public_id: string;
     name: string;
     unit: string;
     quantity: string;
+  }>;
+  top_changed: Array<{
+    public_id: string;
+    name: string;
+    event_count: number;
+    last_changed_at: string;
   }>;
 };
 

@@ -6394,6 +6394,105 @@ function analyticsMoney(minor: number, currency: string): string {
   }).format(minor / 100);
 }
 
+type ActivityBucket = {
+  start: string;
+  end: string;
+  changes: number;
+  created: number;
+  quantity_in: number;
+  quantity_out: number;
+  moved: number;
+};
+
+function analyticsDate(value: string, includeDay = true): string {
+  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: includeDay ? "numeric" : undefined,
+  });
+}
+
+function ActivityTrend({ buckets }: { buckets: ActivityBucket[] }) {
+  const width = 720;
+  const height = 250;
+  const padding = { top: 18, right: 14, bottom: 36, left: 40 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const max = Math.max(1, ...buckets.map((entry) => entry.changes));
+  const x = (index: number) => padding.left + (buckets.length === 1 ? plotWidth / 2 : index / (buckets.length - 1) * plotWidth);
+  const y = (value: number) => padding.top + plotHeight - value / max * plotHeight;
+  const points = buckets.map((entry, index) => `${x(index)},${y(entry.changes)}`).join(" ");
+  const area = buckets.length
+    ? `${padding.left},${padding.top + plotHeight} ${points} ${x(buckets.length - 1)},${padding.top + plotHeight}`
+    : "";
+  const labelIndexes = new Set([0, Math.floor((buckets.length - 1) / 2), buckets.length - 1]);
+
+  return <div className="trend-chart-wrap">
+    <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Inventory activity trend">
+      {[0, .25, .5, .75, 1].map((ratio) => {
+        const value = Math.round(max * ratio);
+        return <g key={ratio}>
+          <line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} />
+          <text x={padding.left - 8} y={y(value) + 4} textAnchor="end">{value}</text>
+        </g>;
+      })}
+      {buckets.length > 0 && <path className="trend-area" d={`M ${area} Z`} />}
+      {buckets.length > 0 && <polyline className="trend-line" points={points} />}
+      {buckets.map((entry, index) => <g key={entry.start}>
+        <circle className="trend-point" cx={x(index)} cy={y(entry.changes)} r={entry.changes ? 3.5 : 2} />
+        <title>{analyticsDate(entry.start)}: {entry.changes} changes</title>
+        {labelIndexes.has(index) && <text className="trend-date" x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === buckets.length - 1 ? "end" : "middle"}>{analyticsDate(entry.end)}</text>}
+      </g>)}
+    </svg>
+  </div>;
+}
+
+function RingChart({
+  value,
+  label,
+  detail,
+}: {
+  value: number;
+  label: string;
+  detail: string;
+}) {
+  const bounded = Math.max(0, Math.min(100, value));
+  const circumference = 2 * Math.PI * 47;
+  return <div className="ring-chart">
+    <svg viewBox="0 0 112 112" role="img" aria-label={`${label}: ${bounded}%`}>
+      <circle className="ring-track" cx="56" cy="56" r="47" />
+      <circle className="ring-value" cx="56" cy="56" r="47" strokeDasharray={`${circumference}`} strokeDashoffset={`${circumference * (1 - bounded / 100)}`} />
+    </svg>
+    <div><strong>{bounded}%</strong><span>{label}</span><small>{detail}</small></div>
+  </div>;
+}
+
+function StockStatusChart({ active, low, zero }: { active: number; low: number; zero: number }) {
+  const lowOnly = Math.max(0, low - zero);
+  const healthy = Math.max(0, active - Math.max(low, zero));
+  const segments = [
+    { label: "In stock", value: healthy, className: "healthy" },
+    { label: "Low", value: lowOnly, className: "low" },
+    { label: "Empty", value: zero, className: "empty" },
+  ];
+  const total = Math.max(1, segments.reduce((sum, entry) => sum + entry.value, 0));
+  let offset = 0;
+  return <div className="stock-status-chart">
+    <div className="stock-donut">
+      <svg viewBox="0 0 120 120" role="img" aria-label="Stock status">
+        <circle className="stock-track" cx="60" cy="60" r="48" />
+        {segments.map((entry) => {
+          const length = entry.value / total * 301.59;
+          const segment = <circle key={entry.label} className={entry.className} cx="60" cy="60" r="48" strokeDasharray={`${length} ${301.59 - length}`} strokeDashoffset={-offset} />;
+          offset += length;
+          return segment;
+        })}
+      </svg>
+      <span><strong>{active}</strong><small>active</small></span>
+    </div>
+    <div className="chart-legend">{segments.map((entry) => <div key={entry.label}><i className={entry.className} /><span>{entry.label}</span><strong>{entry.value}</strong></div>)}</div>
+  </div>;
+}
+
 function AnalyticsView({ onBack }: { onBack: () => void }) {
   const [days, setDays] = useState(90);
   const [data, setData] = useState<Analytics | null>(null);
@@ -6415,48 +6514,75 @@ function AnalyticsView({ onBack }: { onBack: () => void }) {
   const maxLocation = Math.max(1, ...(data?.locations.map((entry) => entry.item_count) || [1]));
   const activityBuckets = useMemo(() => {
     if (!data?.activity.length) return [];
-    const bucketSize = Math.max(1, Math.ceil(data.activity.length / 14));
-    const buckets: Array<{ label: string; changes: number }> = [];
+    const targetBuckets = days <= 30 ? 30 : days <= 90 ? 24 : 26;
+    const bucketSize = Math.max(1, Math.ceil(data.activity.length / targetBuckets));
+    const buckets: ActivityBucket[] = [];
     for (let index = 0; index < data.activity.length; index += bucketSize) {
       const group = data.activity.slice(index, index + bucketSize);
       buckets.push({
-        label: new Date(`${group[group.length - 1].date}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        start: group[0].date,
+        end: group[group.length - 1].date,
         changes: group.reduce((sum, entry) => sum + entry.changes, 0),
+        created: group.reduce((sum, entry) => sum + entry.created, 0),
+        quantity_in: group.reduce((sum, entry) => sum + entry.quantity_in, 0),
+        quantity_out: group.reduce((sum, entry) => sum + entry.quantity_out, 0),
+        moved: group.reduce((sum, entry) => sum + entry.moved, 0),
       });
     }
     return buckets;
-  }, [data]);
-  const maxActivity = Math.max(1, ...activityBuckets.map((entry) => entry.changes));
+  }, [data, days]);
+  const comparison = data ? data.activity_summary.percent_change : null;
+  const expirationTotal = Math.max(1, data?.expiration.reduce((sum, entry) => sum + entry.count, 0) || 1);
+  const actionTotal = Math.max(1, data?.action_mix.reduce((sum, entry) => sum + entry.count, 0) || 1);
+  const actionClasses = ["created", "stock-in", "consumed", "moved", "other"];
 
   return <section className="analytics-page">
     <header className="subpage-header"><button className="icon-button" onClick={onBack} aria-label="Back to Extra"><Icon name="chevron" size={18} /></button><div><p className="eyebrow">EXTRA · ANALYTICS</p><h1>Inventory analytics</h1><p>Operational signals calculated locally by Findstuff. Currencies and units remain separate.</p></div></header>
-    <div className="analytics-toolbar"><label>Activity period<select value={days} onChange={(event) => setDays(Number(event.target.value))}><option value={30}>30 days</option><option value={90}>90 days</option><option value={365}>1 year</option></select></label>{data && <small>Updated {new Date(data.generated_at).toLocaleString()}</small>}</div>
+    <div className="analytics-toolbar"><div className="period-switch" aria-label="Activity period">{[30, 90, 365].map((period) => <button type="button" className={days === period ? "active" : ""} key={period} onClick={() => setDays(period)}>{period === 365 ? "1 year" : `${period} days`}</button>)}</div>{data && <small>Updated {new Date(data.generated_at).toLocaleString()}</small>}</div>
     {loading && <div className="analytics-loading"><span className="activity-spinner" />Calculating analytics…</div>}
     {error && <div className="inline-alert" role="alert">{error}</div>}
     {data && !loading && <>
-      <div className="analytics-metrics">
+      <section className="analytics-hero">
+        <div className="hero-copy"><p className="eyebrow">INVENTORY PULSE</p><h2>{data.summary.health_score >= 80 ? "Your inventory is in good shape" : data.summary.health_score >= 55 ? "A few details need attention" : "Your inventory needs a tidy-up"}</h2><p>Completeness, stock risk, and recent activity—one quick read before you dive deeper.</p><div className="hero-inline-stats"><span><strong>{data.summary.active_items}</strong> active Items</span><span><strong>{data.activity_summary.current_events}</strong> changes</span><span className={comparison !== null && comparison > 0 ? "up" : comparison !== null && comparison < 0 ? "down" : ""}><strong>{comparison === null ? "New" : `${comparison > 0 ? "+" : ""}${comparison}%`}</strong> vs previous period</span></div></div>
+        <RingChart value={data.summary.health_score} label="complete" detail="across key fields" />
+      </section>
+      <div className="analytics-metrics" aria-label="Inventory alerts">
         {[
-          ["Active Items", data.summary.active_items],
-          ["Low stock", data.summary.low_stock],
-          ["Expiring in 30 days", data.summary.expiring_30_days],
-          ["Unassigned", data.summary.unassigned],
-          ["Missing photos", data.summary.missing_photo],
-          ["Archived", data.summary.archived_items],
-        ].map(([label, value]) => <article key={String(label)}><span>{label}</span><strong>{value}</strong></article>)}
+          ["Low stock", data.summary.low_stock, "Items at or below threshold", "attention"],
+          ["Empty", data.summary.zero_stock, "Items with no stock", "attention"],
+          ["Expiring soon", data.summary.expiring_30_days, `${data.summary.expiring_7_days} within 7 days`, "warning"],
+          ["Expired", data.summary.expired, "Past their expiry date", "danger"],
+          ["No place", data.summary.unassigned, "Items still unassigned", "neutral"],
+          ["Missing photos", data.summary.missing_photo, "Harder to recognise", "neutral"],
+        ].map(([label, value, detail, tone]) => <article className={String(tone)} key={String(label)}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>)}
       </div>
       <section className="analytics-section">
-        <div className="section-heading"><div><h2>Inventory value</h2><span>Unit price × current quantity, kept separate by currency</span></div></div>
-        {data.values.length ? <div className="value-card-grid">{data.values.map((entry) => <article key={entry.currency}><strong>{entry.currency}</strong><div><span>Purchase value<b>{analyticsMoney(entry.purchase_minor, entry.currency)}</b></span><span>Estimated value<b>{analyticsMoney(entry.estimated_minor, entry.currency)}</b></span></div></article>)}</div> : <div className="empty-inline"><span>Add purchase or estimated prices to calculate value.</span></div>}
-      </section>
-      <section className="analytics-section">
-        <div className="section-heading"><div><h2>Activity</h2><span>{data.days}-day inventory changes</span></div></div>
-        <div className="activity-chart" aria-label={`Inventory changes over ${data.days} days`}>{activityBuckets.map((entry) => <div key={entry.label} title={`${entry.label}: ${entry.changes} changes`}><span style={{ height: `${Math.max(4, entry.changes / maxActivity * 100)}%` }} /><small>{entry.label}</small></div>)}</div>
+        <div className="section-heading analytics-heading"><div><p className="eyebrow">ACTIVITY</p><h2>Changes over time</h2><span>{data.days}-day event trend, grouped automatically for readability</span></div><div className="section-stat"><strong>{data.activity_summary.average_daily}</strong><span>daily average</span></div></div>
+        <div className="activity-facts">
+          <span><strong>{data.activity_summary.current_events}</strong> total changes</span>
+          <span><strong>{data.activity_summary.active_days}</strong> active days</span>
+          <span><strong>{data.activity_summary.busiest_day_events}</strong> busiest day{data.activity_summary.busiest_day && <small>{analyticsDate(data.activity_summary.busiest_day)}</small>}</span>
+        </div>
+        <ActivityTrend buckets={activityBuckets} />
       </section>
       <div className="analytics-columns">
-        <section className="analytics-section"><div className="section-heading"><div><h2>Top Categories</h2><span>Active Item records</span></div></div><div className="rank-bars">{data.categories.map((entry) => <article key={entry.label}><div><strong>{entry.label}</strong><b>{entry.item_count}</b></div><span><i style={{ width: `${entry.item_count / maxCategory * 100}%` }} /></span></article>)}</div></section>
-        <section className="analytics-section"><div className="section-heading"><div><h2>Top Places</h2><span>Active Item records</span></div></div><div className="rank-bars">{data.locations.map((entry) => <article key={entry.label}><div><strong>{entry.label}</strong><b>{entry.item_count}</b></div><span><i style={{ width: `${entry.item_count / maxLocation * 100}%` }} /></span></article>)}</div></section>
+        <section className="analytics-section"><div className="section-heading"><div><p className="eyebrow">STOCK</p><h2>Availability</h2><span>Current Item records by stock state</span></div></div><StockStatusChart active={data.summary.active_items} low={data.summary.low_stock} zero={data.summary.zero_stock} /></section>
+        <section className="analytics-section"><div className="section-heading"><div><p className="eyebrow">DATA QUALITY</p><h2>Catalog completeness</h2><span>Coverage across useful Item fields</span></div></div><div className="completeness-list">{data.completeness.map((entry) => <article key={entry.key}><div><strong>{entry.label}</strong><span>{entry.percent}%</span></div><div className="progress-track"><i style={{ width: `${entry.percent}%` }} /></div><small>{entry.complete} of {entry.total} Items</small></article>)}</div></section>
       </div>
-      <section className="analytics-section"><div className="section-heading"><div><h2>Most consumed</h2><span>Quantity removed during this period, kept in each Item’s unit</span></div></div>{data.top_consumed.length ? <div className="consumption-list">{data.top_consumed.map((entry, index) => <article key={entry.public_id}><b>{index + 1}</b><span><strong>{entry.name}</strong><small>{entry.quantity} {entry.unit} consumed</small></span></article>)}</div> : <div className="empty-inline"><span>No quantity consumption recorded in this period.</span></div>}</section>
+      <section className="analytics-section expiration-section"><div className="section-heading"><div><p className="eyebrow">EXPIRATION</p><h2>Expiry horizon</h2><span>How soon dated Items need attention</span></div></div><div className="expiration-bar" aria-label="Expiration timeline">{data.expiration.map((entry, index) => entry.count > 0 && <i key={entry.label} className={`expiry-${index}`} style={{ width: `${entry.count / expirationTotal * 100}%` }} title={`${entry.label}: ${entry.count}`} />)}</div><div className="expiration-legend">{data.expiration.map((entry, index) => <div key={entry.label}><i className={`expiry-${index}`} /><span>{entry.label}</span><strong>{entry.count}</strong></div>)}</div></section>
+      <section className="analytics-section">
+        <div className="section-heading"><div><p className="eyebrow">VALUE</p><h2>Inventory value</h2><span>Unit price × current quantity, kept separate by currency</span></div></div>
+        {data.values.length ? <div className="value-card-grid">{data.values.map((entry) => <article key={entry.currency}><strong>{entry.currency}</strong><div><span>Purchase value<b>{analyticsMoney(entry.purchase_minor, entry.currency)}</b></span><span>Estimated value<b>{analyticsMoney(entry.estimated_minor, entry.currency)}</b></span></div></article>)}</div> : <div className="empty-inline"><span>Add purchase or estimated prices to calculate value.</span></div>}
+      </section>
+      <div className="analytics-columns ranked-columns">
+        <section className="analytics-section"><div className="section-heading"><div><p className="eyebrow">CATEGORIES</p><h2>Where Items cluster</h2><span>Top Category paths by active records</span></div></div><div className="rank-bars">{data.categories.map((entry) => <article key={entry.label}><div><strong title={entry.label}>{entry.label}</strong><b>{entry.item_count}</b></div><span><i style={{ width: `${entry.item_count / maxCategory * 100}%` }} /></span></article>)}</div></section>
+        <section className="analytics-section"><div className="section-heading"><div><p className="eyebrow">PLACES</p><h2>Where inventory lives</h2><span>Top Place paths by active records</span></div></div><div className="rank-bars">{data.locations.map((entry) => <article key={entry.label}><div><strong title={entry.label}>{entry.label}</strong><b>{entry.item_count}</b></div><span><i style={{ width: `${entry.item_count / maxLocation * 100}%` }} /></span></article>)}</div></section>
+      </div>
+      <section className="analytics-section"><div className="section-heading"><div><p className="eyebrow">WORKFLOW</p><h2>What changed</h2><span>Event types and capture sources in this period</span></div></div>{data.action_mix.length ? <><div className="action-strip">{data.action_mix.map((entry, index) => <i key={entry.key} className={actionClasses[index % actionClasses.length]} style={{ width: `${entry.count / actionTotal * 100}%` }} title={`${entry.label}: ${entry.count}`} />)}</div><div className="action-details">{data.action_mix.map((entry, index) => <div key={entry.key}><i className={actionClasses[index % actionClasses.length]} /><span>{entry.label}</span><strong>{entry.count}</strong></div>)}</div><div className="source-chips">{data.source_mix.map((entry) => <span key={entry.source}><strong>{entry.count}</strong> {entry.source.replaceAll("_", " ")}</span>)}</div></> : <div className="empty-inline"><span>No inventory activity in this period.</span></div>}</section>
+      <div className="analytics-columns">
+        <section className="analytics-section"><div className="section-heading"><div><p className="eyebrow">CONSUMPTION</p><h2>Most consumed</h2><span>Quantity removed, kept in each Item’s unit</span></div></div>{data.top_consumed.length ? <div className="consumption-list">{data.top_consumed.map((entry, index) => <article key={entry.public_id}><b>{index + 1}</b><span><strong>{entry.name}</strong><small>{entry.quantity} {entry.unit} consumed</small></span></article>)}</div> : <div className="empty-inline"><span>No quantity consumption recorded in this period.</span></div>}</section>
+        <section className="analytics-section"><div className="section-heading"><div><p className="eyebrow">MOMENTUM</p><h2>Most changed</h2><span>Items receiving the most edits</span></div></div>{data.top_changed.length ? <div className="changed-list">{data.top_changed.map((entry, index) => <article key={entry.public_id}><b>{index + 1}</b><span><strong>{entry.name}</strong><small>Last changed {new Date(entry.last_changed_at).toLocaleDateString()}</small></span><em>{entry.event_count} event{entry.event_count === 1 ? "" : "s"}</em></article>)}</div> : <div className="empty-inline"><span>No Items changed in this period.</span></div>}</section>
+      </div>
     </>}
   </section>;
 }

@@ -2455,38 +2455,85 @@ def dashboard(connection: sqlite3.Connection) -> dict[str, Any]:
 
 def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
     safe_days = max(7, min(int(days), 3650))
-    items = list_items(connection, limit=2000, include_archived=False, include_zero=True)
+    item_rows = connection.execute(
+        ITEM_SELECT + " WHERE items.archived_at IS NULL ORDER BY items.id"
+    ).fetchall()
+    items = serialize_item_rows(connection, item_rows)
     archived_count = connection.execute(
         "SELECT count(*) FROM items WHERE archived_at IS NOT NULL"
     ).fetchone()[0]
     today = date.today()
+    expiration_week = today + timedelta(days=7)
     expiration_horizon = today + timedelta(days=30)
+    expiration_quarter = today + timedelta(days=90)
     category_counts: dict[str, int] = defaultdict(int)
     location_counts: dict[str, int] = defaultdict(int)
     values: dict[str, dict[str, int]] = defaultdict(
         lambda: {"purchase_minor": 0, "estimated_minor": 0}
     )
     low_stock = 0
+    zero_stock = 0
+    expired = 0
+    expiring_week = 0
     expiring = 0
     unassigned = 0
     missing_photo = 0
+    missing_category = 0
+    completeness_counts = {
+        "location": 0,
+        "category": 0,
+        "photo": 0,
+        "details": 0,
+    }
+    expiration_counts = {
+        "Expired": 0,
+        "Next 7 days": 0,
+        "8–30 days": 0,
+        "31–90 days": 0,
+        "Later": 0,
+        "No expiry": 0,
+    }
     for item in items:
         category_counts[item.get("category_path") or "Uncategorised"] += 1
         location_counts[item.get("location_path") or "Unassigned"] += 1
         if item.get("location_public_id") == "unassigned":
             unassigned += 1
+        else:
+            completeness_counts["location"] += 1
+        if item.get("category_id") is None:
+            missing_category += 1
+        else:
+            completeness_counts["category"] += 1
+        quantity = Decimal(str(item.get("quantity") or "0"))
+        if quantity <= 0:
+            zero_stock += 1
         if item.get("low_stock_threshold") is not None and Decimal(
             str(item["quantity"])
         ) <= Decimal(str(item["low_stock_threshold"])):
             low_stock += 1
-        if (
-            item.get("expiration_date")
-            and today.isoformat() <= item["expiration_date"] <= expiration_horizon.isoformat()
-        ):
+        expiration_date = item.get("expiration_date")
+        if not expiration_date:
+            expiration_counts["No expiry"] += 1
+        elif expiration_date < today.isoformat():
+            expired += 1
+            expiration_counts["Expired"] += 1
+        elif expiration_date <= expiration_week.isoformat():
+            expiring_week += 1
             expiring += 1
-        if not item.get("primary_photo_url"):
+            expiration_counts["Next 7 days"] += 1
+        elif expiration_date <= expiration_horizon.isoformat():
+            expiring += 1
+            expiration_counts["8–30 days"] += 1
+        elif expiration_date <= expiration_quarter.isoformat():
+            expiration_counts["31–90 days"] += 1
+        else:
+            expiration_counts["Later"] += 1
+        if item.get("primary_photo_url"):
+            completeness_counts["photo"] += 1
+        else:
             missing_photo += 1
-        quantity = Decimal(str(item.get("quantity") or "0"))
+        if item.get("description") or item.get("notes"):
+            completeness_counts["details"] += 1
         purchase_currency = item.get("purchase_currency")
         if purchase_currency and item.get("purchase_price_minor") is not None:
             values[str(purchase_currency)]["purchase_minor"] += int(
@@ -2501,7 +2548,13 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
     start = today - timedelta(days=safe_days - 1)
     activity_rows = connection.execute(
         """
-        SELECT date(created_at) AS day, count(*) AS changes
+        SELECT date(created_at) AS day,
+               count(*) AS changes,
+               sum(CASE WHEN action = 'create' THEN 1 ELSE 0 END) AS created,
+               sum(CASE WHEN quantity_delta_milli > 0 AND action != 'create'
+                        THEN 1 ELSE 0 END) AS quantity_in,
+               sum(CASE WHEN quantity_delta_milli < 0 THEN 1 ELSE 0 END) AS quantity_out,
+               sum(CASE WHEN action = 'move' THEN 1 ELSE 0 END) AS moved
         FROM inventory_events
         WHERE date(created_at) >= ?
         GROUP BY date(created_at)
@@ -2509,16 +2562,66 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
         """,
         (start.isoformat(),),
     ).fetchall()
-    activity_by_day = {row["day"]: int(row["changes"]) for row in activity_rows}
+    activity_by_day = {row["day"]: row for row in activity_rows}
     activity = [
         {
             "date": (start + timedelta(days=offset)).isoformat(),
-            "changes": activity_by_day.get(
-                (start + timedelta(days=offset)).isoformat(), 0
-            ),
+            **{
+                key: int(activity_by_day[day][key] or 0) if day in activity_by_day else 0
+                for key in ("changes", "created", "quantity_in", "quantity_out", "moved")
+            },
         }
         for offset in range(safe_days)
+        for day in [(start + timedelta(days=offset)).isoformat()]
     ]
+    current_events = sum(entry["changes"] for entry in activity)
+    active_days = sum(1 for entry in activity if entry["changes"])
+    prior_start = start - timedelta(days=safe_days)
+    prior_events = int(
+        connection.execute(
+            """
+            SELECT count(*) FROM inventory_events
+            WHERE date(created_at) >= ? AND date(created_at) < ?
+            """,
+            (prior_start.isoformat(), start.isoformat()),
+        ).fetchone()[0]
+    )
+    busiest = max(activity, key=lambda entry: entry["changes"], default=None)
+    action_mix_rows = connection.execute(
+        """
+        SELECT CASE
+                 WHEN action = 'create' THEN 'created'
+                 WHEN quantity_delta_milli > 0 THEN 'stock_in'
+                 WHEN quantity_delta_milli < 0 THEN 'consumed'
+                 WHEN action = 'move' THEN 'moved'
+                 ELSE 'other'
+               END AS action_group,
+               count(*) AS event_count
+        FROM inventory_events
+        WHERE date(created_at) >= ?
+        GROUP BY action_group
+        ORDER BY event_count DESC, action_group
+        """,
+        (start.isoformat(),),
+    ).fetchall()
+    action_labels = {
+        "created": "Items created",
+        "stock_in": "Stock added",
+        "consumed": "Stock removed",
+        "moved": "Items moved",
+        "other": "Other edits",
+    }
+    source_rows = connection.execute(
+        """
+        SELECT source, count(*) AS event_count
+        FROM inventory_events
+        WHERE date(created_at) >= ?
+        GROUP BY source
+        ORDER BY event_count DESC, source COLLATE NOCASE
+        LIMIT 8
+        """,
+        (start.isoformat(),),
+    ).fetchall()
     consumed = connection.execute(
         """
         SELECT items.public_id, items.name, items.unit,
@@ -2533,20 +2636,72 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
         """,
         (start.isoformat(),),
     ).fetchall()
+    changed = connection.execute(
+        """
+        SELECT items.public_id, items.name, count(*) AS event_count,
+               max(inventory_events.created_at) AS last_changed_at
+        FROM inventory_events
+        JOIN items ON items.id = inventory_events.item_id
+        WHERE date(inventory_events.created_at) >= ?
+        GROUP BY items.id
+        ORDER BY event_count DESC, last_changed_at DESC, items.name COLLATE NOCASE
+        LIMIT 8
+        """,
+        (start.isoformat(),),
+    ).fetchall()
+    item_count = len(items)
+    completeness = [
+        {
+            "key": key,
+            "label": label,
+            "complete": completeness_counts[key],
+            "total": item_count,
+            "percent": round(completeness_counts[key] / item_count * 100)
+            if item_count
+            else 100,
+        }
+        for key, label in (
+            ("location", "Assigned to a place"),
+            ("category", "Categorised"),
+            ("photo", "Has a photo"),
+            ("details", "Has notes or description"),
+        )
+    ]
+    health_score = (
+        round(sum(entry["percent"] for entry in completeness) / len(completeness))
+        if completeness
+        else 100
+    )
     return {
         "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "days": safe_days,
         "summary": {
-            "active_items": len(items),
+            "active_items": item_count,
             "archived_items": int(archived_count),
             "locations": connection.execute(
                 "SELECT count(*) FROM locations WHERE archived_at IS NULL"
             ).fetchone()[0],
             "categories": connection.execute("SELECT count(*) FROM categories").fetchone()[0],
             "low_stock": low_stock,
+            "zero_stock": zero_stock,
+            "expired": expired,
+            "expiring_7_days": expiring_week,
             "expiring_30_days": expiring,
             "unassigned": unassigned,
+            "missing_category": missing_category,
             "missing_photo": missing_photo,
+            "health_score": health_score,
+        },
+        "activity_summary": {
+            "current_events": current_events,
+            "prior_events": prior_events,
+            "percent_change": round((current_events - prior_events) / prior_events * 100)
+            if prior_events
+            else None,
+            "active_days": active_days,
+            "average_daily": round(current_events / safe_days, 1),
+            "busiest_day": busiest["date"] if busiest and busiest["changes"] else None,
+            "busiest_day_events": busiest["changes"] if busiest else 0,
         },
         "values": [
             {"currency": currency, **totals}
@@ -2565,6 +2720,26 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
             )[:10]
         ],
         "activity": activity,
+        "action_mix": [
+            {
+                "key": row["action_group"],
+                "label": action_labels[row["action_group"]],
+                "count": int(row["event_count"]),
+            }
+            for row in action_mix_rows
+        ],
+        "source_mix": [
+            {
+                "source": row["source"] or "unknown",
+                "count": int(row["event_count"]),
+            }
+            for row in source_rows
+        ],
+        "completeness": completeness,
+        "expiration": [
+            {"label": label, "count": count}
+            for label, count in expiration_counts.items()
+        ],
         "top_consumed": [
             {
                 "public_id": row["public_id"],
@@ -2573,6 +2748,15 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
                 "quantity": from_milli(row["consumed_milli"]),
             }
             for row in consumed
+        ],
+        "top_changed": [
+            {
+                "public_id": row["public_id"],
+                "name": row["name"],
+                "event_count": int(row["event_count"]),
+                "last_changed_at": row["last_changed_at"],
+            }
+            for row in changed
         ],
     }
 
