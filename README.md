@@ -16,8 +16,9 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 - Mobile camera capture, item/location QR labels, retail barcode lookup through
   Open Food Facts, and bulk put-away/consume workflows.
 - An A4 QR label studio with 20–64 mm codes, compact-to-spacious sheet density,
-  multiple label designs, and printable location names, full nested paths, or
-  the last chosen number of path levels.
+  six label designs, and printable location names, full nested paths, or the
+  last chosen number of path levels. Long paths wrap completely and pagination
+  adapts to keep every printed level visible.
 - Place-based **AI Scan**: take several photos quickly, let a vision model
   identify the objects in the background, then review the results in the
   **Inbox**, one suggestion at a time. Swipe, edit, approve, or reject each
@@ -591,7 +592,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.5.0`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.6.0`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

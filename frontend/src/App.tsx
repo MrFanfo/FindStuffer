@@ -118,7 +118,7 @@ type PrintQueueItem = {
   selected: boolean;
 };
 type PrintLayout = "auto" | "two" | "three" | "four";
-type PrintDesign = "ornate" | "clean" | "bold";
+type PrintDesign = "ornate" | "clean" | "bold" | "soft" | "technical" | "ticket";
 type PrintDensity = "compact" | "balanced" | "spacious";
 type PrintTextMode = "name" | "full-path" | "last-levels";
 type PrintQueueSettings = {
@@ -203,7 +203,8 @@ function loadPrintSettings(): PrintQueueSettings {
       ? parsed.color.toUpperCase()
       : DEFAULT_PRINT_SETTINGS.color;
     const qrSize = Math.min(64, Math.max(20, Number(parsed?.qrSize) || DEFAULT_PRINT_SETTINGS.qrSize));
-    const design: PrintDesign = parsed?.design === "clean" || parsed?.design === "bold" ? parsed.design : "ornate";
+    const designs: PrintDesign[] = ["ornate", "clean", "bold", "soft", "technical", "ticket"];
+    const design = designs.includes(parsed?.design as PrintDesign) ? parsed?.design as PrintDesign : "ornate";
     const density: PrintDensity = parsed?.density === "compact" || parsed?.density === "spacious" ? parsed.density : "balanced";
     const textMode: PrintTextMode = parsed?.textMode === "full-path" || parsed?.textMode === "last-levels" ? parsed.textMode : "name";
     const pathLevels = Math.min(8, Math.max(1, Math.round(Number(parsed?.pathLevels) || DEFAULT_PRINT_SETTINGS.pathLevels)));
@@ -3063,21 +3064,68 @@ function printColumnCount(settings: PrintQueueSettings): number {
   return fittingColumns;
 }
 
-function printRowCount(settings: PrintQueueSettings): number {
-  const { gap, margin } = printDensityMetrics(settings);
-  const printableHeight = 297 - (margin * 2);
-  const textHeight = settings.textMode === "name" ? 6 : 11;
-  const kindHeight = settings.showKind ? 4 : 0;
-  const labelHeight = settings.qrSize + textHeight + kindHeight + (settings.design === "clean" ? 3 : 5);
-  return Math.max(1, Math.floor((printableHeight + gap) / (labelHeight + gap)));
+function printLabelLineCount(entry: PrintQueueItem, settings: PrintQueueSettings): number {
+  const text = printLabelText(entry, settings);
+  const labelWidth = settings.qrSize + (settings.design === "clean" ? 4 : 5.5);
+  const fontSize = Math.min(4.2, Math.max(2.5, settings.qrSize / 11.5));
+  const usableWidth = Math.max(12, labelWidth - 4);
+  // A conservative print-font estimate keeps complete paths on the page even
+  // when a level is one long word and must wrap between characters.
+  const charactersPerLine = Math.max(6, Math.floor(usableWidth / (fontSize * 0.62)));
+  const tokens = text.trim().split(/\s+/).filter(Boolean);
+  let lines = 1;
+  let usedCharacters = 0;
+  for (const token of tokens) {
+    const tokenLength = Array.from(token).length;
+    if (tokenLength > charactersPerLine) {
+      if (usedCharacters) {
+        lines += 1;
+        usedCharacters = 0;
+      }
+      lines += Math.floor((tokenLength - 1) / charactersPerLine);
+      usedCharacters = tokenLength % charactersPerLine || charactersPerLine;
+      continue;
+    }
+    const requiredCharacters = tokenLength + (usedCharacters ? 1 : 0);
+    if (usedCharacters + requiredCharacters > charactersPerLine) {
+      lines += 1;
+      usedCharacters = tokenLength;
+    } else {
+      usedCharacters += requiredCharacters;
+    }
+  }
+  return lines;
 }
 
-function chunkPrintQueue(queue: PrintQueueItem[], settings: PrintQueueSettings): PrintQueueItem[][] {
+function printLabelHeight(entry: PrintQueueItem, settings: PrintQueueSettings): number {
+  const { labelPadding } = printDensityMetrics(settings);
+  const fontSize = Math.min(4.2, Math.max(2.5, settings.qrSize / 11.5));
+  const textHeight = printLabelLineCount(entry, settings) * fontSize * 1.14;
+  const kindHeight = settings.showKind ? 4 : 0;
+  const frameAndBorders = settings.design === "clean" ? 3 : 5;
+  return settings.qrSize + textHeight + kindHeight + frameAndBorders + (labelPadding * 2);
+}
+
+function paginatePrintQueue(queue: PrintQueueItem[], settings: PrintQueueSettings): PrintQueueItem[][] {
   const columns = printColumnCount(settings);
-  const rows = printRowCount(settings);
-  const pageSize = Math.max(1, columns * rows);
+  const { gap, margin } = printDensityMetrics(settings);
+  const printableHeight = 297 - (margin * 2) - 4;
   const pages: PrintQueueItem[][] = [];
-  for (let index = 0; index < queue.length; index += pageSize) pages.push(queue.slice(index, index + pageSize));
+  let page: PrintQueueItem[] = [];
+  let usedHeight = 0;
+  for (let index = 0; index < queue.length; index += columns) {
+    const row = queue.slice(index, index + columns);
+    const rowHeight = Math.max(...row.map((entry) => printLabelHeight(entry, settings)));
+    const nextHeight = usedHeight + (page.length ? gap : 0) + rowHeight;
+    if (page.length && nextHeight > printableHeight) {
+      pages.push(page);
+      page = [];
+      usedHeight = 0;
+    }
+    page.push(...row);
+    usedHeight += (usedHeight ? gap : 0) + rowHeight;
+  }
+  if (page.length) pages.push(page);
   return pages;
 }
 
@@ -3111,10 +3159,10 @@ function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, on
   onNotice: (message: string) => void;
 }) {
   const selected = queue.filter((entry) => entry.selected);
-  const pages = chunkPrintQueue(selected, settings);
+  const pages = paginatePrintQueue(selected, settings);
   const columns = printColumnCount(settings);
-  const rows = printRowCount(settings);
   const densityMetrics = printDensityMetrics(settings);
+  const maximumLabelsOnPage = Math.max(0, ...pages.map((page) => page.length));
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -3161,7 +3209,14 @@ function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, on
           </div>
           <div className="print-designer">
             <strong>Label design</strong>
-            <label>Style<select value={settings.design} onChange={(event) => onChangeSettings({ ...settings, design: event.target.value as PrintDesign })}><option value="ornate">Ornate · framed</option><option value="clean">Clean · minimal</option><option value="bold">Bold · high contrast</option></select></label>
+            <div className="print-style-control"><span>Style</span><div className="print-style-grid" role="radiogroup" aria-label="Label style">{([
+              ["ornate", "Ornate"],
+              ["clean", "Clean"],
+              ["bold", "Bold"],
+              ["soft", "Soft"],
+              ["technical", "Technical"],
+              ["ticket", "Ticket"],
+            ] as Array<[PrintDesign, string]>).map(([design, label]) => <button type="button" role="radio" aria-checked={settings.design === design} className={settings.design === design ? "active" : ""} key={design} onClick={() => onChangeSettings({ ...settings, design })}><i className={`style-sample sample-${design}`} aria-hidden="true" /><small>{label}</small></button>)}</div></div>
             <label>QR color<div className="print-color-control"><input type="color" value={settings.color} onChange={(event) => onChangeSettings({ ...settings, color: event.target.value.toUpperCase() })} /><output>{settings.color}</output></div></label>
             <div className="color-swatches" aria-label="QR color presets">{["#4923A8", "#006B5E", "#B52A60", "#1B3A6F", "#111827"].map((color) => <button type="button" key={color} className={settings.color === color ? "active" : ""} style={{ background: color }} onClick={() => onChangeSettings({ ...settings, color })} aria-label={`Use color ${color}`} />)}</div>
             <label>QR size <output>{settings.qrSize} mm</output><input type="range" min="20" max="64" step="2" value={settings.qrSize} onChange={(event) => onChangeSettings({ ...settings, qrSize: Number(event.target.value) })} /></label>
@@ -3170,7 +3225,8 @@ function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, on
             <label className="print-check-control"><input type="checkbox" checked={settings.showKind} onChange={(event) => onChangeSettings({ ...settings, showKind: event.target.checked })} /><span>Print location type</span></label>
             <label>Stacking density<select value={settings.density} onChange={(event) => onChangeSettings({ ...settings, density: event.target.value as PrintDensity })}><option value="compact">Compact · minimal gaps</option><option value="balanced">Balanced · standard gaps</option><option value="spacious">Spacious · easy cutting</option></select></label>
             <label>Page layout<select value={settings.layout} onChange={(event) => onChangeSettings({ ...settings, layout: event.target.value as PrintLayout })}><option value="auto">Auto · fit by size</option><option value="two">Up to 2 columns</option><option value="three">Up to 3 columns</option><option value="four">Up to 4 columns</option></select></label>
-            <small>{columns} × {rows} grid · up to {columns * rows} labels per A4 · {pages.length || 1} page{pages.length === 1 ? "" : "s"}</small>
+            <small>{columns} column{columns === 1 ? "" : "s"} · up to {maximumLabelsOnPage || columns} labels per A4 with these paths · {pages.length || 1} page{pages.length === 1 ? "" : "s"}</small>
+            <small>Long paths wrap onto as many lines as needed. Pagination adapts automatically so no location level is cut off.</small>
             <small>The QR always stores the stable location link; these options control the text printed around it.</small>
           </div>
           <div className="print-queue-actions"><button type="button" className="text-button danger-text" disabled={!queue.length} onClick={clearQueue}>Clear queue</button><button type="button" className="primary button-with-icon" disabled={!selected.length} onClick={() => void printSelected()}><Icon name="qr" size={17} />Print selected</button></div>
