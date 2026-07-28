@@ -5,7 +5,13 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from findstuff.ai_commands import AdjustAction, Proposal, confirm_command, resolve_proposal
+from findstuff.ai_commands import (
+    AdjustAction,
+    Proposal,
+    confirm_command,
+    normalize_operations,
+    resolve_proposal,
+)
 from findstuff.db import connect, migrate
 from findstuff.inventory import create_item, create_location, get_item
 
@@ -106,5 +112,63 @@ def test_ai_operations_are_applied_as_one_undoable_import(tmp_path: Path) -> Non
             (result["result"]["import_public_id"],),
         ).fetchone()
         assert len(json.loads(batch["undo_json"])) == 2
+    finally:
+        connection.close()
+
+
+def test_ai_operations_normalize_provider_shape_and_broad_location(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ai-normalization.sqlite3"
+    migrate(path)
+    connection = connect(path)
+    try:
+        studio = create_location(connection, {"name": "Studio"})
+        desk = create_location(
+            connection,
+            {
+                "name": "Scrivania",
+                "parent_public_id": studio["public_id"],
+            },
+        )
+        create_location(
+            connection,
+            {
+                "name": "Cassetto 1",
+                "parent_public_id": desk["public_id"],
+            },
+        )
+
+        operations, warnings = normalize_operations(
+            connection,
+            [
+                {
+                    "action": "add_item",
+                    "name": "ROG Chakram",
+                    "quantity": 1,
+                    "location": "scrivania in studio",
+                    "price_minor": 20000,
+                    "currency": "EUR",
+                }
+            ],
+        )
+
+        assert operations == [
+            {
+                "op": "add",
+                "type": "item",
+                "match": {},
+                "data": {
+                    "name": "ROG Chakram",
+                    "quantity": 1,
+                    "location_public_id": desk["public_id"],
+                    "purchase_price_minor": 20000,
+                    "purchase_currency": "EUR",
+                },
+            }
+        ]
+        assert warnings == [
+            "Matched location “scrivania in studio” to “Studio > Scrivania”."
+        ]
     finally:
         connection.close()
