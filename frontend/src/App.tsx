@@ -117,11 +117,19 @@ type PrintQueueItem = {
   kind: string;
   selected: boolean;
 };
-type PrintLayout = "auto" | "two" | "three";
+type PrintLayout = "auto" | "two" | "three" | "four";
+type PrintDesign = "ornate" | "clean" | "bold";
+type PrintDensity = "compact" | "balanced" | "spacious";
+type PrintTextMode = "name" | "full-path" | "last-levels";
 type PrintQueueSettings = {
   color: string;
   layout: PrintLayout;
   qrSize: number;
+  design: PrintDesign;
+  density: PrintDensity;
+  textMode: PrintTextMode;
+  pathLevels: number;
+  showKind: boolean;
 };
 
 const LEGACY_APP_CACHE_KEY = "findstuff.appSnapshot.v2";
@@ -130,7 +138,16 @@ const SAVED_INVENTORY_VIEWS_KEY = "findstuff.savedInventoryViews.v1";
 const THEME_KEY = "findstuff.theme.v1";
 const PRINT_QUEUE_KEY = "findstuff.locationPrintQueue.v1";
 const PRINT_SETTINGS_KEY = "findstuff.locationPrintSettings.v1";
-const DEFAULT_PRINT_SETTINGS: PrintQueueSettings = { color: "#4923A8", layout: "auto", qrSize: 38 };
+const DEFAULT_PRINT_SETTINGS: PrintQueueSettings = {
+  color: "#4923A8",
+  layout: "auto",
+  qrSize: 38,
+  design: "ornate",
+  density: "balanced",
+  textMode: "name",
+  pathLevels: 3,
+  showKind: false,
+};
 const LOST_TAG = "lost";
 const INITIAL_RESULT_WINDOW = 120;
 const RESULT_WINDOW_STEP = 120;
@@ -181,12 +198,16 @@ function loadPrintQueue(): PrintQueueItem[] {
 function loadPrintSettings(): PrintQueueSettings {
   try {
     const parsed = JSON.parse(localStorage.getItem(PRINT_SETTINGS_KEY) || "null") as Partial<PrintQueueSettings> | null;
-    const layout = parsed?.layout === "two" || parsed?.layout === "three" ? parsed.layout : "auto";
+    const layout = parsed?.layout === "two" || parsed?.layout === "three" || parsed?.layout === "four" ? parsed.layout : "auto";
     const color = typeof parsed?.color === "string" && /^#[0-9a-f]{6}$/i.test(parsed.color)
       ? parsed.color.toUpperCase()
       : DEFAULT_PRINT_SETTINGS.color;
-    const qrSize = Math.min(52, Math.max(28, Number(parsed?.qrSize) || DEFAULT_PRINT_SETTINGS.qrSize));
-    return { color, layout, qrSize };
+    const qrSize = Math.min(64, Math.max(20, Number(parsed?.qrSize) || DEFAULT_PRINT_SETTINGS.qrSize));
+    const design: PrintDesign = parsed?.design === "clean" || parsed?.design === "bold" ? parsed.design : "ornate";
+    const density: PrintDensity = parsed?.density === "compact" || parsed?.density === "spacious" ? parsed.density : "balanced";
+    const textMode: PrintTextMode = parsed?.textMode === "full-path" || parsed?.textMode === "last-levels" ? parsed.textMode : "name";
+    const pathLevels = Math.min(8, Math.max(1, Math.round(Number(parsed?.pathLevels) || DEFAULT_PRINT_SETTINGS.pathLevels)));
+    return { color, layout, qrSize, design, density, textMode, pathLevels, showKind: parsed?.showKind === true };
   } catch {
     return DEFAULT_PRINT_SETTINGS;
   }
@@ -3018,19 +3039,36 @@ function AICommandBox({ busy, items, locations, categories, onApplied }: {
   );
 }
 
+function printDensityMetrics(settings: PrintQueueSettings): { gap: number; margin: number; labelPadding: number } {
+  if (settings.density === "compact") return { gap: 1.5, margin: 6, labelPadding: 0.5 };
+  if (settings.density === "spacious") return { gap: 6, margin: 14, labelPadding: 1.4 };
+  return { gap: 3, margin: 10, labelPadding: 0.8 };
+}
+
+function printLabelText(entry: PrintQueueItem, settings: PrintQueueSettings): string {
+  if (settings.textMode === "name") return entry.name;
+  const levels = entry.path.split(" > ").map((part) => part.trim()).filter(Boolean);
+  if (settings.textMode === "last-levels") return levels.slice(-settings.pathLevels).join(" › ") || entry.name;
+  return levels.join(" › ") || entry.name;
+}
+
 function printColumnCount(settings: PrintQueueSettings): number {
-  if (settings.layout === "two") return 2;
-  if (settings.layout === "three") return 3;
-  const printableWidth = 190;
-  const gap = 3;
-  const labelWidth = settings.qrSize + 5.5;
-  return Math.max(1, Math.min(5, Math.floor((printableWidth + gap) / (labelWidth + gap))));
+  const { gap, margin } = printDensityMetrics(settings);
+  const printableWidth = 210 - (margin * 2);
+  const labelWidth = settings.qrSize + (settings.design === "clean" ? 4 : 5.5);
+  const fittingColumns = Math.max(1, Math.min(5, Math.floor((printableWidth + gap) / (labelWidth + gap))));
+  if (settings.layout === "two") return Math.min(2, fittingColumns);
+  if (settings.layout === "three") return Math.min(3, fittingColumns);
+  if (settings.layout === "four") return Math.min(4, fittingColumns);
+  return fittingColumns;
 }
 
 function printRowCount(settings: PrintQueueSettings): number {
-  const printableHeight = 277;
-  const gap = 3;
-  const labelHeight = settings.qrSize + 9;
+  const { gap, margin } = printDensityMetrics(settings);
+  const printableHeight = 297 - (margin * 2);
+  const textHeight = settings.textMode === "name" ? 6 : 11;
+  const kindHeight = settings.showKind ? 4 : 0;
+  const labelHeight = settings.qrSize + textHeight + kindHeight + (settings.design === "clean" ? 3 : 5);
   return Math.max(1, Math.floor((printableHeight + gap) / (labelHeight + gap)));
 }
 
@@ -3044,12 +3082,15 @@ function chunkPrintQueue(queue: PrintQueueItem[], settings: PrintQueueSettings):
 }
 
 function LocationQrLabel({ entry, settings }: { entry: PrintQueueItem; settings: PrintQueueSettings }) {
+  const { labelPadding } = printDensityMetrics(settings);
+  const labelText = printLabelText(entry, settings);
   const style = {
     "--label-color": settings.color,
     "--qr-size": `${settings.qrSize}mm`,
+    "--label-padding": `${labelPadding}mm`,
   } as CSSProperties;
-  return <article className="location-qr-label" style={style}>
-    <header><h3>{entry.name}</h3></header>
+  return <article className={`location-qr-label design-${settings.design}`} style={style}>
+    <header><h3 title={labelText}>{labelText}</h3></header>
     <div className="qr-jewel-frame">
       <span className="qr-corner qr-corner-one" aria-hidden="true" />
       <span className="qr-corner qr-corner-two" aria-hidden="true" />
@@ -3057,6 +3098,7 @@ function LocationQrLabel({ entry, settings }: { entry: PrintQueueItem; settings:
       <span className="qr-corner qr-corner-four" aria-hidden="true" />
       <img src={`/api/v1/qr/locations/${entry.publicId}.svg?color=${encodeURIComponent(settings.color)}`} alt={`QR code for ${entry.name}`} />
     </div>
+    {settings.showKind && <p className="qr-label-kind">{entry.kind}</p>}
   </article>;
 }
 
@@ -3072,6 +3114,7 @@ function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, on
   const pages = chunkPrintQueue(selected, settings);
   const columns = printColumnCount(settings);
   const rows = printRowCount(settings);
+  const densityMetrics = printDensityMetrics(settings);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -3118,11 +3161,17 @@ function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, on
           </div>
           <div className="print-designer">
             <strong>Label design</strong>
+            <label>Style<select value={settings.design} onChange={(event) => onChangeSettings({ ...settings, design: event.target.value as PrintDesign })}><option value="ornate">Ornate · framed</option><option value="clean">Clean · minimal</option><option value="bold">Bold · high contrast</option></select></label>
             <label>QR color<div className="print-color-control"><input type="color" value={settings.color} onChange={(event) => onChangeSettings({ ...settings, color: event.target.value.toUpperCase() })} /><output>{settings.color}</output></div></label>
             <div className="color-swatches" aria-label="QR color presets">{["#4923A8", "#006B5E", "#B52A60", "#1B3A6F", "#111827"].map((color) => <button type="button" key={color} className={settings.color === color ? "active" : ""} style={{ background: color }} onClick={() => onChangeSettings({ ...settings, color })} aria-label={`Use color ${color}`} />)}</div>
-            <label>QR size <output>{settings.qrSize} mm</output><input type="range" min="28" max="52" step="2" value={settings.qrSize} onChange={(event) => onChangeSettings({ ...settings, qrSize: Number(event.target.value) })} /></label>
-            <label>Page layout<select value={settings.layout} onChange={(event) => onChangeSettings({ ...settings, layout: event.target.value as PrintLayout })}><option value="auto">Auto · maximum density</option><option value="two">2 columns · generous</option><option value="three">3 columns · compact</option></select></label>
+            <label>QR size <output>{settings.qrSize} mm</output><input type="range" min="20" max="64" step="2" value={settings.qrSize} onChange={(event) => onChangeSettings({ ...settings, qrSize: Number(event.target.value) })} /></label>
+            <label>Printed location text<select value={settings.textMode} onChange={(event) => onChangeSettings({ ...settings, textMode: event.target.value as PrintTextMode })}><option value="name">Location name only</option><option value="full-path">Full location path</option><option value="last-levels">Last levels of path</option></select></label>
+            {settings.textMode === "last-levels" && <label>Path levels <output>{settings.pathLevels}</output><input type="range" min="1" max="8" step="1" value={settings.pathLevels} onChange={(event) => onChangeSettings({ ...settings, pathLevels: Number(event.target.value) })} /></label>}
+            <label className="print-check-control"><input type="checkbox" checked={settings.showKind} onChange={(event) => onChangeSettings({ ...settings, showKind: event.target.checked })} /><span>Print location type</span></label>
+            <label>Stacking density<select value={settings.density} onChange={(event) => onChangeSettings({ ...settings, density: event.target.value as PrintDensity })}><option value="compact">Compact · minimal gaps</option><option value="balanced">Balanced · standard gaps</option><option value="spacious">Spacious · easy cutting</option></select></label>
+            <label>Page layout<select value={settings.layout} onChange={(event) => onChangeSettings({ ...settings, layout: event.target.value as PrintLayout })}><option value="auto">Auto · fit by size</option><option value="two">Up to 2 columns</option><option value="three">Up to 3 columns</option><option value="four">Up to 4 columns</option></select></label>
             <small>{columns} × {rows} grid · up to {columns * rows} labels per A4 · {pages.length || 1} page{pages.length === 1 ? "" : "s"}</small>
+            <small>The QR always stores the stable location link; these options control the text printed around it.</small>
           </div>
           <div className="print-queue-actions"><button type="button" className="text-button danger-text" disabled={!queue.length} onClick={clearQueue}>Clear queue</button><button type="button" className="primary button-with-icon" disabled={!selected.length} onClick={() => void printSelected()}><Icon name="qr" size={17} />Print selected</button></div>
         </aside>
@@ -3130,7 +3179,7 @@ function PrintQueueDialog({ queue, settings, onChangeQueue, onChangeSettings, on
           <div className="print-preview-toolbar"><span>A4 preview</span><small>{pages.length || 1} page{pages.length === 1 ? "" : "s"}</small></div>
           <div className="print-preview">
             {!pages.length && <div className="print-preview-placeholder"><Icon name="check" size={30} /><strong>Select labels to preview</strong></div>}
-            {pages.map((page, pageIndex) => <section className="print-page" style={{ "--print-columns": columns } as CSSProperties} key={`page-${pageIndex}`} aria-label={`A4 page ${pageIndex + 1}`}>{page.map((entry) => <LocationQrLabel key={entry.publicId} entry={entry} settings={settings} />)}<span className="print-page-number">PAGE {pageIndex + 1} / {pages.length}</span></section>)}
+            {pages.map((page, pageIndex) => <section className="print-page" style={{ "--print-columns": columns, "--print-gap": `${densityMetrics.gap}mm`, "--print-margin": `${densityMetrics.margin}mm` } as CSSProperties} key={`page-${pageIndex}`} aria-label={`A4 page ${pageIndex + 1}`}>{page.map((entry) => <LocationQrLabel key={entry.publicId} entry={entry} settings={settings} />)}<span className="print-page-number">PAGE {pageIndex + 1} / {pages.length}</span></section>)}
           </div>
         </div>
       </div>
