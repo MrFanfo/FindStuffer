@@ -1,6 +1,6 @@
 # Findstuff implementation plan
 
-Status: approved on 2026-06-24. This document is the implementation baseline; changes should be recorded as architecture decisions rather than silently diverging from it.
+Status: approved on 2026-06-24. This document is the historical implementation baseline. The current product has since added administrator authentication, offline synchronization, document ownership, and other post-MVP capabilities; [STATUS.md](STATUS.md) and the README describe the shipped behavior.
 
 ## 1. Product vision
 
@@ -99,8 +99,8 @@ All endpoints use `/api/v1`. Concurrent mutations provide an expected item versi
 
 Authentication:
 
-- `GET /auth/status` and `GET /auth/me` for local single-user mode.
-- No signup, signin, password, session, or CSRF prompt in the single-user MVP.
+- The original single-user MVP exposed `GET /auth/status` and `GET /auth/me` without a sign-in prompt.
+- Current releases use administrator password authentication, server-side sessions, CSRF protection for browser mutations, and login throttling. Installers must follow the current README rather than this historical MVP assumption.
 
 Inventory:
 

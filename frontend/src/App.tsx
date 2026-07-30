@@ -20,6 +20,7 @@ import {
   ImportBatch,
   ImportPreviewDetail,
   Item,
+  ItemDocument,
   ItemLot,
   ItemReservation,
   Loan,
@@ -41,6 +42,12 @@ import {
   isAuthenticationError,
   isRequestAborted,
 } from "./api";
+import { DocumentSection } from "./components/DocumentSection";
+import { EmptyState } from "./components/EmptyState";
+import { Icon, IconName } from "./components/Icon";
+import { SearchFeedback } from "./components/SearchFeedback";
+import { SearchAliasManager } from "./components/SearchAliasManager";
+import { SearchableFilterPicker } from "./components/SearchableFilterPicker";
 import {
   deleteOfflineOperation,
   listOfflineOperations,
@@ -65,7 +72,6 @@ type InventorySort = "updated" | "name" | "location" | "quantity-asc" | "quantit
 type DetailItemSort = "name" | "quantity-asc" | "quantity-desc" | "location" | "category";
 type DetailItemView = "grid" | "list";
 type InventorySearchOptions = { showBusy?: boolean };
-type IconName = "home" | "search" | "plus" | "scan" | "more" | "pin" | "box" | "camera" | "mic" | "spark" | "chevron" | "close" | "user" | "settings" | "qr" | "minus" | "check" | "filter" | "tag";
 type AdjustmentQueue = {
   confirmed: Item;
   inFlight: boolean;
@@ -501,31 +507,6 @@ function formatUptime(seconds: number): string {
   return `${minutes}m`;
 }
 
-function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
-  const paths: Record<IconName, ReactNode> = {
-    home: <><path d="M3 10.8 12 3l9 7.8"/><path d="M5.5 9.5V21h13V9.5M9 21v-7h6v7"/></>,
-    search: <><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></>,
-    plus: <path d="M12 5v14M5 12h14"/>,
-    scan: <><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><path d="M7 12h10"/></>,
-    more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
-    pin: <><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></>,
-    box: <><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="M4 7v10l8 4 8-4V7M12 11v10"/></>,
-    camera: <><path d="M4 7h3l2-3h6l2 3h3v13H4V7Z"/><circle cx="12" cy="13" r="4"/></>,
-    mic: <><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></>,
-    spark: <><path d="m12 2 1.6 5.4L19 9l-5.4 1.6L12 16l-1.6-5.4L5 9l5.4-1.6L12 2Z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></>,
-    chevron: <path d="m9 18 6-6-6-6"/>,
-    close: <path d="m6 6 12 12M18 6 6 18"/>,
-    user: <><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
-    settings: <><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.8-1.8.9-2-2.1-2.1-2 .9-1.8-.8L10.5 2h-3l-.7 2-1.8.8-2-.9L.9 6l.9 2-.8 1.8-2 .7v3l2 .7.8 1.8-.9 2L3 20.1l2-.9 1.8.8.7 2h3l.7-2 1.8-.8 2 .9 2.1-2.1-.9-2 .8-1.8 2-.7Z" transform="translate(2) scale(.83)"/></>,
-    qr: <><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM15 14h2v2h-2zM18 14h2v6h-2zM14 18h3v2h-3z"/></>,
-    minus: <path d="M5 12h14"/>,
-    check: <path d="m4 12 5 5L20 6"/>,
-    filter: <><path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z"/></>,
-    tag: <><path d="M4 5v6.5L12.5 20 20 12.5 11.5 4H5.5A1.5 1.5 0 0 0 4 5.5Z"/><circle cx="8.5" cy="8.5" r="1"/></>,
-  };
-  return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
-}
-
 function BarcodeGraphic({ value }: { value: string }) {
   const barcodeRef = useRef<SVGSVGElement | null>(null);
   useEffect(() => {
@@ -835,6 +816,8 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [activityMessage, setActivityMessage] = useState("");
   const [inventorySearchBusy, setInventorySearchBusy] = useState(false);
+  const [inventoryNextCursor, setInventoryNextCursor] = useState<string | null>(null);
+  const [inventoryHasMore, setInventoryHasMore] = useState(false);
   const [pendingItems, setPendingItems] = useState<Set<string>>(() => new Set());
   const [offlineOperations, setOfflineOperations] = useState<OfflineOperation[]>([]);
   const [offlineMode, setOfflineMode] = useState(!navigator.onLine);
@@ -944,6 +927,8 @@ function App() {
   const applyBootstrap = useCallback((snapshot: Bootstrap) => {
     setAuth(snapshot.auth);
     setItems(snapshot.items);
+    setInventoryNextCursor(snapshot.items_next_cursor ?? null);
+    setInventoryHasMore(snapshot.items_has_more ?? false);
     setLocations(snapshot.locations);
     setCategories(snapshot.categories);
     setLocationTypes(snapshot.location_types);
@@ -1004,17 +989,26 @@ function App() {
       setInventorySearchBusy(true);
     }
     try {
+      const inventoryRequest = search.trim()
+        ? api.humanSearch(search, inventoryIncludeZero).then((result) => ({
+          items: result.items,
+          next_cursor: null,
+          has_more: false,
+        }))
+        : api.itemPage("", null, { signal: controller.signal }, { includeZero: inventoryIncludeZero });
       const [nextItems, nextDashboard] = await Promise.allSettled([
-        api.items(search, { signal: controller.signal }, { includeZero: inventoryIncludeZero }),
+        inventoryRequest,
         api.dashboard({ signal: controller.signal }),
       ]);
       if (generation !== inventoryRefreshGeneration.current) return;
       if (nextItems.status === "fulfilled") {
-        setItems(nextItems.value.map((item) => (
+        setItems(nextItems.value.items.map((item) => (
           adjustmentQueue.current.has(item.public_id)
             ? itemsRef.current.find((entry) => entry.public_id === item.public_id) || item
             : item
         )));
+        setInventoryNextCursor(nextItems.value.next_cursor);
+        setInventoryHasMore(nextItems.value.has_more);
       }
       if (nextDashboard.status === "fulfilled") setDashboard(nextDashboard.value);
       const failure = [nextItems, nextDashboard].find((result) => (
@@ -1034,6 +1028,27 @@ function App() {
       }
     }
   }, [inventoryIncludeZero, notify, query]);
+
+  const loadMoreInventory = useCallback(async () => {
+    if (!inventoryNextCursor || inventorySearchBusy || query.trim()) return;
+    setInventorySearchBusy(true);
+    try {
+      const page = await api.itemPage(
+        "",
+        inventoryNextCursor,
+        undefined,
+        { includeZero: inventoryIncludeZero },
+      );
+      setItems((current) => {
+        const seen = new Set(current.map((item) => item.public_id));
+        return [...current, ...page.items.filter((item) => !seen.has(item.public_id))];
+      });
+      setInventoryNextCursor(page.next_cursor);
+      setInventoryHasMore(page.has_more);
+    } finally {
+      setInventorySearchBusy(false);
+    }
+  }, [inventoryIncludeZero, inventoryNextCursor, inventorySearchBusy, query]);
 
   const searchInventory = useCallback((value: string, options: InventorySearchOptions = {}) => {
     void refreshInventory(value, { showBusy: options.showBusy ?? true });
@@ -1674,6 +1689,9 @@ function App() {
             onOpen={setSelectedItem}
             onBulkStart={() => setSelectedItem(null)}
             onAdd={() => openCapture("quick")}
+            onFindLost={() => setGlobalSearchOpen(true)}
+            hasMore={inventoryHasMore}
+            onLoadMore={loadMoreInventory}
             onQuickAdjust={quickAdjust}
             onAddShopping={addLowStockToShopping}
             onDeleteItem={hardDeleteItem}
@@ -1953,6 +1971,9 @@ function InventoryView({
   onOpen,
   onBulkStart,
   onAdd,
+  onFindLost,
+  hasMore,
+  onLoadMore,
   onQuickAdjust,
   onAddShopping,
   onDeleteItem,
@@ -1977,6 +1998,9 @@ function InventoryView({
   onOpen: (item: Item) => void;
   onBulkStart: () => void;
   onAdd: () => void;
+  onFindLost: () => void;
+  hasMore: boolean;
+  onLoadMore: () => Promise<void>;
   onQuickAdjust: (item: Item, delta: number) => Promise<void>;
   onAddShopping: (item: Item) => Promise<void>;
   onDeleteItem: (item: Item) => Promise<void>;
@@ -2035,19 +2059,6 @@ function InventoryView({
     lowStock: isLowStock(item),
     needsDetails: itemNeedsDetails(item),
     quantity: Number(item.quantity),
-    searchText: [
-      item.name,
-      item.description,
-      item.notes,
-      item.brand,
-      item.model,
-      item.serial_number,
-      item.category_name,
-      item.category_path,
-      item.location_path,
-      item.barcode,
-      ...item.tags,
-    ].filter(Boolean).join(" ").toLowerCase(),
     updated: new Date(item.updated_at).getTime(),
   })), [items]);
   const lowStockCount = useMemo(() => indexedItems.filter((entry) => entry.lowStock).length, [indexedItems]);
@@ -2105,7 +2116,6 @@ function InventoryView({
     if (selectedCategoryIds && (item.category_id === null || !selectedCategoryIds.has(item.category_id))) {
       return false;
     }
-    if (searchTerm && !entry.searchText.includes(searchTerm)) return false;
     if (formula.source.trim() && (!formulaValidation.node || !inventoryFormulaMatches(item, formulaValidation.node))) return false;
     return true;
   }), [filter, formula.source, formulaValidation.node, indexedItems, searchTerm, selectedCategoryIds, selectedLocation, tagFilter]);
@@ -2238,6 +2248,7 @@ function InventoryView({
   }
   return (
     <section className="inventory-page">
+      <h1 className="sr-only">Inventory</h1>
       <div className="search-hero">
         <form className="search search-large" onSubmit={submitSearch}>
           <Icon name="search" size={21} />
@@ -2296,7 +2307,11 @@ function InventoryView({
         <span>{showingSearchPlaceholder ? "Searching..." : `${visibleItems.length === sortedEntries.length ? sortedEntries.length : `${visibleItems.length} of ${sortedEntries.length}`} ${sortedEntries.length === 1 ? "item" : "items"}`}</span>
       </div>
       <div className="item-list">
-        {showingSearchPlaceholder ? <div className="empty-inline"><span>Searching Items…</span></div> : visibleItems.length === 0 && <EmptyState icon={hasScope ? "box" : "search"} title={hasScope ? query ? "No matches yet" : "Nothing needs attention" : "No Items yet"} text={hasScope ? query ? "Try a shorter name, a tag, or a Place." : "You’re all caught up." : "Add an Item and it will appear here."} action={items.length === 0 ? { label: "Add first Item", onClick: onAdd } : undefined} />}
+        {showingSearchPlaceholder
+          ? <div className="empty-inline"><span>Searching Items…</span></div>
+          : visibleItems.length === 0 && query.trim()
+            ? <SearchFeedback query={query.trim()} onAdd={onAdd} onFindLost={onFindLost} />
+            : visibleItems.length === 0 && <EmptyState icon={hasScope ? "box" : "search"} title={hasScope ? "Nothing needs attention" : "No Items yet"} text={hasScope ? "You’re all caught up." : "Add an Item and it will appear here."} action={items.length === 0 ? { label: "Add first Item", onClick: onAdd } : undefined} />}
         {!showingSearchPlaceholder && (groupBy === "none" ? [["", visibleItems] as [string, Item[]]] : groupedItems).map(([group, groupItems]) => <div className="inventory-group" key={group || "all"}>{group && <h3>{group}<span>{groupItems.length}</span></h3>}{groupItems.map((item) => (
           <article className={`item-card ${expirationState(item) === "expired" || isLowStock(item) ? "needs-attention" : ""} ${pendingItems.has(item.public_id) ? "syncing" : ""} ${bulkMode ? "bulk-selectable" : ""} ${bulkSelection.has(item.public_id) ? "selected" : ""}`} key={item.public_id}>
             <button className="item-main" onClick={() => bulkMode ? toggleBulkItem(item.public_id) : onOpen(item)} aria-pressed={bulkMode ? bulkSelection.has(item.public_id) : undefined}>
@@ -2320,6 +2335,7 @@ function InventoryView({
           </article>
         ))}</div>)}
         {!showingSearchPlaceholder && hiddenResultCount > 0 && <button type="button" className="load-more-results" onClick={() => setRenderLimit((current) => current + RESULT_WINDOW_STEP)}>Show {Math.min(RESULT_WINDOW_STEP, hiddenResultCount)} more</button>}
+        {!showingSearchPlaceholder && hiddenResultCount === 0 && hasMore && !query.trim() && <button type="button" className="load-more-results" disabled={isSearchBusy} onClick={() => void onLoadMore()}>{isSearchBusy ? "Loading…" : "Load more from Findstuff"}</button>}
       </div>
       {filterPicker === "category" && <SearchableFilterPicker title="Filter by category" icon="tag" selectedId={categoryFilter} emptyLabel="Any category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: `${category.path} · ${category.total_item_count} item${category.total_item_count === 1 ? "" : "s"}` }))} onChoose={setCategoryFilter} onClose={() => setFilterPicker(null)} />}
       {filterPicker === "location" && <SearchableFilterPicker title="Filter by Place" icon="pin" selectedId={locationFilter} emptyLabel="Any Place" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: `${location.path} · ${location.total_item_count ?? location.item_count ?? 0} Items inside` }))} onChoose={setLocationFilter} onClose={() => setFilterPicker(null)} />}
@@ -2331,37 +2347,6 @@ function InventoryView({
       {bulkPicker === "remove-tag" && <SearchableFilterPicker title="Remove a tag from selected Items" icon="tag" selectedId="" emptyLabel="Cancel" options={Array.from(new Set(items.filter((item) => bulkSelection.has(item.public_id)).flatMap((item) => item.tags))).sort().map((tag) => ({ id: tag, label: tag }))} onChoose={(tag) => { if (tag) void performBulk("Tag removed", (item) => api.setTags(item, item.tags.filter((entry) => entry !== tag)), (current, original) => api.setTags(current, original.tags)); }} onClose={() => setBulkPicker(null)} />}
     </section>
   );
-}
-
-type SearchableFilterOption = { id: string; label: string; detail?: string };
-
-function SearchableFilterPicker({ title, icon, options, selectedId, emptyLabel, contextLabel = "INVENTORY FILTER", emptyDetail = "Clear this filter", topLayer = false, onChoose, onClose }: {
-  title: string;
-  icon: IconName;
-  options: SearchableFilterOption[];
-  selectedId: string;
-  emptyLabel: string;
-  contextLabel?: string;
-  emptyDetail?: string;
-  topLayer?: boolean;
-  onChoose: (id: string) => void;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase());
-  const visibleOptions = useMemo(() => options.filter((option) => (
-    !deferredQuery || `${option.label} ${option.detail || ""}`.toLocaleLowerCase().includes(deferredQuery)
-  )).slice(0, deferredQuery ? 120 : 60), [deferredQuery, options]);
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-  function choose(id: string) {
-    onChoose(id);
-    onClose();
-  }
-  return <div className={`modal-backdrop picker-backdrop searchable-filter-backdrop ${topLayer ? "top-layer" : ""}`} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><article className="picker-sheet searchable-filter-sheet"><header><button type="button" className="icon-button" onClick={onClose} aria-label="Close picker"><Icon name="close" size={17} /></button><div><p className="eyebrow">{contextLabel}</p><h2>{title}</h2></div></header><label className="searchable-filter-input"><Icon name="search" size={19} /><input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${title.replace("Filter by ", "")}…`} aria-label={title} />{query && <button type="button" onClick={() => setQuery("")} aria-label="Clear picker search"><Icon name="close" size={15} /></button>}</label><div className="searchable-filter-results"><button type="button" className={!selectedId ? "selected" : ""} onClick={() => choose("")}><span className="searchable-filter-icon"><Icon name={icon} size={17} /></span><span><strong>{emptyLabel}</strong><small>{emptyDetail}</small></span>{!selectedId && <Icon name="check" size={17} />}</button>{visibleOptions.map((option) => <button type="button" className={selectedId === option.id ? "selected" : ""} key={option.id} onClick={() => choose(option.id)}><span className="searchable-filter-icon"><Icon name={icon} size={17} /></span><span><strong>{option.label}</strong>{option.detail && <small>{option.detail}</small>}</span>{selectedId === option.id && <Icon name="check" size={17} />}</button>)}{visibleOptions.length === 0 && <div className="empty-inline"><span>No matching options</span></div>}</div></article></div>;
 }
 
 function formulaGuideMarkdown(categories: Category[], locations: LocationNode[], tags: string[], units: string[]): string {
@@ -4376,6 +4361,7 @@ function ItemDetail({ item, allItems, locations, categories, units, busy, embedd
   );
   const [history, setHistory] = useState<HistoryEvent[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [documents, setDocuments] = useState<ItemDocument[]>([]);
   const [lots, setLots] = useState<ItemLot[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceTask[]>([]);
   const [lotQuantity, setLotQuantity] = useState("1");
@@ -4477,6 +4463,7 @@ function ItemDetail({ item, allItems, locations, categories, units, busy, embedd
       const [detail, nextProjects, nextRules] = await Promise.all([api.itemDetail(item.public_id), api.projects(), api.locationRules()]);
       setHistory(detail.history);
       setPhotos(detail.photos);
+      setDocuments(detail.documents);
       setEnrichment(detail.enrichment);
       setLots(detail.lots);
       setMaintenance(detail.maintenance);
@@ -4696,6 +4683,7 @@ function ItemDetail({ item, allItems, locations, categories, units, busy, embedd
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "details"}>
             {showLinksData && <section className="detail-section"><div className="section-heading"><div><h2>Links</h2><span>{itemLinks.length ? `${itemLinks.length} saved` : "Manuals, datasheets, and references"}</span></div>{detailCapabilities.links && <button type="button" className="text-button" onClick={() => setEditing(true)}>{itemLinks.length ? "Edit" : "Add link"}</button>}</div>{itemLinks.length ? <div className="link-list">{itemLinks.map((link, index) => <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer"><Icon name="spark" size={14} /><span>{link.label}</span></a>)}</div> : <div className="empty-inline"><span>No links yet</span></div>}</section>}
+            <DocumentSection item={item} documents={documents} onReload={loadExtras} onItemChanged={onChanged} notify={(message) => { void run(async () => undefined, message, "none"); }} />
             {showReservationData && <section className="detail-section"><div className="section-heading"><div><h2>Reservations</h2><span>{reservations.length ? `${reservations.length} project hold${reservations.length === 1 ? "" : "s"}` : "No project holds yet"}</span></div></div><div className="reservation-list">{reservations.length === 0 && <div className="empty-inline"><span>Nothing reserved</span></div>}{reservations.map((reservation) => <div className="reservation" key={reservation.project_public_id}><span>{reservation.project_name}</span><small>{reservation.quantity} {reservation.unit} · {reservation.project_status}</small><button aria-label={`Remove ${reservation.project_name} reservation`} onClick={() => void removeReservation(reservation)}><Icon name="close" size={15} /></button></div>)}</div>{detailCapabilities.reservation && activeProjects.length > 0 && <form className="inline-lot-form" onSubmit={addReservation}><select value={reservationProject} onChange={(event) => setReservationProject(event.target.value)} aria-label="Project">{activeProjects.map((project) => <option key={project.public_id} value={project.public_id}>{project.name}</option>)}</select><input inputMode="decimal" value={reservationQuantity} onChange={(event) => setReservationQuantity(event.target.value)} aria-label="Reservation quantity" /><button className="secondary" disabled={!reservationProject || !reservationQuantity.trim()}>Reserve</button></form>}{detailCapabilities.reservation && activeProjects.length === 0 && <div className="empty-inline"><span>Create an active project to reserve this item</span></div>}</section>}
             {showBatchData && <section className="detail-section"><div className="section-heading"><div><h2>Expiration batches</h2><span>{lots.length ? `${lots.length} batch${lots.length === 1 ? "" : "es"}` : "Track multiple dates for one item"}</span></div></div><div className="lot-list">{lots.length === 0 && <div className="empty-inline"><span>No batches recorded</span></div>}{lots.map((lot) => <div className="lot-row" key={lot.public_id}><div><strong>{lot.quantity} {item.unit}</strong><small>{lot.expiration_date ? `Expires ${lot.expiration_date}` : "No expiration date"}</small>{lot.note && <em>{lot.note}</em>}</div><button aria-label="Remove batch" onClick={() => run(async () => { await api.deleteLot(item, lot); const refreshed = await api.item(item.public_id); await onChanged(refreshed); await loadExtras(); }, "Batch removed")}><Icon name="close" size={14} /></button></div>)}</div>{detailCapabilities.batches && <form className="inline-lot-form" onSubmit={addLot}><input inputMode="decimal" value={lotQuantity} onChange={(event) => setLotQuantity(event.target.value)} aria-label="Batch quantity" /><input type="date" value={lotExpiration} onChange={(event) => setLotExpiration(event.target.value)} aria-label="Batch expiration date" /><input value={lotNote} onChange={(event) => setLotNote(event.target.value)} placeholder="batch note" aria-label="Batch note" /><button className="secondary" disabled={!lotQuantity}>Add batch</button></form>}</section>}
             {showMaintenanceData && <section className="detail-section"><div className="section-heading"><div><h2>Maintenance</h2><span>{maintenance.length ? `${maintenance.length} recurring task${maintenance.length === 1 ? "" : "s"}` : "Optional schedules for tools and equipment"}</span></div></div><div className="maintenance-list">{maintenance.length === 0 && <div className="empty-inline"><span>No maintenance tasks</span></div>}{maintenance.map((task) => <article className={`maintenance-row ${new Date(`${task.next_due_at}T23:59:59`).getTime() < Date.now() ? "overdue" : ""}`} key={task.public_id}><div><strong>{task.title}</strong><small>Every {task.interval_days} days · next {task.next_due_at}</small>{task.notes && <p>{task.notes}</p>}</div><button className="secondary" onClick={() => run(async () => { await api.completeMaintenance(item, task); await loadExtras(); }, "Maintenance completed")}>Done</button></article>)}</div>{detailCapabilities.maintenance && <form className="maintenance-form" onSubmit={addMaintenance}><input required value={maintenanceTitle} onChange={(event) => setMaintenanceTitle(event.target.value)} placeholder="Lube rails" aria-label="Maintenance title" /><input inputMode="numeric" value={maintenanceInterval} onChange={(event) => setMaintenanceInterval(event.target.value)} aria-label="Interval days" /><input value={maintenanceNotes} onChange={(event) => setMaintenanceNotes(event.target.value)} placeholder="notes" aria-label="Maintenance notes" /><button className="secondary" disabled={!maintenanceTitle.trim()}>Add task</button></form>}</section>}
@@ -6262,6 +6250,7 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
       expiration_days: Number(expirationDays),
       notify_low_stock: true,
       notify_expiration: true,
+      notify_warranty: true,
     }), "Notification settings saved");
     setNotificationToken("");
   }
@@ -6773,6 +6762,8 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
 
       <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Appearance</strong><small>{theme === "system" ? "Follows this device" : `${theme[0].toUpperCase()}${theme.slice(1)} theme`}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="theme-options" role="radiogroup" aria-label="Color theme">{(["light", "dark", "system"] as ThemePreference[]).map((option) => <button type="button" role="radio" aria-checked={theme === option} className={theme === option ? "active" : ""} key={option} onClick={() => onThemeChange(option)}><span className={`theme-preview ${option}`} aria-hidden="true" /><strong>{option === "system" ? "Device" : option[0].toUpperCase() + option.slice(1)}</strong><small>{option === "system" ? "Match system setting" : `${option} colors`}</small></button>)}</div></div></details>
 
+      <details><summary><span className="summary-icon"><Icon name="search" /></span><span><strong>Search language</strong><small>Aliases, nicknames, and household terms</small></span><Icon name="chevron" /></summary><div className="manage-panel"><SearchAliasManager items={items} locations={locations} /></div></details>
+
       <details><summary><span className="summary-icon"><Icon name="user" /></span><span><strong>Security</strong><small>Change the administrator password</small></span><Icon name="chevron" /></summary><div className="manage-panel">
         <p className="panel-copy">Change the password used to open Findstuff and call its API. It stays write-only and is excluded from exports and backup ZIPs.</p>
         <form className="form-card compact-form" onSubmit={changeAdminPassword}>
@@ -6894,9 +6885,10 @@ function ManageView({ items, dashboard, locations, categories, locationTypes, un
         {system ? <>
           <div className="section-heading app-info-metrics-heading"><div><h2>Storage & resources</h2><span>Current usage on this FindStuffer machine</span></div></div>
           <div className="app-metric-grid">
-            <div><span>Total data</span><strong>{formatBytes(system.storage.total_managed_bytes)}</strong><small>Database + photos</small></div>
+            <div><span>Total data</span><strong>{formatBytes(system.storage.total_managed_bytes)}</strong><small>Database + photos + documents</small></div>
             <div><span>Database</span><strong>{formatBytes(system.storage.database_bytes)}</strong><small>{formatBytes(system.storage.database_main_bytes)} main · {formatBytes(system.storage.database_wal_bytes)} WAL</small></div>
             <div><span>Photos</span><strong>{formatBytes(system.storage.photos_bytes)}</strong><small>{system.inventory.photos} saved photo{system.inventory.photos === 1 ? "" : "s"}</small></div>
+            <div><span>Documents</span><strong>{formatBytes(system.storage.documents_bytes)}</strong><small>{system.inventory.documents} owned document{system.inventory.documents === 1 ? "" : "s"}</small></div>
             <div><span>App CPU</span><strong>{system.resources.cpu_percent.toFixed(1)}%</strong><small>{system.resources.cpu_count} CPU core{system.resources.cpu_count === 1 ? "" : "s"} available</small></div>
             <div><span>App RAM</span><strong>{formatBytes(system.resources.memory_rss_bytes)}</strong><small>Current resident memory</small></div>
             <div><span>Disk free</span><strong>{formatBytes(system.storage.disk_free_bytes)}</strong><small>{diskFreePercent}% of {formatBytes(system.storage.disk_total_bytes)}</small></div>
@@ -7318,10 +7310,6 @@ function DashboardView({
       </div>
     </section>
   );
-}
-
-function EmptyState({ icon = "box", title, text, action }: { icon?: IconName; title: string; text: string; action?: { label: string; onClick: () => void } }) {
-  return <div className="empty-state"><span><Icon name={icon} size={27} /></span><h3>{title}</h3><p>{text}</p>{action && <button className="secondary" onClick={action.onClick}>{action.label}</button>}</div>;
 }
 
 export default App;

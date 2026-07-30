@@ -153,6 +153,24 @@ class NotificationSettingsUpdate(StrictModel):
     expiration_days: int = Field(default=7, ge=0, le=365)
     notify_low_stock: bool = True
     notify_expiration: bool = True
+    notify_warranty: bool = True
+
+
+class DocumentPatch(StrictModel):
+    title: str | None = Field(default=None, min_length=1, max_length=240)
+    document_type: Literal[
+        "receipt", "invoice", "manual", "certificate", "warranty", "other"
+    ] | None = None
+    purchase_date: date | None = None
+    warranty_expires_at: date | None = None
+
+
+class SearchAliasCreate(StrictModel):
+    alias: str = Field(min_length=1, max_length=300)
+    target_type: Literal["term", "item", "location"]
+    replacement: str = Field(default="", max_length=300)
+    target_public_id: str | None = Field(default=None, max_length=120)
+    source: Literal["manual", "learned"] = "manual"
 
 
 class AdminPasswordUpdate(StrictModel):

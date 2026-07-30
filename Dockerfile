@@ -20,7 +20,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     FINDSTUFF_CONTAINER=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends zbar-tools \
+    && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr zbar-tools \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid "${APP_GID}" findstuff \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --home-dir /app --no-create-home findstuff

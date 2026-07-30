@@ -25,8 +25,9 @@ def application_system_info(
     database_sizes = _database_sizes(settings.database_path)
     photos_dir = settings.data_dir / "photos"
     photos_size = _directory_size(photos_dir)
+    documents_size = _directory_size(settings.data_dir / "documents")
     data_dir_size = _directory_size(settings.data_dir)
-    total_managed_size = database_sizes["total_bytes"] + photos_size
+    total_managed_size = database_sizes["total_bytes"] + photos_size + documents_size
     disk = _disk_usage(settings.data_dir)
 
     return {
@@ -53,6 +54,7 @@ def application_system_info(
             "database_wal_bytes": database_sizes["wal_bytes"],
             "database_shm_bytes": database_sizes["shm_bytes"],
             "photos_bytes": photos_size,
+            "documents_bytes": documents_size,
             "total_managed_bytes": total_managed_size,
             "data_dir_bytes": data_dir_size,
             "other_data_bytes": max(0, data_dir_size - total_managed_size),
@@ -135,6 +137,7 @@ def _inventory_counts(database: sqlite3.Connection) -> dict[str, int]:
         "locations": "locations",
         "categories": "categories",
         "photos": "photos",
+        "documents": "item_documents",
         "schema_migrations": "schema_migrations",
     }
     counts: dict[str, int] = {}

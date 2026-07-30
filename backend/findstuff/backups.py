@@ -64,10 +64,11 @@ def backup(output: Path, keep: int) -> Path:
         source.close()
 
     includes = ["findstuff.sqlite3"]
-    photos = settings.data_dir / "photos"
-    if photos.is_dir():
-        shutil.copytree(photos, temporary / "photos")
-        includes.append("photos")
+    for directory_name in ("photos", "documents"):
+        source_directory = settings.data_dir / directory_name
+        if source_directory.is_dir():
+            shutil.copytree(source_directory, temporary / directory_name)
+            includes.append(directory_name)
 
     (temporary / "manifest.json").write_text(
         json.dumps(_manifest(includes), indent=2) + "\n", encoding="utf-8"
@@ -151,18 +152,22 @@ def backup_archive(output_dir: Path) -> Path:
         source.close()
 
     includes = ["findstuff.sqlite3"]
-    photos = settings.data_dir / "photos"
-    if photos.is_dir():
-        includes.append("photos")
+    managed_directories = [
+        name for name in ("photos", "documents") if (settings.data_dir / name).is_dir()
+    ]
+    includes.extend(managed_directories)
 
     try:
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(snapshot_path, "findstuff.sqlite3")
             archive.writestr("manifest.json", json.dumps(_manifest(includes), indent=2) + "\n")
-            if photos.is_dir():
-                for path in sorted(photos.rglob("*")):
+            for directory_name in managed_directories:
+                source_directory = settings.data_dir / directory_name
+                for path in sorted(source_directory.rglob("*")):
                     if path.is_file():
-                        archive.write(path, Path("photos") / path.relative_to(photos))
+                        archive.write(
+                            path, Path(directory_name) / path.relative_to(source_directory)
+                        )
     finally:
         snapshot_path.unlink(missing_ok=True)
 
@@ -186,7 +191,7 @@ def _safe_restore_member(info: zipfile.ZipInfo) -> PurePosixPath:
     file_type = (info.external_attr >> 16) & 0o170000
     if file_type and stat.S_ISLNK(file_type):
         raise ValueError("Backup cannot contain symbolic links")
-    if path.parts[0] not in {"findstuff.sqlite3", "manifest.json", "photos"}:
+    if path.parts[0] not in {"findstuff.sqlite3", "manifest.json", "photos", "documents"}:
         raise ValueError(f"Backup contains an unexpected file: {name}")
     if path.parts[0] in {"findstuff.sqlite3", "manifest.json"} and len(path.parts) != 1:
         raise ValueError(f"Backup contains an invalid path: {name}")
@@ -224,6 +229,20 @@ def _validate_restore_database(database_path: Path, stage: Path) -> dict[str, in
                     or not (stage / Path(*relative.parts)).is_file()
                 ):
                     raise ValueError(f"Backup is missing photo file: {value}")
+        document_count = 0
+        if "item_documents" in tables:
+            for row in connection.execute("SELECT file_path FROM item_documents"):
+                value = row[0]
+                relative = PurePosixPath(str(value))
+                if (
+                    relative.is_absolute()
+                    or ".." in relative.parts
+                    or not relative.parts
+                    or relative.parts[0] != "documents"
+                    or not (stage / Path(*relative.parts)).is_file()
+                ):
+                    raise ValueError(f"Backup is missing document file: {value}")
+                document_count += 1
         return {
             "items": int(connection.execute("SELECT count(*) FROM items").fetchone()[0]),
             "locations": int(
@@ -233,6 +252,7 @@ def _validate_restore_database(database_path: Path, stage: Path) -> dict[str, in
                 connection.execute("SELECT count(*) FROM categories").fetchone()[0]
             ),
             "photos": int(connection.execute("SELECT count(*) FROM photos").fetchone()[0]),
+            "documents": document_count,
         }
     except sqlite3.DatabaseError as exc:
         raise ValueError("Backup does not contain a valid Findstuff database") from exc
@@ -294,6 +314,7 @@ def stage_backup_restore(archive_path: Path, original_name: str) -> dict[str, An
         ):
             raise ValueError("This is not a supported Findstuff backup")
         (stage / "photos").mkdir(exist_ok=True)
+        (stage / "documents").mkdir(exist_ok=True)
         counts = _validate_restore_database(database_path, stage)
         queued_at = datetime.now(UTC).isoformat()
         request = {
@@ -368,13 +389,16 @@ def apply_pending_restore() -> dict[str, Any] | None:
         stage = root / stage_id
         replacement_database = stage / "findstuff.sqlite3"
         replacement_photos = stage / "photos"
+        replacement_documents = stage / "documents"
         counts = _validate_restore_database(replacement_database, stage)
 
         safety_backup = backup(settings.backup_dir / "pre-restore", keep=3)
         database_path = settings.database_path
         live_photos = settings.data_dir / "photos"
+        live_documents = settings.data_dir / "documents"
         old_database = root / f"{stage_id}.previous.sqlite3"
         old_photos = root / f"{stage_id}.previous-photos"
+        old_documents = root / f"{stage_id}.previous-documents"
         database_path.parent.mkdir(parents=True, exist_ok=True)
 
         checkpoint = connect(database_path)
@@ -385,7 +409,7 @@ def apply_pending_restore() -> dict[str, Any] | None:
         Path(f"{database_path}-wal").unlink(missing_ok=True)
         Path(f"{database_path}-shm").unlink(missing_ok=True)
 
-        database_moved = photos_moved = replacement_database_moved = False
+        database_moved = photos_moved = documents_moved = replacement_database_moved = False
         try:
             if database_path.exists():
                 os.replace(database_path, old_database)
@@ -396,12 +420,20 @@ def apply_pending_restore() -> dict[str, Any] | None:
                 os.replace(live_photos, old_photos)
                 photos_moved = True
             os.replace(replacement_photos, live_photos)
+            if live_documents.exists():
+                os.replace(live_documents, old_documents)
+                documents_moved = True
+            os.replace(replacement_documents, live_documents)
             _validate_restore_database(database_path, settings.data_dir)
         except Exception:
             if live_photos.exists():
                 shutil.rmtree(live_photos, ignore_errors=True)
             if photos_moved and old_photos.exists():
                 os.replace(old_photos, live_photos)
+            if live_documents.exists():
+                shutil.rmtree(live_documents, ignore_errors=True)
+            if documents_moved and old_documents.exists():
+                os.replace(old_documents, live_documents)
             if replacement_database_moved and database_path.exists():
                 database_path.unlink(missing_ok=True)
             if database_moved and old_database.exists():
@@ -410,6 +442,7 @@ def apply_pending_restore() -> dict[str, Any] | None:
 
         old_database.unlink(missing_ok=True)
         shutil.rmtree(old_photos, ignore_errors=True)
+        shutil.rmtree(old_documents, ignore_errors=True)
         marker.unlink(missing_ok=True)
         shutil.rmtree(stage, ignore_errors=True)
         result = {

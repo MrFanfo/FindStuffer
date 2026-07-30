@@ -1,18 +1,26 @@
 # Implementation status
 
-Updated: 2026-07-27
+Updated: 2026-07-30
 
 ## Working now
 
 - FastAPI application with generated OpenAPI documentation.
 - Versioned SQLite migration containing the planned MVP entities.
 - WAL, foreign keys, busy timeout, and FTS5.
-- Single-owner mode with deployment-level HTTP Basic authentication.
+- Single-owner administrator authentication with signed browser sessions, CSRF
+  protection, login throttling, and HTTP Basic support for API clients.
 - Recursive location tree with cycle protection and protected Unassigned location.
 - Item create, list, search, edit API, archive/restore, quantity adjustment, and move.
 - Decimal-safe quantity storage in thousandths.
 - Append-only inventory events and optimistic item versions.
-- FTS search across descriptions, product fields, category, tags, and full location paths.
+- FTS search across descriptions, product fields, category, tags, and full
+  location paths, with synonyms, plural handling, fuzzy fallback, and
+  configurable term, Item, and Place aliases.
+- Cursor-paginated inventory APIs and progressive frontend loading.
+- PDF/image ownership documents for receipts, invoices, manuals, certificates,
+  and warranties. Local OCR can suggest serial numbers, purchase dates, and
+  warranty-expiry dates for explicit review and application.
+- Warranty-expiry dashboard API and ntfy reminder support.
 - Mobile-first React interface for setup/login, search, quick add, moving, quantity changes, locations, archive, and dashboard.
 - Five-destination mobile navigation, responsive dashboard, attention strip, quick search chips, progressive forms, contextual actions, and accessible item sheets.
 - Item editing, product metadata, tags, photos, history, and printable item/location QR labels.
@@ -33,7 +41,9 @@ Updated: 2026-07-27
 - Installable PWA metadata and app-shell service worker.
 - Online SQLite backup and search reindex commands.
 - Banana Pi/Raspberry Pi systemd service and backup timer templates.
-- Backend tests, API integration test, linting, and frontend production build.
+- Backend tests, API integration tests, frontend component tests, Playwright
+  desktop/mobile end-to-end tests, automated accessibility checks, linting,
+  and frontend production build.
 - Laptop/local production-style smoke-test script for checking the app before installing on Banana Pi/Raspberry Pi.
 
 ## Remaining hardening and extensions
@@ -47,11 +57,15 @@ Updated: 2026-07-27
 ## Current verification
 
 ```text
-Backend tests: 58 passed
+Backend tests: 73 passed
 Python lint: clean
+Frontend component tests: 3 passed
+Playwright Chromium scenarios: 4 passed per desktop/mobile project (8 total)
 Frontend TypeScript/Vite production build: clean
 SQLite doctor: SQLite 3.45.1, FTS5 available
-Production JS: approximately 80 kB gzip; CSS: approximately 8 kB gzip
 ```
 
-The application currently runs in local single-user mode. A new installation opens directly into the inventory app; there is no app password, signup, signin, or owner-account setup screen.
+The application remains single-owner: there is no signup or multi-user account
+system. The supported Docker deployment uses an administrator sign-in session
+and HTTP Basic authentication for API clients. Authentication can be disabled
+only for deliberately trusted local deployments.

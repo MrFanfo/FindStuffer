@@ -9,6 +9,7 @@ import httpx
 
 from .config import get_settings
 from .db import transaction
+from .documents import warranties_due
 from .inventory import expiring_items, list_items, new_public_id
 from .network_security import validate_http_url, validate_public_http_target
 
@@ -19,6 +20,7 @@ DEFAULT_CONFIG = {
     "expiration_days": 7,
     "notify_low_stock": True,
     "notify_expiration": True,
+    "notify_warranty": True,
 }
 
 
@@ -88,6 +90,16 @@ def queue_due_notifications(connection: sqlite3.Connection) -> int:
                     item,
                     f"Expiring: {item['name']}",
                     f"Expires {item['expiration_date']} in {item['location_path']}",
+                )
+            )
+    if config.get("notify_warranty", True):
+        for document in warranties_due(connection, 30):
+            candidates.append(
+                (
+                    "warranty",
+                    {"public_id": document["item_public_id"]},
+                    f"Warranty: {document['item_name']}",
+                    f"{document['title']} expires {document['warranty_expires_at']}",
                 )
             )
     queued = 0

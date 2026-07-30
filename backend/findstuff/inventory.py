@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import re
 import secrets
@@ -997,7 +998,28 @@ def _fts_expression(query: str) -> str:
     return " ".join(f'"{token.replace(chr(34), chr(34) * 2)}"*' for token in tokens[:12])
 
 
-def list_items(
+def _encode_item_cursor(updated_at: str, item_id: int) -> str:
+    payload = json.dumps([updated_at, item_id], separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+
+def _decode_item_cursor(cursor: str) -> tuple[str, int]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        value = json.loads(base64.urlsafe_b64decode(padded).decode())
+        if (
+            not isinstance(value, list)
+            or len(value) != 2
+            or not isinstance(value[0], str)
+            or not isinstance(value[1], int)
+        ):
+            raise ValueError
+        return value[0], value[1]
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("Invalid inventory cursor") from exc
+
+
+def _item_rows(
     connection: sqlite3.Connection,
     *,
     query: str = "",
@@ -1009,7 +1031,8 @@ def list_items(
     archived_only: bool = False,
     include_zero: bool = False,
     limit: int = 100,
-) -> list[dict[str, Any]]:
+    cursor: str | None = None,
+) -> list[sqlite3.Row]:
     parameters: list[Any] = []
     conditions: list[str] = []
     prefix = ITEM_SELECT
@@ -1038,12 +1061,88 @@ def list_items(
         )
     if needs_details:
         conditions.append("locations.public_id = 'unassigned'")
+    if cursor:
+        updated_at, item_id = _decode_item_cursor(cursor)
+        conditions.append("(items.updated_at < ? OR (items.updated_at = ? AND items.id < ?))")
+        parameters.extend((updated_at, updated_at, item_id))
     sql = prefix
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
-    sql += " ORDER BY items.updated_at DESC, items.name COLLATE NOCASE LIMIT ?"
+    sql += " ORDER BY items.updated_at DESC, items.id DESC, items.name COLLATE NOCASE LIMIT ?"
     parameters.append(min(max(limit, 1), 2000))
-    return serialize_item_rows(connection, connection.execute(sql, parameters).fetchall())
+    return connection.execute(sql, parameters).fetchall()
+
+
+def list_items(
+    connection: sqlite3.Connection,
+    *,
+    query: str = "",
+    location_public_id: str | None = None,
+    category_id: int | None = None,
+    low_stock: bool = False,
+    needs_details: bool = False,
+    include_archived: bool = False,
+    archived_only: bool = False,
+    include_zero: bool = False,
+    limit: int = 100,
+    cursor: str | None = None,
+) -> list[dict[str, Any]]:
+    rows = _item_rows(
+        connection,
+        query=query,
+        location_public_id=location_public_id,
+        category_id=category_id,
+        low_stock=low_stock,
+        needs_details=needs_details,
+        include_archived=include_archived,
+        archived_only=archived_only,
+        include_zero=include_zero,
+        limit=limit,
+        cursor=cursor,
+    )
+    return serialize_item_rows(connection, rows)
+
+
+def list_items_page(
+    connection: sqlite3.Connection,
+    *,
+    query: str = "",
+    location_public_id: str | None = None,
+    category_id: int | None = None,
+    low_stock: bool = False,
+    needs_details: bool = False,
+    include_archived: bool = False,
+    archived_only: bool = False,
+    include_zero: bool = False,
+    limit: int = 100,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    page_limit = min(max(limit, 1), 250)
+    rows = _item_rows(
+        connection,
+        query=query,
+        location_public_id=location_public_id,
+        category_id=category_id,
+        low_stock=low_stock,
+        needs_details=needs_details,
+        include_archived=include_archived,
+        archived_only=archived_only,
+        include_zero=include_zero,
+        limit=page_limit + 1,
+        cursor=cursor,
+    )
+    has_more = len(rows) > page_limit
+    page_rows = rows[:page_limit]
+    next_cursor = (
+        _encode_item_cursor(page_rows[-1]["updated_at"], int(page_rows[-1]["id"]))
+        if has_more and page_rows
+        else None
+    )
+    return {
+        "items": serialize_item_rows(connection, page_rows),
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+    }
 
 
 def update_item(

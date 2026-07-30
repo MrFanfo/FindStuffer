@@ -17,6 +17,7 @@ from findstuff.backups import (
 )
 from findstuff.cli import backup
 from findstuff.db import connect, migrate
+from findstuff.documents import get_document_path, store_document
 from findstuff.inventory import create_item
 from findstuff.photos import store_photo
 
@@ -47,7 +48,21 @@ def test_backup_archive_contains_inventory_and_manifest(tmp_path: Path, monkeypa
     monkeypatch.setenv("FINDSTUFF_DATABASE_PATH", str(database_path))
     migrate(database_path)
     connection = connect(database_path)
-    create_item(connection, {"name": "Archived backup item", "quantity": 1})
+    item = create_item(connection, {"name": "Archived backup item", "quantity": 1})
+    document = store_document(
+        connection,
+        item["public_id"],
+        b"%PDF-1.4\nbackup document",
+        "application/pdf",
+        "receipt.pdf",
+        "Receipt",
+        "receipt",
+        None,
+        None,
+    )
+    document_path = (
+        get_document_path(connection, document["public_id"]).relative_to(data).as_posix()
+    )
     connection.close()
     (data / "admin-password").write_text("private-admin-password\n", encoding="utf-8")
     (data / "session-secret").write_text("private-session-secret\n", encoding="utf-8")
@@ -62,6 +77,7 @@ def test_backup_archive_contains_inventory_and_manifest(tmp_path: Path, monkeypa
     with zipfile.ZipFile(result) as archive:
         names = set(archive.namelist())
         assert {"findstuff.sqlite3", "manifest.json"}.issubset(names)
+        assert document_path in names
         assert "admin-password" not in names
         assert "session-secret" not in names
         assert "service-secrets.json" not in names

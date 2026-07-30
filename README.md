@@ -34,6 +34,13 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
   queues new Items, compressed photos, scanned codes, and quantity changes.
   Queued operations synchronize in order after the app reconnects or reopens.
 - Full-text search, duplicate detection, low-stock shopping lists, and history.
+- Human-friendly search with plural and synonym expansion, typo-tolerant fallback,
+  configurable Item/Place aliases, and actionable no-result feedback.
+- First-class PDF and image documents for receipts, invoices, manuals,
+  certificates, and warranties, including optional local OCR-assisted serial
+  and date extraction plus warranty-expiry notifications.
+- Cursor-paginated inventory loading so large collections are not silently
+  truncated while the initial and offline views remain fast.
 - Separate Archive and permanent Delete actions, with an **Archived Items**
   manager in Settings for restoring Items or deleting them forever.
 - A dedicated default-rules page for searching, filtering, inspecting, editing,
@@ -592,7 +599,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.6.0`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.7.0`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

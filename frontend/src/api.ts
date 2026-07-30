@@ -166,6 +166,56 @@ export type Photo = {
   height: number | null;
 };
 
+export type ItemDocument = {
+  public_id: string;
+  item_public_id: string;
+  document_type: "receipt" | "invoice" | "manual" | "certificate" | "warranty" | "other";
+  title: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  purchase_date: string | null;
+  warranty_expires_at: string | null;
+  extracted_text: string;
+  extracted_serial_number: string;
+  extracted_purchase_date: string | null;
+  extracted_warranty_expires_at: string | null;
+  extraction_status: "pending" | "processing" | "complete" | "unavailable" | "failed";
+  extraction_error: string | null;
+  content_url: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ItemPage = {
+  items: Item[];
+  next_cursor: string | null;
+  has_more: boolean;
+};
+
+export type HumanSearchResult = {
+  query: string;
+  normalized_query: string;
+  count: number;
+  items: Item[];
+  matched_by: string[];
+  fuzzy: boolean;
+  can_add: boolean;
+  can_mark_lost: boolean;
+};
+
+export type SearchAlias = {
+  public_id: string;
+  alias: string;
+  target_type: "term" | "item" | "location";
+  replacement: string;
+  target_public_id: string | null;
+  source: "manual" | "learned";
+  use_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type BarcodeResult = {
   found: boolean;
   cached: boolean;
@@ -475,6 +525,7 @@ export type ApplicationSettings = {
     expiration_days: number;
     notify_low_stock: boolean;
     notify_expiration: boolean;
+    notify_warranty: boolean;
   };
   units: string[];
   category_data: {
@@ -504,6 +555,7 @@ export type ApplicationSettings = {
       database_wal_bytes: number;
       database_shm_bytes: number;
       photos_bytes: number;
+      documents_bytes: number;
       total_managed_bytes: number;
       data_dir_bytes: number;
       other_data_bytes: number;
@@ -515,6 +567,7 @@ export type ApplicationSettings = {
       locations: number;
       categories: number;
       photos: number;
+      documents: number;
       schema_migrations: number;
     };
     database: {
@@ -636,6 +689,8 @@ export type Bootstrap = {
   categories: Category[];
   dashboard: Dashboard;
   items: Item[];
+  items_next_cursor?: string | null;
+  items_has_more?: boolean;
   location_types: LocationType[];
   locations: LocationNode[];
   units: string[];
@@ -650,6 +705,7 @@ export type ItemDetailPayload = {
   maintenance: MaintenanceTask[];
   reservations: ItemReservation[];
   related: RelatedItem[];
+  documents: ItemDocument[];
 };
 
 export type RelatedItem = Item & {
@@ -868,6 +924,47 @@ export const api = {
     if (filters.archivedOnly) parameters.set("archived_only", "true");
     return request<Item[]>(`/api/v1/items?${parameters.toString()}`, options);
   },
+  itemPage: (
+    query = "",
+    cursor: string | null = null,
+    options?: RequestInit,
+    filters: { categoryId?: number | null; needsDetails?: boolean; includeZero?: boolean; archivedOnly?: boolean } = {},
+  ) => {
+    const parameters = new URLSearchParams({ q: query, limit: "100" });
+    if (cursor) parameters.set("cursor", cursor);
+    if (filters.categoryId !== undefined && filters.categoryId !== null) {
+      parameters.set("category_id", String(filters.categoryId));
+    }
+    if (filters.needsDetails) parameters.set("needs_details", "true");
+    if (filters.includeZero) parameters.set("include_zero", "true");
+    if (filters.archivedOnly) parameters.set("archived_only", "true");
+    return request<ItemPage>(`/api/v1/items/page?${parameters.toString()}`, options);
+  },
+  humanSearch: (query: string, includeZero = false) =>
+    request<HumanSearchResult>(
+      `/api/v1/search?q=${encodeURIComponent(query)}&include_zero=${includeZero ? "true" : "false"}`,
+    ),
+  searchAliases: () => request<SearchAlias[]>("/api/v1/search/aliases"),
+  searchLearningCandidates: () =>
+    request<Array<{
+      normalized_query: string;
+      original_query: string;
+      result_count: number;
+      search_count: number;
+      last_searched_at: string;
+    }>>("/api/v1/search/learning-candidates"),
+  createSearchAlias: (body: {
+    alias: string;
+    target_type: SearchAlias["target_type"];
+    replacement?: string;
+    target_public_id?: string | null;
+    source?: SearchAlias["source"];
+  }) => request<SearchAlias>("/api/v1/search/aliases", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
+  deleteSearchAlias: (publicId: string) =>
+    request<void>(`/api/v1/search/aliases/${publicId}`, { method: "DELETE" }),
   archivedItems: () => request<Item[]>("/api/v1/items?q=&limit=2000&archived_only=true&include_zero=true"),
   item: (publicId: string) => request<Item>(`/api/v1/items/${publicId}`),
   itemDetail: (publicId: string) =>
@@ -942,6 +1039,50 @@ export const api = {
   },
   deletePhoto: (photo: Photo) =>
     request<void>(`/api/v1/photos/${photo.public_id}`, { method: "DELETE" }),
+  documents: (item: Item) =>
+    request<ItemDocument[]>(`/api/v1/items/${item.public_id}/documents`),
+  uploadDocument: (
+    item: Item,
+    file: File,
+    metadata: {
+      document_type: ItemDocument["document_type"];
+      title: string;
+      purchase_date?: string;
+      warranty_expires_at?: string;
+    },
+  ) => {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    body.append("document_type", metadata.document_type);
+    body.append("title", metadata.title);
+    if (metadata.purchase_date) body.append("purchase_date", metadata.purchase_date);
+    if (metadata.warranty_expires_at) {
+      body.append("warranty_expires_at", metadata.warranty_expires_at);
+    }
+    return request<ItemDocument>(`/api/v1/items/${item.public_id}/documents`, {
+      method: "POST",
+      body,
+    });
+  },
+  updateDocument: (document: ItemDocument, body: Record<string, unknown>) =>
+    request<ItemDocument>(`/api/v1/documents/${document.public_id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  extractDocument: (document: ItemDocument) =>
+    request<ItemDocument>(`/api/v1/documents/${document.public_id}/extract`, {
+      method: "POST",
+    }),
+  applyDocumentExtraction: (document: ItemDocument) =>
+    request<ItemDocument>(`/api/v1/documents/${document.public_id}/apply-extraction`, {
+      method: "POST",
+    }),
+  deleteDocument: (document: ItemDocument) =>
+    request<void>(`/api/v1/documents/${document.public_id}`, { method: "DELETE" }),
+  warrantiesDue: (days = 30) =>
+    request<Array<ItemDocument & { item_name: string; expired: boolean }>>(
+      `/api/v1/dashboard/warranties?days=${encodeURIComponent(String(days))}`,
+    ),
   relateItem: (item: Item, relatedItemPublicId: string, relationType = "related", note = "") =>
     request<RelatedItem>(`/api/v1/items/${item.public_id}/relationships`, {
       method: "POST",

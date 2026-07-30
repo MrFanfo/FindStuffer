@@ -71,6 +71,17 @@ from .backups import (
 from .barcodes import IMAGE_DECODE_LIMIT_BYTES, decode_image_code, lookup_barcode
 from .config import get_settings
 from .db import database_dependency, migrate, transaction
+from .documents import (
+    apply_document_extraction,
+    delete_document,
+    extract_document_text,
+    get_document,
+    get_document_path,
+    list_documents,
+    store_document,
+    update_document,
+    warranties_due,
+)
 from .enrichment import (
     apply_candidate,
     clear_enrichment_history,
@@ -108,6 +119,13 @@ from .homeassistant import (
     run_home_assistant_mqtt,
     test_mqtt_connection,
 )
+from .human_search import (
+    delete_alias,
+    human_search,
+    list_aliases,
+    save_alias,
+    search_learning_candidates,
+)
 from .inventory import (
     ConflictError,
     InventoryError,
@@ -143,6 +161,7 @@ from .inventory import (
     list_item_lots,
     list_item_relationships,
     list_items,
+    list_items_page,
     list_location_rules,
     list_location_tree,
     list_location_types,
@@ -193,6 +212,7 @@ from .schemas import (
     CategoryDataSettingsUpdate,
     CategoryDefaultLocationUpdate,
     CategoryPatch,
+    DocumentPatch,
     EnrichmentExportRequest,
     EnrichmentSuggestionAccept,
     ExternalPhotoCreate,
@@ -220,6 +240,7 @@ from .schemas import (
     ProjectStatusUpdate,
     QuantityAdjustment,
     ReservationCreate,
+    SearchAliasCreate,
     ShoppingEntryCheck,
     ShoppingEntryCreate,
     TagsUpdate,
@@ -474,11 +495,16 @@ async def bootstrap(
     include_zero: bool = False,
     limit: int = Query(default=100, ge=1, le=2000),
 ) -> dict[str, Any]:
+    item_page = list_items_page(
+        database, query=q, include_zero=include_zero, limit=min(limit, 250)
+    )
     return {
         "auth": {"authenticated": True, "user": local_user()},
         "categories": list_categories(database),
         "dashboard": dashboard(database),
-        "items": list_items(database, query=q, include_zero=include_zero, limit=limit),
+        "items": item_page["items"],
+        "items_next_cursor": item_page["next_cursor"],
+        "items_has_more": item_page["has_more"],
         "location_types": list_location_types(database),
         "locations": list_location_tree(database),
         "units": inventory_units(database),
@@ -673,6 +699,38 @@ async def get_items(
     )
 
 
+@app.get("/api/v1/items/page", tags=["items"])
+async def get_items_page(
+    database: Database,
+    q: str = "",
+    location: str | None = None,
+    category_id: int | None = None,
+    low_stock: bool = False,
+    needs_details: bool = False,
+    include_archived: bool = False,
+    archived_only: bool = False,
+    include_zero: bool = False,
+    limit: int = Query(default=100, ge=1, le=250),
+    cursor: str | None = Query(default=None, max_length=500),
+) -> dict[str, Any]:
+    try:
+        return list_items_page(
+            database,
+            query=q,
+            location_public_id=location,
+            category_id=category_id,
+            low_stock=low_stock,
+            needs_details=needs_details,
+            include_archived=include_archived,
+            archived_only=archived_only,
+            include_zero=include_zero,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/search", tags=["search"])
 async def search_items(
     database: Database,
@@ -680,8 +738,36 @@ async def search_items(
     include_zero: bool = False,
     limit: int = Query(default=100, ge=1, le=250),
 ) -> dict[str, Any]:
-    results = list_items(database, query=q, include_zero=include_zero, limit=limit)
-    return {"query": q, "count": len(results), "items": results}
+    return human_search(database, q, include_zero=include_zero, limit=limit)
+
+
+@app.get("/api/v1/search/aliases", tags=["search"])
+async def get_search_aliases(database: Database) -> list[dict[str, Any]]:
+    return list_aliases(database)
+
+
+@app.get("/api/v1/search/learning-candidates", tags=["search"])
+async def get_search_learning_candidates(database: Database) -> list[dict[str, Any]]:
+    return search_learning_candidates(database)
+
+
+@app.post("/api/v1/search/aliases", status_code=201, tags=["search"])
+async def post_search_alias(
+    payload: SearchAliasCreate, database: Database
+) -> dict[str, Any]:
+    try:
+        return save_alias(database, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/v1/search/aliases/{public_id}", status_code=204, tags=["search"])
+async def remove_search_alias(public_id: str, database: Database) -> Response:
+    try:
+        delete_alias(database, public_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 @app.post("/api/v1/items", status_code=201, tags=["items"])
@@ -705,6 +791,7 @@ async def get_item_detail(public_id: str, database: Database) -> dict[str, Any]:
         "maintenance": list_maintenance_tasks(database, public_id),
         "reservations": list_item_reservations(database, public_id),
         "related": list_item_relationships(database, public_id),
+        "documents": list_documents(database, public_id),
     }
 
 
@@ -881,6 +968,103 @@ async def get_photo_content(public_id: str, database: Database) -> FileResponse:
 async def remove_photo(public_id: str, database: Database) -> Response:
     delete_photo(database, public_id)
     return Response(status_code=204)
+
+
+@app.get("/api/v1/items/{public_id}/documents", tags=["documents"])
+async def get_item_documents(
+    public_id: str, database: Database
+) -> list[dict[str, Any]]:
+    return list_documents(database, public_id)
+
+
+@app.post("/api/v1/items/{public_id}/documents", status_code=201, tags=["documents"])
+async def post_item_document(
+    public_id: str,
+    background_tasks: BackgroundTasks,
+    database: Database,
+    file: Annotated[UploadFile, File()],
+    document_type: Annotated[
+        str,
+        Form(pattern=r"^(receipt|invoice|manual|certificate|warranty|other)$"),
+    ] = "other",
+    title: Annotated[str, Form(max_length=240)] = "",
+    purchase_date: Annotated[str | None, Form(pattern=r"^\d{4}-\d{2}-\d{2}$")] = None,
+    warranty_expires_at: Annotated[
+        str | None, Form(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    ] = None,
+) -> dict[str, Any]:
+    data = await file.read(20 * 1024 * 1024 + 1)
+    try:
+        document = store_document(
+            database,
+            public_id,
+            data,
+            file.content_type or "application/octet-stream",
+            file.filename or "",
+            title,
+            document_type,
+            purchase_date,
+            warranty_expires_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    background_tasks.add_task(
+        extract_document_text, document["public_id"], get_settings().database_path
+    )
+    return document
+
+
+@app.get("/api/v1/documents/{public_id}/content", tags=["documents"])
+async def get_document_content(public_id: str, database: Database) -> FileResponse:
+    document = get_document(database, public_id)
+    try:
+        path = get_document_path(database, public_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Document file not found") from exc
+    return FileResponse(
+        path,
+        media_type=document["mime_type"],
+        filename=document["original_name"],
+        content_disposition_type="inline",
+    )
+
+
+@app.patch("/api/v1/documents/{public_id}", tags=["documents"])
+async def patch_document(
+    public_id: str, payload: DocumentPatch, database: Database
+) -> dict[str, Any]:
+    return update_document(database, public_id, payload.model_dump(exclude_unset=True))
+
+
+@app.post("/api/v1/documents/{public_id}/extract", tags=["documents"])
+async def retry_document_extraction(
+    public_id: str, background_tasks: BackgroundTasks, database: Database
+) -> dict[str, Any]:
+    document = get_document(database, public_id)
+    background_tasks.add_task(
+        extract_document_text, public_id, get_settings().database_path
+    )
+    return {**document, "extraction_status": "pending", "extraction_error": None}
+
+
+@app.post("/api/v1/documents/{public_id}/apply-extraction", tags=["documents"])
+async def apply_extracted_document_fields(
+    public_id: str, database: Database
+) -> dict[str, Any]:
+    return apply_document_extraction(database, public_id)
+
+
+@app.delete("/api/v1/documents/{public_id}", status_code=204, tags=["documents"])
+async def remove_document(public_id: str, database: Database) -> Response:
+    delete_document(database, public_id)
+    return Response(status_code=204)
+
+
+@app.get("/api/v1/dashboard/warranties", tags=["dashboard"])
+async def get_warranties_due(
+    database: Database, days: int = Query(default=30, ge=0, le=3650)
+) -> list[dict[str, Any]]:
+    return warranties_due(database, days)
 
 
 def make_qr_svg(value: str, color: str = "#18211f") -> bytes:
