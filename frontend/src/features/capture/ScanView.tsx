@@ -10,6 +10,7 @@ import {
 import { HierarchyPicker, categoryPickerNodes, locationPickerNodes } from "../../components/HierarchyPicker";
 import { Icon, type IconName } from "../../components/Icon";
 import { AICommandBox } from "./AICommandBox";
+import { parseFindstuffQrTarget } from "./qrNavigation";
 import {
   capabilitiesForCategory,
   categoryOptionLabel,
@@ -281,13 +282,9 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
     if (!value.trim()) return true;
     const normalized = value.trim();
     setCode(normalized);
-    try {
-      const parsed = new URL(normalized, window.location.href);
-      if (parsed.origin !== window.location.origin || parsed.pathname !== "/") {
-        throw new Error("Not a Findstuff QR code");
-      }
-      const itemId = parsed.searchParams.get("item");
-      const locationId = parsed.searchParams.get("location");
+    const qrTarget = parseFindstuffQrTarget(normalized);
+    if (qrTarget?.type === "item") {
+      const itemId = qrTarget.publicId;
       if (itemId) {
         if (mode === "consume") {
           const item = items.find((entry) => entry.public_id === itemId);
@@ -302,12 +299,15 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
         await onOpenItem(itemId);
         return false;
       }
+    }
+    if (qrTarget?.type === "location") {
+      const locationId = qrTarget.publicId;
       if (locationId) {
         if (mode === "putaway") { setPutawayLocation(locationId); return true; }
         onUseLocation(locationId);
         return false;
       }
-    } catch { /* Retail barcodes are not URLs. */ }
+    }
     const added = queueBarcode(normalized);
     setMessage(added ? "Scanned. Keep going." : "Already in review. Duplicate ignored.");
     if (added) void lookupBarcode(normalized);

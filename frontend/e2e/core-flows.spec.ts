@@ -166,6 +166,11 @@ async function mockApi(page: Page) {
     if (url.pathname === `/api/v1/items/${item.public_id}`) {
       return route.fulfill({ json: item });
     }
+    if (url.pathname === `/api/v1/locations/${location.public_id}/contents`) {
+      return route.fulfill({
+        json: { location, children: [], items: [item], recursive: true },
+      });
+    }
     if (url.pathname === "/api/v1/dashboard") return route.fulfill({ json: dashboard });
     if (url.pathname === "/api/v1/projects" || url.pathname === "/api/v1/location-rules" || url.pathname === "/api/v1/shopping-list") {
       return route.fulfill({ json: [] });
@@ -238,6 +243,18 @@ test("scan produces an editable review before saving", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "1 unique item" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("Workshop screws");
   await expect(page.getByRole("button", { name: "Save item" })).toBeEnabled();
+});
+
+test("scan opens a Tailnet location QR instead of adding an item", async ({ page }) => {
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  await page.getByRole("tab", { name: "Scan" }).click();
+  await page.getByRole("textbox", { name: "Barcode or QR text" }).fill(
+    `https://findstuff.example.ts.net/?location=${location.public_id}&mode=view`,
+  );
+  await page.getByRole("button", { name: "Use code" }).click();
+
+  await expect(page.getByRole("heading", { name: location.name })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "1 unique item" })).toHaveCount(0);
 });
 
 test("inventory has no serious accessibility violations", async ({ page }) => {

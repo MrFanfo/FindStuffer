@@ -1,13 +1,13 @@
 {
-  "_HierarchyPicker-DzLHfKBQ.js": {
-    "file": "assets/HierarchyPicker-DzLHfKBQ.js",
+  "_HierarchyPicker-DoAPZ9Bu.js": {
+    "file": "assets/HierarchyPicker-DoAPZ9Bu.js",
     "name": "HierarchyPicker",
     "imports": [
       "index.html"
     ]
   },
   "index.html": {
-    "file": "assets/index-B3UF12Wg.js",
+    "file": "assets/index-BCFgef4L.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -46,7 +46,7 @@
     "isDynamicEntry": true
   },
   "src/features/analytics/AnalyticsView.tsx": {
-    "file": "assets/AnalyticsView-BOuHNXQj.js",
+    "file": "assets/AnalyticsView-C_Pz2tVZ.js",
     "name": "AnalyticsView",
     "src": "src/features/analytics/AnalyticsView.tsx",
     "isDynamicEntry": true,
@@ -55,13 +55,13 @@
     ]
   },
   "src/features/capture/ScanView.tsx": {
-    "file": "assets/ScanView-NxG02-JV.js",
+    "file": "assets/ScanView-CeM0Esrz.js",
     "name": "ScanView",
     "src": "src/features/capture/ScanView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_HierarchyPicker-DzLHfKBQ.js"
+      "_HierarchyPicker-DoAPZ9Bu.js"
     ],
     "dynamicImports": [
       "node_modules/@zxing/browser/esm/index.js",
@@ -69,19 +69,19 @@
     ]
   },
   "src/features/items/ItemDetail.tsx": {
-    "file": "assets/ItemDetail-esiUkM5m.js",
+    "file": "assets/ItemDetail-BspAAExM.js",
     "name": "ItemDetail",
     "src": "src/features/items/ItemDetail.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_HierarchyPicker-DzLHfKBQ.js",
+      "_HierarchyPicker-DoAPZ9Bu.js",
       "src/features/places/PlacesView.tsx",
       "src/features/places/PlaceTrees.tsx"
     ]
   },
   "src/features/manage/AIScanInboxView.tsx": {
-    "file": "assets/AIScanInboxView-CTBoPhLB.js",
+    "file": "assets/AIScanInboxView-D8c_rBQ6.js",
     "name": "AIScanInboxView",
     "src": "src/features/manage/AIScanInboxView.tsx",
     "isDynamicEntry": true,
@@ -90,7 +90,7 @@
     ]
   },
   "src/features/manage/DefaultRulesView.tsx": {
-    "file": "assets/DefaultRulesView-BVFNMJf-.js",
+    "file": "assets/DefaultRulesView-RJfixoSq.js",
     "name": "DefaultRulesView",
     "src": "src/features/manage/DefaultRulesView.tsx",
     "isDynamicEntry": true,
@@ -99,7 +99,7 @@
     ]
   },
   "src/features/manage/ManageView.tsx": {
-    "file": "assets/ManageView-BmcFrPPk.js",
+    "file": "assets/ManageView-BFZ0eT28.js",
     "name": "ManageView",
     "src": "src/features/manage/ManageView.tsx",
     "isDynamicEntry": true,
@@ -108,38 +108,38 @@
     ]
   },
   "src/features/manage/OffCategoryMappingsView.tsx": {
-    "file": "assets/OffCategoryMappingsView-CV6Tjpc6.js",
+    "file": "assets/OffCategoryMappingsView-B5wzk36M.js",
     "name": "OffCategoryMappingsView",
     "src": "src/features/manage/OffCategoryMappingsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_HierarchyPicker-DzLHfKBQ.js"
+      "_HierarchyPicker-DoAPZ9Bu.js"
     ]
   },
   "src/features/places/PlaceTrees.tsx": {
-    "file": "assets/PlaceTrees-DRONC4vi.js",
+    "file": "assets/PlaceTrees-jenzqZ4a.js",
     "name": "PlaceTrees",
     "src": "src/features/places/PlaceTrees.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_HierarchyPicker-DzLHfKBQ.js"
+      "_HierarchyPicker-DoAPZ9Bu.js"
     ]
   },
   "src/features/places/PlacesView.tsx": {
-    "file": "assets/PlacesView-CaeuhPkd.js",
+    "file": "assets/PlacesView-CbM2CWjY.js",
     "name": "PlacesView",
     "src": "src/features/places/PlacesView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
       "src/features/places/PlaceTrees.tsx",
-      "_HierarchyPicker-DzLHfKBQ.js"
+      "_HierarchyPicker-DoAPZ9Bu.js"
     ]
   },
   "src/features/printing/PrintQueueDialog.tsx": {
-    "file": "assets/PrintQueueDialog-BCSIjN52.js",
+    "file": "assets/PrintQueueDialog-BckvF_vx.js",
     "name": "PrintQueueDialog",
     "src": "src/features/printing/PrintQueueDialog.tsx",
     "isDynamicEntry": true,
