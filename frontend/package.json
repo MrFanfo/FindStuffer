@@ -1,7 +1,7 @@
 {
   "name": "findstuff-web",
   "private": true,
-  "version": "1.7.2",
+  "version": "1.7.3",
   "license": "AGPL-3.0-only",
   "type": "module",
   "engines": {
@@ -13,9 +13,14 @@
     "preview": "vite preview --host 127.0.0.1",
     "perf": "node ../scripts/frontend-perf-check.mjs",
     "typecheck": "tsc -b --pretty false",
+    "typecheck:unused": "tsc --noEmit --noUnusedLocals --noUnusedParameters -p tsconfig.app.json --pretty false",
+    "check:architecture": "node ../scripts/check-frontend-architecture.mjs",
+    "check:bundle": "node ../scripts/check-frontend-bundle.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test --grep accessibility",
+    "test:e2e:pagination": "playwright test --grep \"cursor pagination\""
   },
   "dependencies": {
     "@zxing/browser": "^0.2.0",

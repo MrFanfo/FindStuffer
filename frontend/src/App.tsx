@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   flattenLocations,
@@ -13,36 +13,27 @@ import {
   type LocationType,
 } from "./api";
 import { Icon, type IconName } from "./components/Icon";
+import { friendlyErrorMessage, isOfflineFailure } from "./domain/errors";
+import { resizePhoto } from "./domain/photos";
 import { LoginView } from "./features/auth/LoginView";
 import { DashboardView } from "./features/dashboard/DashboardView";
-import { AnalyticsView } from "./features/analytics/AnalyticsView";
 import { ExtraView } from "./features/shell/ExtraView";
 import { GlobalSearch } from "./features/search/GlobalSearch";
-import { ItemDetail } from "./features/items/ItemDetail";
-import { ManageView, type ThemePreference } from "./features/manage/ManageView";
-import { AIScanInboxView, DefaultRulesView, OffCategoryMappingsView } from "./features/manage/ManageToolsViews";
-import {
-  CategoriesView,
-  CategoryDetailView,
-  LocationDetailView,
-  LocationsView,
-  PlacesView,
-  resizePhoto,
-  type PlacesSection,
-} from "./features/places/PlacesView";
-import { makeOfflineItem, ScanView, type CaptureMode } from "./features/capture/ScanView";
+import type { ThemePreference } from "./features/manage/ManageView";
+import type { PlacesSection } from "./features/places/PlacesView";
+import { makeOfflineItem } from "./features/capture/offlineItem";
+import type { CaptureMode } from "./features/capture/ScanView";
 import { type InventoryFilter } from "./features/inventory/formula";
 import { useInventoryState } from "./features/inventory/useInventoryState";
 import { InventoryView } from "./features/inventory/InventoryView";
 import {
   loadPrintQueue,
   loadPrintSettings,
-  PrintQueueDialog,
   savePrintQueue,
   savePrintSettings,
   type PrintQueueItem,
   type PrintQueueSettings,
-} from "./features/printing/PrintQueueDialog";
+} from "./features/printing/printModel";
 import {
   deleteOfflineOperation,
   listOfflineOperations,
@@ -53,6 +44,20 @@ import {
   saveOfflineSnapshot,
   setOfflineOperationError,
 } from "./offline";
+
+const AnalyticsView = lazy(() => import("./features/analytics/AnalyticsView").then((module) => ({ default: module.AnalyticsView })));
+const ItemDetail = lazy(() => import("./features/items/ItemDetail").then((module) => ({ default: module.ItemDetail })));
+const ManageView = lazy(() => import("./features/manage/ManageView").then((module) => ({ default: module.ManageView })));
+const AIScanInboxView = lazy(() => import("./features/manage/AIScanInboxView").then((module) => ({ default: module.AIScanInboxView })));
+const DefaultRulesView = lazy(() => import("./features/manage/DefaultRulesView").then((module) => ({ default: module.DefaultRulesView })));
+const OffCategoryMappingsView = lazy(() => import("./features/manage/OffCategoryMappingsView").then((module) => ({ default: module.OffCategoryMappingsView })));
+const CategoriesView = lazy(() => import("./features/places/PlaceTrees").then((module) => ({ default: module.CategoriesView })));
+const CategoryDetailView = lazy(() => import("./features/places/PlacesView").then((module) => ({ default: module.CategoryDetailView })));
+const LocationDetailView = lazy(() => import("./features/places/PlacesView").then((module) => ({ default: module.LocationDetailView })));
+const LocationsView = lazy(() => import("./features/places/PlaceTrees").then((module) => ({ default: module.LocationsView })));
+const PlacesView = lazy(() => import("./features/places/PlacesView").then((module) => ({ default: module.PlacesView })));
+const ScanView = lazy(() => import("./features/capture/ScanView").then((module) => ({ default: module.ScanView })));
+const PrintQueueDialog = lazy(() => import("./features/printing/PrintQueueDialog").then((module) => ({ default: module.PrintQueueDialog })));
 
 type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "manage";
 type InventorySearchOptions = { showBusy?: boolean };
@@ -95,23 +100,6 @@ function withLostTag(item: Item): string[] {
 
 function withoutLostTag(item: Item): string[] {
   return item.tags.filter((tag) => tag.toLowerCase() !== LOST_TAG);
-}
-
-function friendlyErrorMessage(error: unknown, fallback: string): string {
-  if (!navigator.onLine) return "You're offline. The change was not saved.";
-  if (!(error instanceof Error)) return fallback;
-  if (error.message === "Failed to fetch") return "Could not reach Findstuff. Check the connection and try again.";
-  if (error.message.includes("timed out")) return "Findstuff took too long to respond. Please try again.";
-  return error.message || fallback;
-}
-
-function isOfflineFailure(error: unknown): boolean {
-  if (!navigator.onLine) return true;
-  return error instanceof Error && (
-    error.message === "Failed to fetch"
-    || error.message.includes("NetworkError")
-    || error.message.includes("Load failed")
-  );
 }
 
 function itemNeedsDetails(item: Item): boolean {
@@ -1031,6 +1019,7 @@ function App() {
       {notice && <div className={`toast ${retryNotice?.message === notice ? "has-action" : ""}`} role="status"><span className="toast-check"><Icon name="spark" size={16} /></span><p>{notice}</p>{retryNotice?.message === notice && <button className="toast-action" onClick={() => { const pendingAction = retryNotice; setRetryNotice(null); notify(`${pendingAction.label} in progress…`); void pendingAction.action().catch((error) => notify(friendlyErrorMessage(error, `${pendingAction.label} failed`))); }}>{retryNotice.label}</button>}<button onClick={() => { setNotice(""); setRetryNotice(null); }} aria-label="Dismiss message"><Icon name="close" size={16} /></button></div>}
 
       <main className="page-content">
+        <Suspense fallback={<div className="feature-loading" role="status"><span className="activity-spinner" />Loading…</div>}>
         {view === "inventory" && (
           <div className={`inventory-desktop-layout ${selectedItem ? "has-detail" : ""}`}>
           <InventoryView
@@ -1250,6 +1239,7 @@ function App() {
           onClose={() => setPrintQueueOpen(false)}
           onNotice={notify}
         />}
+        </Suspense>
       </main>
 
       <nav className="bottom-nav" aria-label="Main navigation">

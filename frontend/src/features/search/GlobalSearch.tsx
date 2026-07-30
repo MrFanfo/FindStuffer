@@ -2,13 +2,10 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { api, flattenLocations, type Category, type Item, type LocationNode, type Project } from "../../api";
 import { EmptyState } from "../../components/EmptyState";
 import { Icon, type IconName } from "../../components/Icon";
+import { categoryLabel } from "../../domain/inventory";
 import type { CaptureMode } from "../capture/ScanView";
 
 type GlobalDestination = "inventory" | "capture" | "places" | "category" | "manage";
-
-function categoryLabel(item: Item): string {
-  return item.category_path || item.category_name || "";
-}
 
 export function GlobalSearch({ items, locations, categories, onClose, onOpenItem, onOpenLocation, onOpenCategory, onNavigate, onCapture }: {
   items: Item[];

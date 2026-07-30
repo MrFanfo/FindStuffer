@@ -1,14 +1,8 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Analytics } from "../../api";
 import { Icon } from "../../components/Icon";
+import { friendlyErrorMessage } from "../../domain/errors";
 import type { InventoryFilter } from "../inventory/formula";
-
-function friendlyErrorMessage(error: unknown, fallback: string): string {
-  if (!navigator.onLine) return "You're offline. Analytics could not be loaded.";
-  if (!(error instanceof Error)) return fallback;
-  if (error.message === "Failed to fetch") return "Could not reach Findstuff. Check the connection and try again.";
-  return error.message || fallback;
-}
 
 function analyticsMoney(minor: number, currency: string): string {
   return new Intl.NumberFormat(undefined, {

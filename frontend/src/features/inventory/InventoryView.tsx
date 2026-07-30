@@ -4,6 +4,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
 import { SearchFeedback } from "../../components/SearchFeedback";
 import { SearchableFilterPicker } from "../../components/SearchableFilterPicker";
+import { categoryLabel, categoryOptionLabel, expirationState } from "../../domain/inventory";
 import {
   cloneFormula,
   emptyInventoryFormula,
@@ -35,17 +36,6 @@ function isLowStock(item: Item): boolean {
 function expirationDays(item: Item): number | null {
   if (!item.expiration_date) return null;
   return Math.ceil((new Date(`${item.expiration_date}T23:59:59`).getTime() - Date.now()) / 86400000);
-}
-
-function expirationState(item: Item): "expired" | "soon" | null {
-  const days = expirationDays(item);
-  if (days === null) return null;
-  if (days < 0) return "expired";
-  return days <= 7 ? "soon" : null;
-}
-
-function categoryOptionLabel(category: Category): string {
-  return category.path || category.name;
 }
 
 function expirationCopy(item: Item): string {
@@ -84,10 +74,6 @@ function restockQuantity(item: Item): string {
   const current = Number(item.quantity);
   const threshold = item.low_stock_threshold === null ? current : Number(item.low_stock_threshold);
   return String(Math.max(1, Math.ceil(threshold - current)));
-}
-
-function categoryLabel(item: Item): string {
-  return item.category_path || item.category_name || "";
 }
 
 function firstLocationPart(item: Item): string {

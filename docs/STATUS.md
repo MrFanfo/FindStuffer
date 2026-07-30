@@ -49,6 +49,9 @@ Updated: 2026-07-30
 - Backend tests, API integration tests, frontend component tests, Playwright
   desktop/mobile end-to-end tests, automated accessibility checks, linting,
   and frontend production build.
+- Enforced frontend architecture and bundle budgets, circular-import detection,
+  unused TypeScript checks, and explicit API/frontend pagination regression
+  gates in CI.
 - Laptop/local production-style smoke-test script for checking the app before installing on Banana Pi/Raspberry Pi.
 
 ## Remaining hardening and extensions

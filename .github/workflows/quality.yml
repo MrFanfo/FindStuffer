@@ -35,11 +35,24 @@ jobs:
         working-directory: frontend
       - run: npm run typecheck
         working-directory: frontend
+      - run: npm run typecheck:unused
+        working-directory: frontend
+      - run: npm run check:architecture
+        working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - run: npm run check:bundle
+        working-directory: frontend
+      - name: API cursor pagination regression
+        run: pytest -q tests/test_documents_search_pagination.py -k cursor
+        working-directory: backend
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
       - run: npm run test:e2e
+        working-directory: frontend
+      - run: npm run test:a11y
+        working-directory: frontend
+      - run: npm run test:e2e:pagination
         working-directory: frontend
       - run: npm audit --audit-level=high
         working-directory: frontend

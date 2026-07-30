@@ -21,38 +21,15 @@ import {
 import { DocumentSection } from "../../components/DocumentSection";
 import { HierarchyPicker, categoryPickerNodes, locationPickerNodes } from "../../components/HierarchyPicker";
 import { Icon } from "../../components/Icon";
-import { capabilitiesForCategory, categoryOptionLabel, parseLinkText } from "../capture/itemCaptureUtils";
-import { findLocationChain, LocationCrumbs, resizePhoto } from "../places/PlacesView";
+import { activityLabel, capabilitiesForCategory, categoryLabel, categoryOptionLabel, expirationState, parseLinkText } from "../../domain/inventory";
+import { resizePhoto } from "../../domain/photos";
+import { findLocationChain, LocationCrumbs } from "../places/PlacesView";
 
 type RefreshScope = "all" | "inventory" | "none";
 type ActionOptions = { progress?: string; undo?: () => Promise<void> };
 
-function categoryLabel(item: Item): string {
-  return item.category_path || item.category_name || "";
-}
-
 function hasLostTag(item: Item): boolean {
   return item.tags.some((tag) => tag.toLowerCase() === "lost");
-}
-
-function expirationState(item: Item): "expired" | "soon" | null {
-  if (!item.expiration_date) return null;
-  const days = Math.ceil((new Date(`${item.expiration_date}T23:59:59`).getTime() - Date.now()) / 86400000);
-  if (days < 0) return "expired";
-  return days <= 7 ? "soon" : null;
-}
-
-function activityLabel(action: string): string {
-  const labels: Record<string, string> = {
-    adjust_quantity: "Quantity changed",
-    archive: "Archived",
-    create: "Created",
-    move: "Moved",
-    restore: "Restored",
-    update: "Updated",
-    update_tags: "Tags updated",
-  };
-  return labels[action] || action.replaceAll("_", " ");
 }
 
 function nutritionLabel(key: string): string {
