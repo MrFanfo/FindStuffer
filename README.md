@@ -599,7 +599,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.7.0`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.7.1`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
@@ -742,4 +742,9 @@ then rotate any exposed credential.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development expectations and
 [SECURITY.md](SECURITY.md) for private vulnerability reporting. Findstuff is
-available under the [MIT License](LICENSE).
+free software under the
+[GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`). You
+may use, modify, redistribute, and charge for copies, subject to the license's
+strong copyleft and source-availability requirements—including its
+network-interaction requirement for modified versions. Versions already
+published under MIT remain available under their original license.

@@ -4,8 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "findstuff"
-version = "1.7.0"
+version = "1.7.1"
 description = "Lightweight self-hosted home inventory"
+license = { text = "AGPL-3.0-only" }
 requires-python = ">=3.11"
 dependencies = [
   "anyio>=4.4,<4.10",

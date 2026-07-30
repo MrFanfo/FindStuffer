@@ -22,6 +22,10 @@ Updated: 2026-07-30
   warranty-expiry dates for explicit review and application.
 - Warranty-expiry dashboard API and ntfy reminder support.
 - Mobile-first React interface for setup/login, search, quick add, moving, quantity changes, locations, archive, and dashboard.
+- Feature-oriented frontend boundaries for inventory state/formulas/views,
+  capture and scan flows, reusable hierarchy pickers, printing, authentication,
+  dashboard, analytics, and shell views. The root `App.tsx` is now 4,562 lines, down from
+  7,327, while routing and cross-feature orchestration remain centralised.
 - Five-destination mobile navigation, responsive dashboard, attention strip, quick search chips, progressive forms, contextual actions, and accessible item sheets.
 - Item editing, product metadata, tags, photos, history, and printable item/location QR labels.
 - Unified phone scanner for application QR codes and retail barcodes, with manual fallback.

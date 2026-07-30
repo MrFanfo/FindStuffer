@@ -12,5 +12,6 @@ Issues and pull requests are welcome. Before opening a pull request:
    Graphify output, tokens, local paths, or private network details.
 
 Report security problems privately according to [SECURITY.md](SECURITY.md).
-By contributing, you agree that your contribution is licensed under the MIT
-License.
+By contributing, you agree that your contribution is licensed under the
+[GNU Affero General Public License v3.0 only](LICENSE), and that the project may
+distribute it as part of Findstuff under that license.
