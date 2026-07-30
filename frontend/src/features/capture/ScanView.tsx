@@ -1,4 +1,4 @@
-import { FormEvent, type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   flattenLocations,
@@ -10,6 +10,7 @@ import {
 import { HierarchyPicker, categoryPickerNodes, locationPickerNodes } from "../../components/HierarchyPicker";
 import { Icon, type IconName } from "../../components/Icon";
 import { AICommandBox } from "./AICommandBox";
+import { CameraScanner } from "./CameraScanner";
 import { parseFindstuffQrTarget } from "./qrNavigation";
 import {
   capabilitiesForCategory,
@@ -524,59 +525,4 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
       {putawayPickerOpen && <HierarchyPicker title="Put everything here" nodes={locationNodes} selectedId={sessionDefaults.location_public_id} emptyLabel="No child locations here" chooseLabel="Use destination" currentChooseLabel="Use this destination" onChoose={setPutawayLocation} onClose={() => setPutawayPickerOpen(false)} />}
     </section>
   );
-}
-
-function CameraScanner({ videoRef, onCode }: { videoRef: MutableRefObject<HTMLVideoElement | null>; onCode: (code: string) => Promise<boolean | void> }) {
-  const recentCodes = useRef<Map<string, number>>(new Map());
-  const flashTimer = useRef<number | null>(null);
-  const [active, setActive] = useState(false);
-  const [available, setAvailable] = useState(true);
-  const [flashCode, setFlashCode] = useState("");
-  useEffect(() => {
-    if (!active) return;
-    if (!videoRef.current || !navigator.mediaDevices?.getUserMedia) {
-      setAvailable(false);
-      setActive(false);
-      return;
-    }
-    let stopped = false;
-    let controls: { stop: () => void } | null = null;
-    void (async () => {
-      const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
-      if (stopped || !videoRef.current) return;
-      const hints = new Map();
-      hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.CODE_128]);
-      hints.set(DecodeHintType.TRY_HARDER, true);
-      const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 250, delayBetweenScanSuccess: 400 });
-      controls = await reader.decodeFromConstraints({ video: { facingMode: { ideal: "environment" } }, audio: false }, videoRef.current, (result, _error, nextControls) => {
-        const text = result?.getText().trim();
-        if (!text || stopped) return;
-        const now = Date.now();
-        if (now - (recentCodes.current.get(text) || 0) < 1400) return;
-        recentCodes.current.set(text, now);
-        setFlashCode(text);
-        if (flashTimer.current) window.clearTimeout(flashTimer.current);
-        flashTimer.current = window.setTimeout(() => setFlashCode(""), 650);
-        void onCode(text).then((shouldContinue) => {
-          if (shouldContinue === false && !stopped) {
-            stopped = true;
-            nextControls.stop();
-            setActive(false);
-          }
-        });
-      });
-      setAvailable(true);
-    })().catch(() => {
-      if (!stopped) {
-        setAvailable(false);
-        setActive(false);
-      }
-    });
-    return () => {
-      stopped = true;
-      controls?.stop();
-      if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    };
-  }, [active]);
-  return <div className={`camera-box ${active ? "active" : ""} ${flashCode ? "recognized" : ""}`}><video ref={videoRef} playsInline muted />{!active && <div className="camera-idle"><span><Icon name="scan" size={38} /></span><strong>Ready to scan</strong><small>Keep the code inside the frame</small></div>}{flashCode && <div className="scan-success"><Icon name="check" size={24} /><span>Added</span></div>}<div className="scan-frame" aria-hidden="true" /><button className={active ? "camera-stop" : "secondary button-with-icon"} onClick={() => { setAvailable(true); setActive(!active); }}>{active ? <><Icon name="close" size={17} />End session</> : <><Icon name="camera" size={17} />Open camera</>}</button>{!available && <small className="camera-warning">Camera access is blocked or unavailable. Try Snap code, or allow camera access in Safari.</small>}</div>;
 }

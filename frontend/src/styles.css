@@ -647,18 +647,29 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .compact-toggle input { width: 17px; min-height: 17px; }
 .compact-toggle strong { font-size: .68rem; }
 
-.camera-box { position: relative; display: grid; min-height: 290px; place-items: center; overflow: hidden; border-radius: 22px; color: #fff; background: var(--ink); }
+.camera-box { position: relative; display: grid; min-height: 380px; overflow: hidden; border-radius: 22px; color: #fff; background: var(--ink); }
+.camera-viewport { position: absolute; z-index: 0; inset: 0; display: grid; place-items: center; overflow: hidden; touch-action: none; }
 .camera-box video { position: absolute; width: 100%; height: 100%; object-fit: cover; }
 .camera-idle { display: grid; z-index: 1; justify-items: center; gap: 7px; }
 .camera-idle > span { display: grid; width: 72px; height: 72px; place-items: center; border: 1px solid #ffffff2e; border-radius: 22px; color: var(--gold); background: #ffffff0d; }
 .camera-idle small { color: #bfcac2; }
-.scan-frame { position: absolute; z-index: 2; width: min(65%, 240px); aspect-ratio: 1.6; border: 2px solid transparent; border-radius: 17px; opacity: 0; box-shadow: 0 0 0 999px #101f1980; }
+.scan-frame { position: absolute; z-index: 2; width: min(82%, 340px); aspect-ratio: 1.35; border: 2px solid transparent; border-radius: 20px; opacity: 0; box-shadow: 0 0 0 999px #101f1973; }
 .camera-box.active .scan-frame { border-color: #fff; opacity: 1; }
 .camera-box.recognized .scan-frame { border-color: #6fe09a; box-shadow: 0 0 0 999px #10351f95, 0 0 0 7px #6fe09a45; }
 .scan-success { position: absolute; z-index: 4; top: 15px; display: flex; min-height: 42px; align-items: center; gap: 8px; border: 1px solid #b9efc9; border-radius: 999px; padding: 0 15px; color: #113d22; background: #d9f9e3ee; font-size: .75rem; font-weight: 900; box-shadow: 0 10px 28px #10271b38; }
-.camera-box > button { position: absolute; z-index: 3; bottom: 16px; }
 .camera-stop { display: flex; min-height: 44px; align-items: center; gap: 7px; border: 1px solid #ffffff55; border-radius: 999px; padding: 0 16px; color: #fff; background: #182a24d9; }
 .camera-warning { position: absolute; z-index: 4; right: 10px; bottom: 10px; left: 10px; border-radius: 9px; padding: 9px; text-align: center; background: #a84235e8; }
+.camera-live-controls { position: absolute; z-index: 5; right: 12px; bottom: 42px; left: 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
+.camera-live-controls > * { pointer-events: auto; }
+.camera-zoom { display: grid; min-height: 42px; grid-template-columns: auto minmax(90px, 150px) auto; align-items: center; gap: 7px; border: 1px solid #ffffff45; border-radius: 999px; padding: 0 11px; color: #fff; background: #182a24dc; font-size: .68rem; }
+.camera-zoom input { width: 100%; min-height: 28px; padding: 0; accent-color: #fff; }
+.camera-zoom output { min-width: 28px; font-variant-numeric: tabular-nums; }
+.camera-tool { display: flex; min-height: 42px; align-items: center; gap: 6px; border: 1px solid #ffffff45; border-radius: 999px; padding: 0 12px; color: #fff; background: #182a24dc; font-size: .7rem; font-weight: 800; }
+.camera-tool.active { border-color: #ffe590; color: #2c2408; background: #ffe590; }
+.camera-focus-support { position: absolute; z-index: 4; bottom: 12px; width: 100%; padding: 0 10px; color: #e5eee9; text-align: center; font-size: .64rem; text-shadow: 0 1px 4px #000; }
+.camera-capability-notice { position: absolute; z-index: 6; top: 15px; right: 12px; left: 12px; border-radius: 11px; padding: 9px 12px; color: #fff; text-align: center; background: #17251fe8; font-size: .7rem; line-height: 1.35; }
+.camera-focus-ring { position: absolute; z-index: 5; width: 58px; height: 58px; transform: translate(-50%, -50%); border: 2px solid #ffe590; border-radius: 14px; box-shadow: 0 0 0 1px #0005; animation: camera-focus .8s ease-out forwards; }
+@keyframes camera-focus { 0% { transform: translate(-50%, -50%) scale(1.35); opacity: .4; } 35% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 100% { opacity: .8; } }
 .camera-note { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; border: 1px solid #e4b49b; border-radius: 13px; padding: 11px 12px; color: #76512e; background: #fff7ed; font-size: .78rem; }
 .snap-code-button { display: flex; width: 100%; margin-bottom: 10px; cursor: pointer; }
 .snap-code-button.busy { opacity: .72; pointer-events: none; }
