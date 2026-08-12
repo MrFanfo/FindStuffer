@@ -125,7 +125,7 @@ Do not copy only a live `findstuff.sqlite3` while ignoring its WAL/SHM files.
 The normal restore path is fully in-app:
 
 1. Sign in to the target Findstuff installation.
-2. Open **Manage → Backup & data → Restore a full backup**.
+2. Open **Extra → Data → Backup & export → Restore a full backup**.
 3. Select the ZIP, review the destructive confirmation, and continue.
 4. Wait while the container restarts and the page reconnects.
 5. Verify items and photos, then re-enter the write-only AI and MQTT secrets.

@@ -404,7 +404,7 @@ export function AICommandBox({ busy, items, locations, categories, onApplied }: 
         + Number(response.result.created?.modify || 0)
         + Number(response.result.created?.delete || 0);
       const failures = response.result.errors?.length || 0;
-      setAppliedSummary(`${changed} operation${changed === 1 ? "" : "s"} applied${failures ? ` · ${failures} could not be applied` : ""}. You can undo this batch from Settings & data → Recent imports.`);
+      setAppliedSummary(`${changed} operation${changed === 1 ? "" : "s"} applied${failures ? ` · ${failures} could not be applied` : ""}. You can undo this batch from Extra → Data → Recent imports.`);
       setCommand(null);
       setGuidedPreview(null);
       setText("");

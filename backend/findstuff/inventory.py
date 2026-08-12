@@ -249,11 +249,34 @@ def list_location_tree(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     return [clean(root) for root in roots]
 
 
+def _location_sibling_exists(
+    connection: sqlite3.Connection,
+    name: str,
+    parent_id: int | None,
+    *,
+    exclude_id: int | None = None,
+) -> bool:
+    return (
+        connection.execute(
+            """
+            SELECT 1 FROM locations
+            WHERE ((parent_id IS NULL AND ? IS NULL) OR parent_id = ?)
+              AND name = ? COLLATE NOCASE
+              AND (? IS NULL OR id != ?)
+            """,
+            (parent_id, parent_id, name.strip(), exclude_id, exclude_id),
+        ).fetchone()
+        is not None
+    )
+
+
 def create_location(connection: sqlite3.Connection, values: dict[str, Any]) -> dict[str, Any]:
     parent_id = None
     if values.get("parent_public_id"):
         parent_id = get_location_row(connection, values["parent_public_id"])["id"]
     ensure_location_type(connection, values.get("kind", "location"))
+    if _location_sibling_exists(connection, values["name"], parent_id):
+        raise ConflictError("A location with that name already exists here")
     public_id = new_public_id("loc")
     try:
         with transaction(connection):
@@ -308,10 +331,14 @@ def update_location(
         raise ConflictError("The Unassigned system location cannot be moved")
     assignments: list[str] = []
     parameters: list[Any] = []
+    next_name = row["name"]
+    next_parent_id = row["parent_id"]
     for field in ("name", "kind", "description"):
         if field in changes:
             assignments.append(f"{field} = ?")
             parameters.append(changes[field])
+            if field == "name":
+                next_name = changes[field]
     if "parent_public_id" in changes:
         parent_id = None
         parent_public_id = changes["parent_public_id"]
@@ -333,8 +360,16 @@ def update_location(
                 raise ConflictError("A location cannot be moved inside itself")
         assignments.append("parent_id = ?")
         parameters.append(parent_id)
+        next_parent_id = parent_id
     if not assignments:
         return serialize_location(connection, row)
+    if ("name" in changes or "parent_public_id" in changes) and _location_sibling_exists(
+        connection,
+        next_name,
+        next_parent_id,
+        exclude_id=int(row["id"]),
+    ):
+        raise ConflictError("A location with that name already exists here")
     parameters.append(row["id"])
     try:
         with transaction(connection):
@@ -1871,9 +1906,21 @@ def find_category_id(connection: sqlite3.Connection, label: str) -> int | None:
     normalized = label.strip().casefold()
     if not normalized:
         return None
-    for category in list_categories(connection):
-        if category["path"].casefold() == normalized or category["name"].casefold() == normalized:
-            return int(category["id"])
+    categories = list_categories(connection)
+    name_matches = [
+        category for category in categories if category["name"].casefold() == normalized
+    ]
+    if " > " not in normalized:
+        if len(name_matches) == 1:
+            return int(name_matches[0]["id"])
+        if len(name_matches) > 1:
+            raise ConflictError(f"Category name is ambiguous: {label}; use the full path or id")
+        return None
+    path_matches = [
+        category for category in categories if category["path"].casefold() == normalized
+    ]
+    if len(path_matches) == 1:
+        return int(path_matches[0]["id"])
     return None
 
 

@@ -20,8 +20,8 @@ migration.
 
 ### 1. Download a fresh template
 
-1. Open **Manage > Backup & data**.
-2. Expand **Import operations with a chatbot**.
+1. Open **Extra > Data**.
+2. Find the **Import** section.
 3. Select **Download operations template**.
 4. Findstuff downloads `findstuff-operations-template.json`.
 
@@ -74,7 +74,7 @@ the import.
 ### 3. Preview the chatbot's JSON
 
 1. Save or download the chatbot response with a `.json` extension.
-2. Return to **Manage > Backup & data**.
+2. Return to **Extra > Data**.
 3. Under **Import data**, choose the response file.
 4. Wait for the preview.
 
@@ -503,4 +503,4 @@ Examples:
 ## Ready-made location seed
 
 `home-locations.findstuff.json` contains the Italian home/STUDIO location tree.
-Import it from **Manage > Backup & data > Import JSON** and merge after preview.
+Import it from **Extra > Data > Import** and merge after preview.

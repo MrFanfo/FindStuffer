@@ -373,7 +373,7 @@ temporary copy of the current database and shows the real import preview.
 Review every line before selecting **Apply operations**. The application uses
 the same import engine as `docs/IMPORT_OPERATIONS.md`, records the changes as
 one batch, and keeps that batch among the latest five entries in **Extra →
-Settings & data → Recent imports**, where it can be rolled back.
+Data → Recent imports**, where it can be rolled back.
 
 ### Offline PWA capture
 
@@ -470,7 +470,7 @@ FINDSTUFF_BACKUP_KEEP=14
 FINDSTUFF_BACKUP_CHECK_INTERVAL_SECONDS=3600
 ```
 
-Automatic Backups use SQLite's online backup API. The **Backup & data** screen
+Automatic Backups use SQLite's online backup API. The **Extra → Data** workspace
 shows when the last automatic Backup completed, how many are retained, and
 whether the schedule is active. A Backup in the same host
 data directory protects against application mistakes, not host/disk failure.
@@ -478,7 +478,7 @@ Download a full ZIP regularly or copy backups to another device.
 
 ## Export, import, and ChatGPT workflows
 
-Open **Manage → Backup & data**.
+Open **Extra → Data**.
 
 ### Inventory JSON export
 
@@ -514,7 +514,7 @@ re-enter those two write-only secrets after a restore. Docker restore procedures
 
 To restore entirely in the app:
 
-1. Open **Manage → Backup & data → Restore a full backup**.
+1. Open **Extra → Data → Backup & export → Restore a full backup**.
 2. Choose a Findstuff backup ZIP and confirm the replacement.
 3. Findstuff validates the manifest, archive paths, compression limits, SQLite
    integrity, required tables, and referenced photo files before accepting it.
@@ -611,7 +611,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.7.6`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.8.0`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
@@ -669,7 +669,7 @@ tar -C . -czf "findstuff-data-$(date +%F).tar.gz" data
 docker compose start
 ```
 
-The preferred live backup remains **Manage → Backup & data → Download full
+The preferred live backup remains **Extra → Data → Download full
 backup ZIP**, because it uses SQLite's online backup API correctly.
 
 To see the resolved configuration without printing secrets:

@@ -462,6 +462,107 @@ def test_operations_import_adds_modifies_and_deletes_inventory(
     assert list_items(database, query="Screwdriver") == []
 
 
+def test_category_and_location_names_are_unique_only_within_the_same_parent(
+    database: sqlite3.Connection,
+) -> None:
+    category_a = create_category(database, "Workshop A")
+    category_b = create_category(database, "Workshop B")
+    consumables_a = create_category(database, "Consumables", category_a["id"])
+    consumables_b = create_category(database, "consumables", category_b["id"])
+
+    assert find_category_id(database, "Workshop A > Consumables") == consumables_a["id"]
+    assert find_category_id(database, "Workshop B > consumables") == consumables_b["id"]
+    with pytest.raises(ConflictError, match="ambiguous"):
+        find_category_id(database, "Consumables")
+    with pytest.raises(ConflictError, match="already exists here"):
+        create_category(database, "CONSUMABLES", category_a["id"])
+
+    room_a = create_location(database, {"name": "Room A"})
+    room_b = create_location(database, {"name": "Room B"})
+    drawer_a = create_location(
+        database, {"name": "Drawer", "parent_public_id": room_a["public_id"]}
+    )
+    create_location(
+        database, {"name": "drawer", "parent_public_id": room_b["public_id"]}
+    )
+    with pytest.raises(ConflictError, match="already exists here"):
+        create_location(
+            database, {"name": "DRAWER", "parent_public_id": room_a["public_id"]}
+        )
+    with pytest.raises(ConflictError, match="already exists here"):
+        update_location(
+            database,
+            drawer_a["public_id"],
+            {"parent_public_id": room_b["public_id"]},
+        )
+    create_location(database, {"name": "Unique root"})
+    with pytest.raises(ConflictError, match="already exists here"):
+        create_location(database, {"name": "unique ROOT"})
+
+
+def test_operations_import_allows_repeated_leaf_names_in_different_subtrees(
+    database: sqlite3.Connection,
+) -> None:
+    payload = {
+        "format": "findstuff-ops-v1",
+        "operations": [
+            {"op": "add", "type": "category", "data": {"name": "Electrical"}},
+            {"op": "add", "type": "category", "data": {"name": "Plumbing"}},
+            {
+                "op": "add",
+                "type": "category",
+                "data": {"name": "Consumables", "parent": "Electrical"},
+            },
+            {
+                "op": "add",
+                "type": "category",
+                "data": {"name": "Consumables", "parent": "Plumbing"},
+            },
+            {"op": "add", "type": "location", "data": {"name": "Garage", "kind": "room"}},
+            {"op": "add", "type": "location", "data": {"name": "Studio", "kind": "room"}},
+            {"op": "add", "type": "location", "data": {"name": "Drawer", "parent": "Garage"}},
+            {"op": "add", "type": "location", "data": {"name": "Drawer", "parent": "Studio"}},
+        ],
+    }
+
+    preview = import_preview(payload, database)
+    assert preview["valid"] is True
+    assert all(detail["status"] == "add" for detail in preview["details"])
+    result = apply_import_merge(database, payload)
+    assert result["valid"] is True
+    assert {entry["path"] for entry in list_categories(database)} >= {
+        "Electrical > Consumables",
+        "Plumbing > Consumables",
+    }
+    location_paths = {
+        child["path"]
+        for root in list_location_tree(database)
+        for child in root["children"]
+    }
+    assert location_paths >= {"Garage > Drawer", "Studio > Drawer"}
+
+    ambiguous_item = {
+        "format": "findstuff-ops-v1",
+        "operations": [
+            {
+                "op": "add",
+                "type": "item",
+                "data": {
+                    "name": "Ambiguous import item",
+                    "category": "Consumables",
+                    "location": "Garage > Drawer",
+                },
+            }
+        ],
+    }
+    ambiguous_preview = import_preview(ambiguous_item, database)
+    assert ambiguous_preview["valid"] is False
+    assert "ambiguous" in ambiguous_preview["errors"][0].lower()
+
+    ambiguous_item["operations"][0]["data"]["category"] = "Electrical > Consumables"
+    assert import_preview(ambiguous_item, database)["valid"] is True
+
+
 def test_operations_import_sets_and_carries_category_default_location(
     database: sqlite3.Connection,
 ) -> None:

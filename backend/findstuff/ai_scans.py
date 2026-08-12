@@ -304,7 +304,13 @@ def _proposal_from_recognition(
     )
     if should_append_research:
         description = f"{description}\n\n{research['summary']}".strip()
-    category_id = find_category_id(connection, recognition.category)
+    try:
+        category_id = find_category_id(connection, recognition.category)
+    except ConflictError:
+        # A model often returns only a leaf name. When that name exists in
+        # multiple branches, leave the proposal uncategorised for review
+        # instead of silently assigning it to the wrong subtree.
+        category_id = None
     links = (
         [{"label": research["label"], "url": research["url"]}]
         if research

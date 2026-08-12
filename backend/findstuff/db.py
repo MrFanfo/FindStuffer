@@ -39,12 +39,25 @@ def migrate(database_path: Path | None = None) -> None:
                 continue
             safe_name = migration.name.replace("'", "''")
             script = migration.read_text(encoding="utf-8")
-            connection.executescript(
-                "BEGIN IMMEDIATE;\n"
-                f"{script}\n"
-                f"INSERT INTO schema_migrations(name) VALUES ('{safe_name}');\n"
-                "COMMIT;"
+            disable_foreign_keys = script.lstrip().startswith(
+                "-- findstuff: foreign_keys=off"
             )
+            if disable_foreign_keys:
+                connection.execute("PRAGMA foreign_keys = OFF")
+            try:
+                connection.executescript(
+                    "BEGIN IMMEDIATE;\n"
+                    f"{script}\n"
+                    f"INSERT INTO schema_migrations(name) VALUES ('{safe_name}');\n"
+                    "COMMIT;"
+                )
+            except Exception:
+                if connection.in_transaction:
+                    connection.rollback()
+                raise
+            finally:
+                if disable_foreign_keys:
+                    connection.execute("PRAGMA foreign_keys = ON")
     finally:
         connection.close()
 

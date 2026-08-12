@@ -108,7 +108,7 @@ healthy restart.
 
 Automatic backups live under `data/backups`, but a backup on the same card does
 not protect against card failure. Regularly download a full backup ZIP from
-**Manage → Backup & data** and copy it to another computer or disk.
+**Extra → Data → Backup & export** and copy it to another computer or disk.
 
 Also:
 

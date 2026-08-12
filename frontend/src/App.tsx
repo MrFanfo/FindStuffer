@@ -46,7 +46,9 @@ import {
 } from "./offline";
 
 const AnalyticsView = lazy(() => import("./features/analytics/AnalyticsView").then((module) => ({ default: module.AnalyticsView })));
+const DataView = lazy(() => import("./features/data-tools/DataView").then((module) => ({ default: module.DataView })));
 const ItemDetail = lazy(() => import("./features/items/ItemDetail").then((module) => ({ default: module.ItemDetail })));
+const InventoryManagementView = lazy(() => import("./features/manage/InventoryManagementView").then((module) => ({ default: module.InventoryManagementView })));
 const ManageView = lazy(() => import("./features/manage/ManageView").then((module) => ({ default: module.ManageView })));
 const AIScanInboxView = lazy(() => import("./features/manage/AIScanInboxView").then((module) => ({ default: module.AIScanInboxView })));
 const DefaultRulesView = lazy(() => import("./features/manage/DefaultRulesView").then((module) => ({ default: module.DefaultRulesView })));
@@ -59,7 +61,7 @@ const PlacesView = lazy(() => import("./features/places/PlacesView").then((modul
 const ScanView = lazy(() => import("./features/capture/ScanView").then((module) => ({ default: module.ScanView })));
 const PrintQueueDialog = lazy(() => import("./features/printing/PrintQueueDialog").then((module) => ({ default: module.PrintQueueDialog })));
 
-type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "manage";
+type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "data" | "inventory-management" | "manage";
 type InventorySearchOptions = { showBusy?: boolean };
 type AdjustmentQueue = {
   confirmed: Item;
@@ -140,6 +142,8 @@ function viewFromParameter(value: string | null): View | null {
     more: "extra",
     extra: "extra",
     analytics: "analytics",
+    data: "data",
+    "inventory-management": "inventory-management",
     "off-category-mappings": "off-category-mappings",
     places: "places",
     scan: "capture",
@@ -1008,7 +1012,7 @@ function App() {
       ? "capture"
       : view === "default-rules" || view === "off-category-mappings" || view === "ai-inbox"
         ? "extra"
-        : view === "manage" || view === "analytics"
+        : view === "manage" || view === "analytics" || view === "data" || view === "inventory-management"
           ? "extra"
           : view;
   return (
@@ -1182,7 +1186,7 @@ function App() {
         {view === "default-rules" && <DefaultRulesView locations={locations} categories={categories} busy={busy} onBack={() => navigate("manage")} onChanged={() => refresh(undefined, { showBusy: false })} notify={notify} />}
         {view === "ai-inbox" && <AIScanInboxView categories={categories} locations={locations} units={units} busy={busy} onBack={() => navigate("manage")} onInventoryChanged={() => refresh()} notify={notify} />}
         {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} />}
-        {view === "extra" && <ExtraView offlineOperations={offlineOperations} offlineMode={offlineMode} syncing={syncingOffline} onAnalytics={() => navigate("analytics")} onSettings={() => navigate("manage")} onSync={() => syncOfflineQueue()} onDiscard={async (id) => { await deleteOfflineOperation(id); setOfflineOperations(await listOfflineOperations()); if (navigator.onLine) await refresh("", { showBusy: false }); }} />}
+        {view === "extra" && <ExtraView offlineOperations={offlineOperations} offlineMode={offlineMode} syncing={syncingOffline} onAnalytics={() => navigate("analytics")} onData={() => navigate("data")} onInventoryManagement={() => navigate("inventory-management")} onSettings={() => navigate("manage")} onSync={() => syncOfflineQueue()} onDiscard={async (id) => { await deleteOfflineOperation(id); setOfflineOperations(await listOfflineOperations()); if (navigator.onLine) await refresh("", { showBusy: false }); }} />}
         {view === "analytics" && <AnalyticsView
           onBack={() => navigate("extra")}
           onInventory={openAnalyticsInventory}
@@ -1205,8 +1209,10 @@ function App() {
           }}
           onItem={(id) => void api.item(id).then(setSelectedItem)}
         />}
+        {view === "data" && <DataView categories={categories} locations={locations} locationTypes={locationTypes} units={units} busy={busy} onBack={() => navigate("extra")} onChanged={() => refresh()} setNotice={setNotice} />}
+        {view === "inventory-management" && <InventoryManagementView items={items} categories={categories} busy={busy} onBack={() => navigate("extra")} onChanged={() => refresh()} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} setNotice={setNotice} />}
         {view === "manage" && (
-          <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onDefaultRules={() => navigate("default-rules")} onOffCategoryMappings={() => navigate("off-category-mappings")} onInbox={() => navigate("ai-inbox")} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} onUnitsChanged={setUnits} />
+          <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onDefaultRules={() => navigate("default-rules")} onOffCategoryMappings={() => navigate("off-category-mappings")} onInbox={() => navigate("ai-inbox")} onUnitsChanged={setUnits} />
         )}
         {selectedItem && view !== "inventory" && (
           <ItemDetail
