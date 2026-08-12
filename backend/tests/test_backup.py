@@ -3,19 +3,22 @@ from __future__ import annotations
 import json
 import sqlite3
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from findstuff.backups import (
     apply_pending_restore,
+    backup,
     backup_archive,
     backup_if_due,
     backup_status,
+    list_backups,
     restore_status,
     stage_backup_restore,
+    stored_backup_archive,
 )
-from findstuff.cli import backup
 from findstuff.db import connect, migrate
 from findstuff.documents import get_document_path, store_document
 from findstuff.inventory import create_item
@@ -124,8 +127,51 @@ def test_backup_status_reports_latest_automatic_backup(tmp_path: Path, monkeypat
     assert created is not None
     assert status["enabled"] is True
     assert status["backup_count"] == 1
-    assert status["retention"] == 7
+    assert status["retention"] == 5
     assert status["last_backup_at"] is not None
+
+
+def test_backup_history_is_listed_and_retention_is_capped_at_five(
+    tmp_path: Path, monkeypatch
+) -> None:
+    data = tmp_path / "data"
+    output = data / "backups"
+    monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(data))
+    monkeypatch.setenv("FINDSTUFF_DATABASE_PATH", str(data / "findstuff.sqlite3"))
+    monkeypatch.setenv("FINDSTUFF_BACKUP_DIR", str(output))
+    migrate(data / "findstuff.sqlite3")
+
+    for index in range(7):
+        folder = output / f"2026010{index + 1}T120000Z"
+        folder.mkdir(parents=True)
+        (folder / "findstuff.sqlite3").write_bytes(b"database")
+        (folder / "manifest.json").write_text("{}", encoding="utf-8")
+
+    # Existing installations configured above the cap are pruned without requiring edits.
+    backup_if_due(output, keep=14, now=datetime(2026, 1, 8, tzinfo=UTC))
+    entries = list_backups(output)
+
+    assert len(entries) == 5
+    assert entries == sorted(entries, key=lambda entry: entry["created_at"], reverse=True)
+    assert all(len(entry["id"]) == 16 for entry in entries)
+    assert entries[0]["size_bytes"] > 0
+
+
+def test_stored_backup_archive_rejects_invalid_ids(tmp_path: Path, monkeypatch) -> None:
+    data = tmp_path / "data"
+    backup_dir = data / "backups"
+    monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(data))
+    monkeypatch.setenv("FINDSTUFF_BACKUP_DIR", str(backup_dir))
+    saved = backup_dir / "20260101T120000Z"
+    saved.mkdir(parents=True)
+    (saved / "findstuff.sqlite3").write_bytes(b"database")
+    (saved / "manifest.json").write_text("{}", encoding="utf-8")
+
+    archive = stored_backup_archive(saved.name, tmp_path / "downloads")
+    with zipfile.ZipFile(archive) as created:
+        assert set(created.namelist()) == {"findstuff.sqlite3", "manifest.json"}
+    with pytest.raises(ValueError, match="not found"):
+        stored_backup_archive("../secrets", tmp_path / "downloads")
 
 
 def test_full_backup_can_be_staged_and_restored_safely(

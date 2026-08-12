@@ -55,6 +55,17 @@ export function SearchAliasManager({
     }
   }
 
+  async function dismissCandidate(query: string) {
+    setMessage("");
+    try {
+      await api.deleteSearchLearningCandidate(query);
+      setCandidates((current) => current.filter((entry) => entry.normalized_query !== query));
+      setMessage("Search suggestion removed");
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Could not remove suggestion");
+    }
+  }
+
   return (
     <div className="search-alias-manager">
       <p>
@@ -66,14 +77,13 @@ export function SearchAliasManager({
           <strong>Repeated searches with no result</strong>
           <div>
             {candidates.map((candidate) => (
-              <button
-                type="button"
-                key={candidate.normalized_query}
-                onClick={() => setAlias(candidate.original_query)}
-              >
-                {candidate.original_query}
-                <small>{candidate.search_count} searches · teach this</small>
-              </button>
+              <span className="search-learning-candidate" key={candidate.normalized_query}>
+                <button type="button" onClick={() => setAlias(candidate.original_query)}>
+                  {candidate.original_query}
+                  <small>{candidate.search_count} searches · teach this</small>
+                </button>
+                <button type="button" className="dismiss-candidate" aria-label={`Remove ${candidate.original_query} suggestion`} onClick={() => void dismissCandidate(candidate.normalized_query)}>×</button>
+              </span>
             ))}
           </div>
         </div>

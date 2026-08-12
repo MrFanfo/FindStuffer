@@ -43,6 +43,7 @@ export function makeOfflineItem(
     low_stock_threshold: body.low_stock_threshold === null || body.low_stock_threshold === undefined
       ? null
       : String(body.low_stock_threshold),
+    fullness_percent: typeof body.fullness_percent === "number" ? body.fullness_percent : null,
     barcode: String(body.barcode || ""),
     links: Array.isArray(body.links) ? body.links as Array<{ label: string; url: string }> : [],
     tags: Array.isArray(body.tags) ? body.tags.filter((entry): entry is string => typeof entry === "string") : [],

@@ -15,7 +15,12 @@ from findstuff.documents import (
     store_document,
     warranties_due,
 )
-from findstuff.human_search import human_search, save_alias
+from findstuff.human_search import (
+    delete_search_observation,
+    human_search,
+    save_alias,
+    search_learning_candidates,
+)
 from findstuff.inventory import (
     NotFoundError,
     create_item,
@@ -117,6 +122,20 @@ def test_human_search_synonyms_typos_and_place_alias(
     alias = human_search(database, "top drawer")
     assert alias["matched_by"] == ["place alias"]
     assert alias["items"][0]["public_id"] == driver["public_id"]
+
+
+def test_no_result_learning_candidate_can_be_removed(
+    database: sqlite3.Connection,
+) -> None:
+    human_search(database, "not in this inventory")
+    human_search(database, "not in this inventory")
+    assert search_learning_candidates(database)[0]["normalized_query"] == "not in this inventory"
+
+    delete_search_observation(database, "not in this inventory")
+    human_search(database, "not in this inventory")
+    human_search(database, "not in this inventory")
+
+    assert search_learning_candidates(database) == []
 
 
 def test_cursor_pagination_is_stable_and_complete(database: sqlite3.Connection) -> None:

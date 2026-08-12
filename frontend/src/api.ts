@@ -58,6 +58,7 @@ export type Category = {
 };
 
 export type CategoryCapabilities = {
+  fullness: boolean;
   expiration: boolean;
   batches: boolean;
   maintenance: boolean;
@@ -104,6 +105,7 @@ export type Item = {
   serial_number: string;
   expiration_date: string | null;
   low_stock_threshold: string | null;
+  fullness_percent: number | null;
   barcode: string;
   links: Array<{ label: string; url: string }>;
   tags: string[];
@@ -533,6 +535,7 @@ export type ApplicationSettings = {
     overrides: Record<string, Partial<Omit<CategoryCapabilities, "override" | "inherited_from" | "inherited_label">>>;
     resolved: Record<string, CategoryCapabilities>;
   };
+  inventory_display: InventoryDisplaySettings;
   system: {
     app: {
       version: string;
@@ -624,6 +627,21 @@ export type ApplicationSettings = {
       password_set: boolean;
     };
   };
+};
+
+export type InventoryDisplaySettings = {
+  show_photo: boolean;
+  show_location: boolean;
+  show_category: boolean;
+  show_quantity: boolean;
+  show_brand: boolean;
+  show_model: boolean;
+};
+
+export type StoredBackup = {
+  id: string;
+  created_at: string;
+  size_bytes: number;
 };
 
 export type AIConnectionDiagnostic = {
@@ -953,6 +971,10 @@ export const api = {
       search_count: number;
       last_searched_at: string;
     }>>("/api/v1/search/learning-candidates"),
+  deleteSearchLearningCandidate: (query: string) =>
+    request<void>(`/api/v1/search/learning-candidates?query=${encodeURIComponent(query)}`, {
+      method: "DELETE",
+    }),
   createSearchAlias: (body: {
     alias: string;
     target_type: SearchAlias["target_type"];
@@ -1242,6 +1264,7 @@ export const api = {
   applyEnrichment: (candidateId: string) =>
     request<Item>(`/api/v1/enrichment-candidates/${candidateId}/apply`, { method: "POST" }),
   settings: () => request<ApplicationSettings>("/api/v1/settings"),
+  backups: () => request<StoredBackup[]>("/api/v1/admin/backups"),
   changeAdminPassword: (currentPassword: string, newPassword: string) =>
     request<{ status: string }>("/api/v1/admin/password", {
       method: "POST",
@@ -1273,6 +1296,11 @@ export const api = {
     request<ApplicationSettings["category_data"]>("/api/v1/settings/category-data", {
       method: "PUT",
       body: JSON.stringify({ overrides }),
+    }),
+  saveInventoryDisplaySettings: (body: InventoryDisplaySettings) =>
+    request<InventoryDisplaySettings>("/api/v1/settings/inventory-display", {
+      method: "PUT",
+      body: JSON.stringify(body),
     }),
   offCategoryMappings: () =>
     request<{ format: string; mappings: OffCategoryMapping[] }>("/api/v1/settings/open-food-facts/category-mappings"),

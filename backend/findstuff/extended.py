@@ -1847,6 +1847,7 @@ def apply_import_merge(connection: sqlite3.Connection, payload: dict[str, Any]) 
             "brand",
             "expiration_date",
             "low_stock_milli",
+            "fullness_percent",
             "barcode_override",
             "links_json",
         ]

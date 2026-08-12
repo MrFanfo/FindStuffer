@@ -466,7 +466,7 @@ environment values seed the form until settings are saved in the app.
 ```env
 FINDSTUFF_AUTO_BACKUP_ENABLED=true
 FINDSTUFF_BACKUP_DIR=/app/data/backups
-FINDSTUFF_BACKUP_KEEP=14
+FINDSTUFF_BACKUP_KEEP=5
 FINDSTUFF_BACKUP_CHECK_INTERVAL_SECONDS=3600
 ```
 
@@ -611,7 +611,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.8.0`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.8.1`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

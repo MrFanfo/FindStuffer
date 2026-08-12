@@ -65,8 +65,10 @@ from .backups import (
     backup_archive,
     backup_if_due,
     backup_status,
+    list_backups,
     restore_status,
     stage_backup_restore,
+    stored_backup_archive,
 )
 from .barcodes import IMAGE_DECODE_LIMIT_BYTES, decode_image_code, lookup_barcode
 from .config import get_settings
@@ -121,6 +123,7 @@ from .homeassistant import (
 )
 from .human_search import (
     delete_alias,
+    delete_search_observation,
     human_search,
     list_aliases,
     save_alias,
@@ -217,6 +220,7 @@ from .schemas import (
     EnrichmentSuggestionAccept,
     ExternalPhotoCreate,
     ImportMergeRequest,
+    InventoryDisplaySettingsUpdate,
     ItemCreate,
     ItemDefaultLocationUpdate,
     ItemLotCreate,
@@ -749,6 +753,17 @@ async def get_search_aliases(database: Database) -> list[dict[str, Any]]:
 @app.get("/api/v1/search/learning-candidates", tags=["search"])
 async def get_search_learning_candidates(database: Database) -> list[dict[str, Any]]:
     return search_learning_candidates(database)
+
+
+@app.delete("/api/v1/search/learning-candidates", status_code=204, tags=["search"])
+async def remove_search_learning_candidate(
+    database: Database, query: str = Query(min_length=1, max_length=300)
+) -> Response:
+    try:
+        delete_search_observation(database, query)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 @app.post("/api/v1/search/aliases", status_code=201, tags=["search"])
@@ -1434,6 +1449,30 @@ async def download_backup() -> FileResponse:
     )
 
 
+@app.get("/api/v1/admin/backups", tags=["administration"])
+async def get_backups() -> list[dict[str, Any]]:
+    return list_backups()
+
+
+@app.get("/api/v1/admin/backups/{backup_id}", tags=["administration"])
+async def download_stored_backup(backup_id: str) -> FileResponse:
+    settings = get_settings()
+    downloads_dir = settings.data_dir / "backups" / ".downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    temporary_dir = Path(tempfile.mkdtemp(prefix="stored-", dir=downloads_dir))
+    try:
+        archive_path = stored_backup_archive(backup_id, temporary_dir)
+    except ValueError as exc:
+        shutil.rmtree(temporary_dir, ignore_errors=True)
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        archive_path,
+        media_type="application/zip",
+        filename=archive_path.name,
+        background=BackgroundTask(shutil.rmtree, temporary_dir, ignore_errors=True),
+    )
+
+
 def queue_process_restart() -> None:
     time.sleep(0.8)
     os._exit(0)
@@ -1561,6 +1600,53 @@ def save_inventory_units(database: Database, units: list[str]) -> list[str]:
     return merged
 
 
+INVENTORY_DISPLAY_DEFAULTS = {
+    "show_photo": True,
+    "show_location": True,
+    "show_category": True,
+    "show_quantity": True,
+    "show_brand": False,
+    "show_model": False,
+}
+
+
+def inventory_display_settings(database: Database) -> dict[str, bool]:
+    row = database.execute(
+        "SELECT value_json FROM app_settings WHERE key = 'inventory_display'"
+    ).fetchone()
+    if row is None:
+        return dict(INVENTORY_DISPLAY_DEFAULTS)
+    try:
+        stored = json.loads(row["value_json"])
+    except (json.JSONDecodeError, TypeError):
+        stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
+    return {
+        key: bool(stored.get(key, default))
+        for key, default in INVENTORY_DISPLAY_DEFAULTS.items()
+    }
+
+
+def save_inventory_display_settings(
+    database: Database, values: dict[str, bool]
+) -> dict[str, bool]:
+    stored = {
+        key: bool(values.get(key, default))
+        for key, default in INVENTORY_DISPLAY_DEFAULTS.items()
+    }
+    with transaction(database):
+        database.execute(
+            """
+            INSERT INTO app_settings(key, value_json) VALUES ('inventory_display', ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (json.dumps(stored, separators=(",", ":")),),
+        )
+    return stored
+
+
 @app.get("/api/v1/settings", tags=["settings"])
 async def get_application_settings(database: Database) -> dict[str, Any]:
     runtime = get_settings()
@@ -1568,6 +1654,7 @@ async def get_application_settings(database: Database) -> dict[str, Any]:
         "notifications": public_notification_config(database),
         "units": inventory_units(database),
         "category_data": category_data_settings(database),
+        "inventory_display": inventory_display_settings(database),
         "system": application_system_info(database, runtime),
         "setup": {
             "authentication": {
@@ -1620,6 +1707,13 @@ async def put_category_data_settings(
     payload: CategoryDataSettingsUpdate, database: Database
 ) -> dict[str, Any]:
     return save_category_data_settings(database, payload.overrides)
+
+
+@app.put("/api/v1/settings/inventory-display", tags=["settings"])
+async def put_inventory_display_settings(
+    payload: InventoryDisplaySettingsUpdate, database: Database
+) -> dict[str, bool]:
+    return save_inventory_display_settings(database, payload.model_dump())
 
 
 @app.get("/api/v1/settings/open-food-facts/category-mappings", tags=["settings"])

@@ -1,5 +1,5 @@
 import { type FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { api, flattenLocations, type Category, type Item, type LocationNode } from "../../api";
+import { api, flattenLocations, type Category, type InventoryDisplaySettings, type Item, type LocationNode } from "../../api";
 import { EmptyState } from "../../components/EmptyState";
 import { Icon } from "../../components/Icon";
 import { SearchFeedback } from "../../components/SearchFeedback";
@@ -28,6 +28,14 @@ type InventoryViewPrefs = { groupBy: InventoryGroup; sortBy: InventorySort };
 const INVENTORY_PREFS_KEY = "findstuff.inventoryPrefs.v1";
 const INITIAL_RESULT_WINDOW = 120;
 const RESULT_WINDOW_STEP = 120;
+const DEFAULT_DISPLAY: InventoryDisplaySettings = {
+  show_photo: true,
+  show_location: true,
+  show_category: true,
+  show_quantity: true,
+  show_brand: false,
+  show_model: false,
+};
 
 function isLowStock(item: Item): boolean {
   return item.low_stock_threshold !== null && Number(item.quantity) <= Number(item.low_stock_threshold);
@@ -177,6 +185,14 @@ export function InventoryView({
   initialTag: string;
   pendingItems: Set<string>;
 }) {
+  const [display, setDisplay] = useState<InventoryDisplaySettings>(DEFAULT_DISPLAY);
+  useEffect(() => {
+    let active = true;
+    void api.settings().then((settings) => {
+      if (active) setDisplay({ ...DEFAULT_DISPLAY, ...(settings.inventory_display || {}) });
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
   const initialPrefs = useMemo(loadInventoryPrefs, []);
   const [filter, setFilter] = useState<InventoryFilter>(initialFilter);
   const [groupBy, setGroupBy] = useState<InventoryGroup>(initialPrefs.groupBy);
@@ -212,6 +228,7 @@ export function InventoryView({
     const nextSearch = trimmed.length >= 2 ? trimmed : "";
     if (lastBackgroundSearch.current === nextSearch) return;
     const timeout = window.setTimeout(() => {
+      if (lastBackgroundSearch.current === nextSearch) return;
       lastBackgroundSearch.current = nextSearch;
       onSearch(nextSearch, { showBusy: false });
     }, nextSearch ? 420 : 260);
@@ -479,16 +496,16 @@ export function InventoryView({
             ? <SearchFeedback query={query.trim()} onAdd={onAdd} onFindLost={onFindLost} />
             : visibleItems.length === 0 && <EmptyState icon={hasScope ? "box" : "search"} title={hasScope ? "Nothing needs attention" : "No Items yet"} text={hasScope ? "You’re all caught up." : "Add an Item and it will appear here."} action={items.length === 0 ? { label: "Add first Item", onClick: onAdd } : undefined} />}
         {!showingSearchPlaceholder && (groupBy === "none" ? [["", visibleItems] as [string, Item[]]] : groupedItems).map(([group, groupItems]) => <div className="inventory-group" key={group || "all"}>{group && <h3>{group}<span>{groupItems.length}</span></h3>}{groupItems.map((item) => (
-          <article className={`item-card ${expirationState(item) === "expired" || isLowStock(item) ? "needs-attention" : ""} ${pendingItems.has(item.public_id) ? "syncing" : ""} ${bulkMode ? "bulk-selectable" : ""} ${bulkSelection.has(item.public_id) ? "selected" : ""}`} key={item.public_id}>
+          <article className={`item-card ${!display.show_photo ? "without-photo" : ""} ${expirationState(item) === "expired" || isLowStock(item) ? "needs-attention" : ""} ${pendingItems.has(item.public_id) ? "syncing" : ""} ${bulkMode ? "bulk-selectable" : ""} ${bulkSelection.has(item.public_id) ? "selected" : ""}`} key={item.public_id}>
             <button className="item-main" onClick={() => bulkMode ? toggleBulkItem(item.public_id) : onOpen(item)} aria-pressed={bulkMode ? bulkSelection.has(item.public_id) : undefined}>
               {bulkMode && <span className="bulk-check" aria-hidden="true">{bulkSelection.has(item.public_id) ? <Icon name="check" size={17} /> : null}</span>}
-              <div className={`item-icon ${item.primary_photo_url ? "item-photo" : ""}`} aria-hidden="true">{item.primary_photo_url ? <img src={item.primary_photo_url} alt="" loading="lazy" /> : <Icon name="box" size={21} />}</div>
+              {display.show_photo && <div className={`item-icon ${item.primary_photo_url ? "item-photo" : ""}`} aria-hidden="true">{item.primary_photo_url ? <img src={item.primary_photo_url} alt="" loading="lazy" /> : <Icon name="box" size={21} />}</div>}
               <div className="item-copy">
-                <div className="item-name-line"><h3>{item.name}</h3>{isLowStock(item) && <span className="status-badge warning">Low</span>}{expirationState(item) && <span className={`status-badge ${expirationState(item)}`}>{expirationState(item) === "expired" ? "Expired" : expirationCopy(item)}</span>}{categoryLabel(item) && <span className="status-badge quiet">{categoryLabel(item)}</span>}</div>
-                <p className="location-line"><Icon name="pin" size={13} />{item.location_path}</p>
-                {(item.brand || item.model) && <p className="muted">{[item.brand, item.model].filter(Boolean).join(" · ")}</p>}
+                <div className="item-name-line"><h3>{item.name}</h3>{isLowStock(item) && <span className="status-badge warning">Low</span>}{expirationState(item) && <span className={`status-badge ${expirationState(item)}`}>{expirationState(item) === "expired" ? "Expired" : expirationCopy(item)}</span>}{display.show_category && categoryLabel(item) && <span className="status-badge quiet">{categoryLabel(item)}</span>}</div>
+                {display.show_location && <p className="location-line"><Icon name="pin" size={13} />{item.location_path}</p>}
+                {((display.show_brand && item.brand) || (display.show_model && item.model)) && <p className="muted">{[display.show_brand ? item.brand : "", display.show_model ? item.model : ""].filter(Boolean).join(" · ")}</p>}
               </div>
-              <span className="quantity"><strong>{item.quantity}</strong><small>{item.unit}</small></span>
+              {display.show_quantity && <span className="quantity"><strong>{item.quantity}</strong><small>{item.unit}</small></span>}
               <Icon name="chevron" size={17} />
             </button>
             {!bulkMode && <div className={`quick-actions ${isLowStock(item) ? "has-shopping" : ""}`}>

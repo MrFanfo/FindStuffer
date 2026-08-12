@@ -118,19 +118,24 @@ def human_search(
             matched_by.append("typo-tolerant match")
     items = list(results.values())[: max(1, min(limit, 250))]
     with transaction(connection):
-        connection.execute(
-            """
-            INSERT INTO search_observations(
-                normalized_query, original_query, result_count, search_count
-            ) VALUES (?, ?, ?, 1)
-            ON CONFLICT(normalized_query) DO UPDATE SET
-                original_query = excluded.original_query,
-                result_count = excluded.result_count,
-                search_count = search_count + 1,
-                last_searched_at = CURRENT_TIMESTAMP
-            """,
-            (normalized, query[:300], len(items)),
-        )
+        dismissed = connection.execute(
+            "SELECT 1 FROM dismissed_search_observations WHERE normalized_query = ?",
+            (normalized,),
+        ).fetchone()
+        if dismissed is None:
+            connection.execute(
+                """
+                INSERT INTO search_observations(
+                    normalized_query, original_query, result_count, search_count
+                ) VALUES (?, ?, ?, 1)
+                ON CONFLICT(normalized_query) DO UPDATE SET
+                    original_query = excluded.original_query,
+                    result_count = excluded.result_count,
+                    search_count = search_count + 1,
+                    last_searched_at = CURRENT_TIMESTAMP
+                """,
+                (normalized, query[:300], len(items)),
+            )
         if aliases:
             connection.executemany(
                 "UPDATE search_aliases SET use_count = use_count + 1, "
@@ -174,6 +179,22 @@ def search_learning_candidates(connection: sqlite3.Connection) -> list[dict[str,
             """
         )
     ]
+
+
+def delete_search_observation(connection: sqlite3.Connection, query: str) -> None:
+    normalized = normalize_query(query)
+    if not normalized:
+        raise ValueError("Search suggestion not found")
+    with transaction(connection):
+        connection.execute(
+            "INSERT OR IGNORE INTO dismissed_search_observations(normalized_query) VALUES (?)",
+            (normalized,),
+        )
+        cursor = connection.execute(
+            "DELETE FROM search_observations WHERE normalized_query = ?", (normalized,)
+        )
+    if cursor.rowcount != 1:
+        raise ValueError("Search suggestion not found")
 
 
 def save_alias(connection: sqlite3.Connection, values: dict[str, Any]) -> dict[str, Any]:

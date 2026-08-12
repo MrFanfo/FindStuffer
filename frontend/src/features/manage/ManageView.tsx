@@ -8,6 +8,7 @@ import {
   type EnrichmentSuggestion,
   HttpRequestError,
   type Item,
+  type InventoryDisplaySettings,
   type LocationNode,
   type LocationRule,
   type LocationType,
@@ -22,7 +23,7 @@ export type ThemePreference = "light" | "dark" | "system";
 type RetryAction = { action: () => Promise<void>; label: string };
 
 
-export function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, notify, onThemeChange, onInventoryChanged, onLocations, onCategories, onDefaultRules, onOffCategoryMappings, onInbox, onUnitsChanged }: {
+export function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, notify, onBack, onThemeChange, onInventoryChanged, onLocations, onCategories, onDefaultRules, onOffCategoryMappings, onInbox, onUnitsChanged }: {
   items: Item[];
   dashboard: Dashboard | null;
   locations: LocationNode[];
@@ -33,6 +34,7 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
   theme: ThemePreference;
   setNotice: (message: string) => void;
   notify: (message: string, action?: RetryAction) => void;
+  onBack: () => void;
   onThemeChange: (theme: ThemePreference) => void;
   onInventoryChanged: () => Promise<void>;
   onLocations: () => void;
@@ -73,6 +75,20 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
   const [customPlaceType, setCustomPlaceType] = useState("");
   const [customUnit, setCustomUnit] = useState("");
 
+  async function setInventoryDisplay(key: keyof InventoryDisplaySettings, value: boolean) {
+    if (!settings) return;
+    const next = { ...settings.inventory_display, [key]: value };
+    setSettings({ ...settings, inventory_display: next });
+    try {
+      const saved = await api.saveInventoryDisplaySettings(next);
+      setSettings((current) => current ? { ...current, inventory_display: saved } : current);
+      setNotice("Inventory display updated");
+    } catch (error) {
+      await load();
+      setNotice(error instanceof Error ? error.message : "Could not update inventory display");
+    }
+  }
+
   const load = useCallback(async () => {
     try {
       const [nextSettings, nextRules, nextSuggestions, nextEnrichmentStatus, nextUpdate] = await Promise.all([
@@ -82,7 +98,17 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
         api.enrichmentStatus(),
         api.softwareUpdateStatus(),
       ]);
-      setSettings(nextSettings);
+      setSettings({
+        ...nextSettings,
+        inventory_display: nextSettings.inventory_display || {
+          show_photo: true,
+          show_location: true,
+          show_category: true,
+          show_quantity: true,
+          show_brand: false,
+          show_model: false,
+        },
+      });
       setSoftwareUpdate(nextUpdate);
       onUnitsChanged(nextSettings.units);
       setRules(nextRules);
@@ -370,7 +396,8 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
           : "Check for updates";
 
   return (
-    <section className="manage-page">
+    <section className="workspace-page manage-page settings-workspace">
+      <header className="workspace-header"><button className="text-button workspace-back" onClick={onBack}><Icon name="chevron" size={16} />Extra</button><p className="eyebrow">SETTINGS</p><h1>Make Findstuff yours</h1><p>Choose how inventory looks, adjust app behavior, connect services, and inspect this installation.</p></header>
       {manageActivity && <div className="inline-activity manage-activity" role="status"><span className="activity-spinner" />{manageActivity}</div>}
       <button className="feature-link ai-inbox-link" onClick={onInbox}><span><Icon name="spark" /></span><div><strong>AI Inbox</strong><small>Review photos and approve, edit, or reject suggested Items</small></div><Icon name="chevron" /></button>
       <button className="feature-link" onClick={onLocations}><span><Icon name="pin" /></span><div><strong>Places</strong><small>Build your room, shelf, drawer, and box hierarchy</small></div><Icon name="chevron" /></button>
@@ -378,6 +405,15 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
       <button className="feature-link" onClick={onOffCategoryMappings}><span><Icon name="spark" /></span><div><strong>Open Food Facts category mapping</strong><small>Review scanned categories, assignments, and JSON imports</small></div><Icon name="chevron" /></button>
 
       <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Appearance</strong><small>{theme === "system" ? "Follows this device" : `${theme[0].toUpperCase()}${theme.slice(1)} theme`}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="theme-options" role="radiogroup" aria-label="Color theme">{(["light", "dark", "system"] as ThemePreference[]).map((option) => <button type="button" role="radio" aria-checked={theme === option} className={theme === option ? "active" : ""} key={option} onClick={() => onThemeChange(option)}><span className={`theme-preview ${option}`} aria-hidden="true" /><strong>{option === "system" ? "Device" : option[0].toUpperCase() + option.slice(1)}</strong><small>{option === "system" ? "Match system setting" : `${option} colors`}</small></button>)}</div></div></details>
+
+      <details><summary><span className="summary-icon"><Icon name="box" /></span><span><strong>Inventory cards</strong><small>Choose the details shown in every Item row</small></span><Icon name="chevron" /></summary><div className="manage-panel inventory-display-settings"><p className="panel-copy">Names always remain visible and wrap on small screens. Brand is hidden by default to leave more room.</p><div>{settings && ([
+        ["show_photo", "Photo", "Item image or placeholder"],
+        ["show_location", "Place", "Where the Item is stored"],
+        ["show_category", "Category", "Category badge beside the name"],
+        ["show_quantity", "Quantity", "Current amount and unit"],
+        ["show_brand", "Brand", "Brand below the Item name"],
+        ["show_model", "Model", "Model below the Item name"],
+      ] as Array<[keyof InventoryDisplaySettings, string, string]>).map(([key, label, detail]) => <label className="display-option" key={key}><span><strong>{label}</strong><small>{detail}</small></span><input type="checkbox" checked={settings.inventory_display[key]} onChange={(event) => void setInventoryDisplay(key, event.target.checked)} /></label>)}</div></div></details>
 
       <details><summary><span className="summary-icon"><Icon name="search" /></span><span><strong>Search language</strong><small>Aliases, nicknames, and household terms</small></span><Icon name="chevron" /></summary><div className="manage-panel"><SearchAliasManager items={items} locations={locations} /></div></details>
 

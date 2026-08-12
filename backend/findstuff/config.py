@@ -91,7 +91,7 @@ def get_settings() -> Settings:
         auto_backup_enabled=os.environ.get("FINDSTUFF_AUTO_BACKUP_ENABLED", "true").lower()
         not in {"0", "false", "no", "off"},
         backup_dir=backup_dir,
-        backup_keep=max(1, _env_int("FINDSTUFF_BACKUP_KEEP", 14)),
+        backup_keep=min(5, max(1, _env_int("FINDSTUFF_BACKUP_KEEP", 5))),
         backup_check_interval_seconds=max(
             60, _env_int("FINDSTUFF_BACKUP_CHECK_INTERVAL_SECONDS", 3600)
         ),

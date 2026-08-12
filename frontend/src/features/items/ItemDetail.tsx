@@ -23,7 +23,7 @@ import { HierarchyPicker, categoryPickerNodes, locationPickerNodes } from "../..
 import { Icon } from "../../components/Icon";
 import { activityLabel, capabilitiesForCategory, categoryLabel, categoryOptionLabel, expirationState, parseLinkText } from "../../domain/inventory";
 import { resizePhoto } from "../../domain/photos";
-import { findLocationChain, LocationCrumbs } from "../places/PlacesView";
+import { CategoryCrumbs, findLocationChain, LocationCrumbs } from "../places/PlacesView";
 
 type RefreshScope = "all" | "inventory" | "none";
 type ActionOptions = { progress?: string; undo?: () => Promise<void> };
@@ -116,7 +116,7 @@ export function ProductDataExplorer({ payload, onClose }: {
   return <div className="modal-backdrop product-data-backdrop" role="dialog" aria-modal="true" aria-label="All Open Food Facts product data" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><article className="product-data-sheet"><header><button type="button" className="icon-button" onClick={onClose} aria-label="Close"><Icon name="close" /></button><div><p className="eyebrow">{payload.source}</p><h2>All product data</h2><span>{entries.length} top-level fields</span></div>{payload.source_url && <a href={payload.source_url} target="_blank" rel="noreferrer">Open source</a>}</header><label className="search"><Icon name="search" size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ingredients, allergens, nutrition, packaging…" /></label><div className="off-field-list">{visible.map(([key, value]) => <details key={key} open={preferred.includes(key)}><summary><strong>{offFieldLabel(key)}</strong><code>{key}</code></summary><div><OffDataValue value={value} /></div></details>)}</div></article></div>;
 }
 
-export function ItemDetail({ item, allItems, locations, categories, units, busy, embedded = false, onClose, onChanged, onQuickAdjust, onQuickMove, onAddShopping, onMarkLost, onMarkFound, onForeverLost, onDeleteItem, onOpenLocation, onOpenTag, run }: {
+export function ItemDetail({ item, allItems, locations, categories, units, busy, embedded = false, onClose, onChanged, onQuickAdjust, onQuickMove, onAddShopping, onMarkLost, onMarkFound, onForeverLost, onDeleteItem, onOpenLocation, onOpenCategory, onOpenTag, run }: {
   item: Item;
   allItems: Item[];
   locations: LocationNode[];
@@ -134,6 +134,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   onForeverLost: (item: Item) => Promise<void>;
   onDeleteItem: (item: Item) => Promise<void>;
   onOpenLocation: (publicId: string) => void;
+  onOpenCategory: (categoryId: number) => void;
   onOpenTag: (tag: string) => void;
   run: (action: () => Promise<unknown>, success: string, scope?: RefreshScope, options?: ActionOptions) => Promise<void>;
 }) {
@@ -149,6 +150,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   const [serial, setSerial] = useState(item.serial_number);
   const [expiration, setExpiration] = useState(item.expiration_date || "");
   const [threshold, setThreshold] = useState(item.low_stock_threshold || "");
+  const [fullness, setFullness] = useState(item.fullness_percent ?? 100);
   const [unit, setUnit] = useState(item.unit);
   const [category, setCategory] = useState(item.category_id ? String(item.category_id) : "");
   const [tags, setTags] = useState(item.tags.join(", "));
@@ -304,6 +306,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
       serial_number: editCapabilities.identity ? serial : "",
       expiration_date: editCapabilities.expiration ? expiration || null : null,
       low_stock_threshold: threshold || null,
+      fullness_percent: editCapabilities.fullness ? fullness : null,
       category_id: category ? Number(category) : null,
       purchase_price_minor: editCapabilities.price && purchasePrice ? Math.round(Number(purchasePrice) * 100) : null,
       purchase_currency: editCapabilities.price && purchasePrice ? "EUR" : null,
@@ -324,6 +327,12 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     const resized = await resizePhoto(file);
     await api.uploadPhoto(item, resized.blob, resized.width, resized.height);
     await loadExtras();
+  }
+
+  async function saveFullness(value: number) {
+    const updated = await api.updateItem(item, { fullness_percent: value });
+    setFullness(updated.fullness_percent ?? value);
+    await onChanged(updated);
   }
 
   async function addLot(event: FormEvent) {
@@ -451,7 +460,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     <div className={embedded ? "embedded-item-detail item-detail-backdrop" : "modal-backdrop item-detail-backdrop"} role="dialog" aria-modal={desktopEmbedded ? undefined : "true"} aria-label={item.name} onMouseDown={(event) => { if (!desktopEmbedded && event.target === event.currentTarget) onClose(); }}>
       <article className="detail-sheet">
         <div className="sheet-handle" aria-hidden="true" />
-        <header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div><small>{categoryLabel(item) || "Uncategorised"}</small><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /></div><button className="text-button" onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button></header>
+        <header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div>{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}<h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /></div><button className="text-button" onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button></header>
         {(detailCapabilities.photos || photos.length > 0) && <section className="detail-photo-hero" aria-label="Item photos">
           <div className="detail-photo-rail" ref={photoRail}>
             {photos.map((photo, index) => <figure key={photo.public_id}><img src={photo.url} alt={`${item.name} photo ${index + 1}`} /><button aria-label={`Delete photo ${index + 1}`} onClick={() => run(() => api.deletePhoto(photo).then(loadExtras), "Photo removed")}><Icon name="close" size={15} /></button></figure>)}
@@ -466,6 +475,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             {(editCapabilities.identity || editCapabilities.specs) && <div className="form-row">{editCapabilities.identity && <label>Brand<input value={brand} onChange={(event) => setBrand(event.target.value)} /></label>}{editCapabilities.specs && <label>Model<input value={model} onChange={(event) => setModel(event.target.value)} /></label>}</div>}
             {editCapabilities.identity && <label>Serial number<input value={serial} onChange={(event) => setSerial(event.target.value)} /></label>}
             <div className="form-row">{editCapabilities.expiration && <label>Expiration<input type="date" value={expiration} onChange={(event) => setExpiration(event.target.value)} /></label>}<label>Low stock at<input inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label></div>
+            {editCapabilities.fullness && <label className="fullness-editor"><span>Fullness <strong>{fullness}%</strong></span><input type="range" min="0" max="100" step="5" value={fullness} onChange={(event) => setFullness(Number(event.target.value))} /></label>}
             <label>Unit<select value={unit} onChange={(event) => setUnit(event.target.value)}>{units.includes(unit) ? null : <option value={unit}>{unit}</option>}{units.map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select></label>
             <div className="picker-field"><span>Category</span><button type="button" onClick={() => setPicker("editCategory")}><Icon name="tag" size={16} /><strong>{editingCategory ? categoryOptionLabel(editingCategory) : "No category"}</strong></button>{category && <button type="button" className="text-button" onClick={() => setCategory("")}>Clear category</button>}</div>
             <label>Tags<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="electronics, project, spare" /></label>
@@ -478,6 +488,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
           <>
             <nav className="detail-tabs" role="tablist" aria-label="Item sections">{(["overview", "details", "activity", "more"] as const).map((tab) => <button type="button" role="tab" aria-selected={detailTab === tab} className={detailTab === tab ? "active" : ""} key={tab} onClick={() => setDetailTab(tab)}>{tab[0].toUpperCase() + tab.slice(1)}{tab === "activity" && history.length > 0 ? <span>{history.length}</span> : null}</button>)}</nav>
             <div className="detail-tab-panel" hidden={detailTab !== "overview"}>
+            {detailCapabilities.fullness && <section className="fullness-card"><div><span><Icon name="box" size={16} />Fullness</span><strong>{fullness}%</strong></div><input aria-label="Item fullness" type="range" min="0" max="100" step="5" value={fullness} style={{ "--fullness": `${fullness}%` } as React.CSSProperties} onChange={(event) => setFullness(Number(event.target.value))} onPointerUp={(event) => void saveFullness(Number(event.currentTarget.value))} onKeyUp={(event) => void saveFullness(Number(event.currentTarget.value))} /><small>Slide while using or refilling this Item.</small></section>}
             {(item.expiration_date || item.barcode) && <div className="detail-facts compact-facts">{item.expiration_date && <div><span>Next expiry</span><strong>{item.expiration_date}</strong>{expirationState(item) && <small className="fact-warning">{expirationState(item) === "expired" ? "Expired" : "Use within 7 days"}</small>}</div>}{item.barcode && <div className="barcode-fact"><span>Barcode</span><BarcodeGraphic value={item.barcode} /></div>}</div>}
             {item.tags.length > 0 && <section className="detail-section tag-section"><div className="section-heading"><div><h2>Tags</h2></div></div><div className="tag-list">{item.tags.map((tag) => <button type="button" key={tag} onClick={() => onOpenTag(tag)}><Icon name="tag" size={13} /><span>{tag}</span></button>)}</div></section>}
             {(item.description || item.notes || item.model) && <div className="prose">{item.model && <p className="product-identity">{item.model}</p>}{item.description && <p>{item.description}</p>}{item.notes && <p><strong>Notes</strong><br />{item.notes}</p>}</div>}

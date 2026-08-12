@@ -73,6 +73,27 @@ def test_item_update_rejects_unknown_sql_columns(database: sqlite3.Connection) -
     assert dict(stored) == {"name": "Safe item", "notes": ""}
 
 
+def test_item_fullness_round_trips_through_create_update_and_export(
+    database: sqlite3.Connection,
+) -> None:
+    item = create_item(
+        database, {"name": "Water tank", "quantity": Decimal("1"), "fullness_percent": 75}
+    )
+    assert item["fullness_percent"] == 75
+
+    updated = update_item(
+        database,
+        item["public_id"],
+        {"fullness_percent": 35, "expected_version": item["version"]},
+    )
+    assert updated["fullness_percent"] == 35
+    exported = export_inventory(database)
+    exported_item = next(
+        row for row in exported["tables"]["items"] if row["public_id"] == item["public_id"]
+    )
+    assert exported_item["fullness_percent"] == 35
+
+
 def test_archived_only_lists_archived_items_including_zero_quantity(
     database: sqlite3.Connection,
 ) -> None:
@@ -273,10 +294,12 @@ def test_category_data_capabilities_defaults_and_overrides(
     tools = next(category for category in categories if category["slug"] == "tools")
 
     assert groceries["capabilities"]["expiration"] is True
+    assert groceries["capabilities"]["fullness"] is True
     assert groceries["capabilities"]["maintenance"] is False
     assert groceries["capabilities"]["reservation"] is False
     assert tools["capabilities"]["maintenance"] is True
     assert tools["capabilities"]["reservation"] is True
+    assert tools["capabilities"]["fullness"] is False
 
     saved = save_category_data_settings(
         database,

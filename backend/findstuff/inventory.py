@@ -516,6 +516,7 @@ def serialize_item(
         "brand": row["brand"],
         "expiration_date": row["expiration_date"],
         "low_stock_threshold": from_milli(row["low_stock_milli"]),
+        "fullness_percent": row["fullness_percent"],
         "barcode": row["barcode"],
         "links": links,
         "tags": tags,
@@ -956,6 +957,7 @@ def create_item(
         "model",
         "brand",
         "expiration_date",
+        "fullness_percent",
         "links_json",
     ]
     defaults: dict[str, Any] = {
@@ -1195,6 +1197,7 @@ def update_item(
         "estimated_price_currency",
         "estimated_price_minor",
         "expiration_date",
+        "fullness_percent",
         "height_mm",
         "length_mm",
         "links",
@@ -1625,6 +1628,7 @@ def _unique_category_slug(connection: sqlite3.Connection, base: str) -> str:
 
 
 CATEGORY_DATA_FIELDS = (
+    "fullness",
     "expiration",
     "batches",
     "maintenance",
@@ -1659,6 +1663,7 @@ def _category_capability_defaults(category: dict[str, Any]) -> dict[str, bool]:
         term in searchable for term in ("tool", "electronics", "machine", "appliance", "printer")
     )
     return {
+        "fullness": food_like,
         "expiration": food_like,
         "batches": food_like,
         "maintenance": durable_like and not food_like,

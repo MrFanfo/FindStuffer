@@ -123,6 +123,15 @@ class CategoryDataSettingsUpdate(StrictModel):
     overrides: dict[str, dict[str, bool]] = Field(default_factory=dict)
 
 
+class InventoryDisplaySettingsUpdate(StrictModel):
+    show_photo: bool = True
+    show_location: bool = True
+    show_category: bool = True
+    show_quantity: bool = True
+    show_brand: bool = False
+    show_model: bool = False
+
+
 class ProjectCreate(StrictModel):
     name: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=4000)
@@ -269,6 +278,7 @@ class ItemBase(StrictModel):
     brand: str = Field(default="", max_length=240)
     expiration_date: date | None = None
     low_stock_threshold: Decimal | None = Field(default=None, ge=0, decimal_places=3)
+    fullness_percent: int | None = Field(default=None, ge=0, le=100)
     barcode: str = Field(default="", max_length=80)
     links: list[ItemLink] = Field(default_factory=list, max_length=20)
 
@@ -308,6 +318,7 @@ class ItemPatch(StrictModel):
     brand: str | None = Field(default=None, max_length=240)
     expiration_date: date | None = None
     low_stock_threshold: Decimal | None = Field(default=None, ge=0, decimal_places=3)
+    fullness_percent: int | None = Field(default=None, ge=0, le=100)
     barcode: str | None = Field(default=None, max_length=80)
     links: list[ItemLink] | None = Field(default=None, max_length=20)
     expected_version: int = Field(ge=1)

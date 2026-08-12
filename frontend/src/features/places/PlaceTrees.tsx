@@ -14,6 +14,7 @@ import { categoryOptionLabel } from "../../domain/inventory";
 
 type CategoryNode = Category & { children: CategoryNode[] };
 const CATEGORY_DATA_FIELD_LABELS: Record<keyof Omit<CategoryCapabilities, "override" | "inherited_from" | "inherited_label">, string> = {
+  fullness: "Fullness slider",
   expiration: "Expiration", batches: "Batches", maintenance: "Maintenance",
   reservation: "Reservations", enrichment: "Enrichment", photos: "Photos",
   identity: "Identity", specs: "Specs", price: "Prices", links: "Links",

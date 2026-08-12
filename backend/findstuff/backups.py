@@ -15,6 +15,7 @@ from .config import get_settings
 from .db import connect, migrate
 
 TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
+MAX_BACKUPS = 5
 MAX_RESTORE_FILES = 25_000
 MAX_RESTORE_UNCOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024
 MAX_RESTORE_COMPRESSION_RATIO = 250
@@ -42,6 +43,27 @@ def _manifest(includes: list[str]) -> dict[str, object]:
         "format_version": 1,
         "includes": includes,
     }
+
+
+def _completed_backup_paths(output: Path) -> list[Path]:
+    if not output.exists():
+        return []
+    completed: list[Path] = []
+    for path in output.iterdir():
+        if not path.is_dir() or path.name.startswith("."):
+            continue
+        try:
+            datetime.strptime(path.name, TIMESTAMP_FORMAT)
+        except ValueError:
+            continue
+        completed.append(path)
+    return sorted(completed, reverse=True)
+
+
+def _prune_backups(output: Path, keep: int) -> None:
+    retention = min(MAX_BACKUPS, max(keep, 1))
+    for expired in _completed_backup_paths(output)[retention:]:
+        shutil.rmtree(expired)
 
 
 def backup(output: Path, keep: int) -> Path:
@@ -75,12 +97,7 @@ def backup(output: Path, keep: int) -> Path:
     )
     os.replace(temporary, final)
 
-    completed = sorted(
-        (path for path in output.iterdir() if path.is_dir() and not path.name.startswith(".")),
-        reverse=True,
-    )
-    for expired in completed[max(keep, 1) :]:
-        shutil.rmtree(expired)
+    _prune_backups(output, keep)
     return final
 
 
@@ -121,6 +138,39 @@ def backup_status(output: Path | None = None) -> dict[str, Any]:
     }
 
 
+def list_backups(output: Path | None = None) -> list[dict[str, Any]]:
+    backup_output = output or get_settings().backup_dir
+    entries: list[dict[str, Any]] = []
+    for path in _completed_backup_paths(backup_output):
+        created = datetime.strptime(path.name, TIMESTAMP_FORMAT).replace(tzinfo=UTC)
+        size_bytes = sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+        entries.append(
+            {
+                "id": path.name,
+                "created_at": created.isoformat(),
+                "size_bytes": size_bytes,
+            }
+        )
+    return entries
+
+
+def stored_backup_archive(backup_id: str, output_dir: Path) -> Path:
+    try:
+        datetime.strptime(backup_id, TIMESTAMP_FORMAT)
+    except ValueError as exc:
+        raise ValueError("Backup not found") from exc
+    source = get_settings().backup_dir / backup_id
+    if not source.is_dir() or source.name.startswith("."):
+        raise ValueError("Backup not found")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = output_dir / f"findstuff-backup-{backup_id}.zip"
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(source.rglob("*")):
+            if path.is_file():
+                archive.write(path, path.relative_to(source))
+    return archive_path
+
+
 def backup_if_due(
     output: Path | None = None,
     *,
@@ -130,6 +180,8 @@ def backup_if_due(
     settings = get_settings()
     backup_output = output or settings.backup_dir
     retention = keep if keep is not None else settings.backup_keep
+    backup_output.mkdir(parents=True, exist_ok=True)
+    _prune_backups(backup_output, retention)
     today = (now or datetime.now(UTC)).astimezone(UTC).date()
     if today in _backup_dates(backup_output):
         return None

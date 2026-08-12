@@ -274,7 +274,7 @@ export function LocationCrumbs({ chain, fallback, onOpen, compact = false }: {
   );
 }
 
-function CategoryCrumbs({ category, categories, onOpen }: {
+export function CategoryCrumbs({ category, categories, onOpen }: {
   category: Category;
   categories: Category[];
   onOpen: (categoryId: number) => void;
