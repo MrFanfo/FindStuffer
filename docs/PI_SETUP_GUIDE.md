@@ -55,7 +55,7 @@ without a prompt. The installer:
 - creates the persistent `./data` directory;
 - pulls the image matching the board architecture;
 - enables the host-side systemd watcher used by the app’s Update button;
-- starts Findstuff on `127.0.0.1:8000`; and
+- starts Findstuff on localhost and the board's LAN address at port `8000`; and
 - waits for a successful health check.
 
 Save the printed password in a password manager. You can change it later under
@@ -80,8 +80,10 @@ Serve is the easiest private option:
    browser and installed PWA retain a signed session for up to 90 days, so
    ordinary launches and refreshes do not ask for the password again.
 
-Keep `FINDSTUFF_BIND_ADDRESS=127.0.0.1`. Tailscale Serve is private to the
-tailnet; Tailscale Funnel is public and is not recommended here.
+Keep the default `FINDSTUFF_BIND_ADDRESS=0.0.0.0` to support localhost, trusted
+LAN access, and the loopback Tailscale Serve target together. Tailscale Serve
+is private to the tailnet; Tailscale Funnel is public and is not recommended
+here. Do not port-forward port `8000` on the router.
 
 ## Verify and operate
 

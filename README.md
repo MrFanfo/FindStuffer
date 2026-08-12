@@ -64,7 +64,7 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 Findstuff contains private inventory data and administrative actions. The
 official Docker setup:
 
-- binds only to `127.0.0.1`;
+- listens on the host's loopback and LAN interfaces;
 - provides an in-app sign-in session and HTTP Basic authentication for API
   clients;
 - generates a random administrator password;
@@ -72,9 +72,13 @@ official Docker setup:
 - installs a narrow host-side watcher for authenticated in-app updates; and
 - recommends private HTTPS through Tailscale Serve.
 
-Do not publish port 8000 directly to the internet. Basic credentials must not
-be sent over untrusted plain HTTP. Tailscale Serve, a VPN, or a correctly
-configured HTTPS reverse proxy should be the external boundary.
+The default `0.0.0.0` bind makes `localhost:8000` and the machine's LAN
+`<ip-address>:8000` available without extra configuration. It does not by
+itself expose the app through a home router, but it can expose the app to other
+networks attached to the host. Keep authentication enabled. Do not port-forward
+port 8000 or open it in a public cloud firewall: Basic credentials must not be
+sent over untrusted plain HTTP. Tailscale Serve, a VPN, or a correctly
+configured HTTPS reverse proxy should be the remote-access boundary.
 
 The health endpoint and the static sign-in page are intentionally
 unauthenticated. All other `/api/v1/` endpoints require an administrator
@@ -120,8 +124,9 @@ and updates use `./update-docker.sh`.
 The first image may not be available until the repository's Container workflow
 has completed and the GHCR package has been made public.
 
-Open `http://127.0.0.1:8000` on the server for an initial check. For phone use,
-configure HTTPS next.
+Open `http://localhost:8000` on the server, or
+`http://<machine-lan-ip>:8000` from the same trusted LAN. For camera,
+microphone, PWA installation, or remote access, configure HTTPS next.
 
 ### Manual Compose setup
 
@@ -175,10 +180,11 @@ context. Tailscale Serve is the simplest private HTTPS option.
    sudo tailscale up
    ```
 
-3. Keep Findstuff bound to loopback in `.env`:
+3. Keep the default listener in `.env`, which supports localhost, LAN access,
+   and the loopback target used by Tailscale Serve:
 
    ```env
-   FINDSTUFF_BIND_ADDRESS=127.0.0.1
+   FINDSTUFF_BIND_ADDRESS=0.0.0.0
    FINDSTUFF_PORT=8000
    ```
 
@@ -253,6 +259,12 @@ credentials.
 Most users only edit `.env` for the image version, listening address/port,
 container UID/GID, HTTPS cookies, backup schedule, or updater switch. Configure
 the administrator password, AI, and MQTT in the app where possible.
+
+Keep `FINDSTUFF_SECURE_COOKIES=false` when the same installation must support
+both LAN HTTP and Tailscale HTTPS. Findstuff leaves the session cookie usable
+over trusted-LAN HTTP and automatically marks it `Secure` when the request
+arrives through HTTPS. Set the option to `true` only for an HTTPS-only
+deployment; browsers will then reject the login session over plain HTTP.
 
 ### Administrator authentication
 
@@ -599,7 +611,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.7.5`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.7.6`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

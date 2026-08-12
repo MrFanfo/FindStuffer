@@ -49,12 +49,14 @@ socket, the Git checkout, the host root filesystem, or host credentials.
 
 ## HTTPS and network exposure
 
-The safe default is:
+The default supports localhost and trusted-LAN access without per-machine
+configuration:
 
 ```env
-FINDSTUFF_BIND_ADDRESS=127.0.0.1
+FINDSTUFF_BIND_ADDRESS=0.0.0.0
 FINDSTUFF_PORT=8000
 FINDSTUFF_REQUIRE_AUTH=true
+FINDSTUFF_SECURE_COOKIES=false
 ```
 
 Use Tailscale Serve for private HTTPS:
@@ -63,8 +65,17 @@ Use Tailscale Serve for private HTTPS:
 tailscale serve --bg http://127.0.0.1:8000
 ```
 
-Alternatively, configure a trusted HTTPS reverse proxy or VPN. Do not directly
-port-forward the application’s plain HTTP port to the public internet.
+`0.0.0.0` listens on every host network interface; it does not bypass a router
+or firewall. Keep authentication enabled, use LAN HTTP only on a trusted
+network, and do not port-forward the application's plain HTTP port or open it
+in a public cloud firewall. Alternatively, configure a trusted HTTPS reverse
+proxy or VPN. Set `FINDSTUFF_BIND_ADDRESS=127.0.0.1` for an intentionally
+loopback-only deployment.
+
+Leave `FINDSTUFF_SECURE_COOKIES=false` when supporting both LAN HTTP and HTTPS.
+Findstuff automatically marks session cookies as secure for HTTPS requests;
+forcing this setting to `true` makes browsers withhold the session cookie from
+plain HTTP and therefore prevents LAN HTTP sign-in.
 
 ## In-app update mechanism
 

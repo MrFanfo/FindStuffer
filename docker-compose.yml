@@ -5,7 +5,7 @@ services:
     image: ${FINDSTUFF_IMAGE:-ghcr.io/mrfanfo/findstuffer:latest}
     pull_policy: always
     ports:
-      - "${FINDSTUFF_BIND_ADDRESS:-127.0.0.1}:${FINDSTUFF_PORT:-8000}:8000"
+      - "${FINDSTUFF_BIND_ADDRESS:-0.0.0.0}:${FINDSTUFF_PORT:-8000}:8000"
     environment:
       FINDSTUFF_DATA_DIR: /app/data
       FINDSTUFF_DATABASE_PATH: /app/data/findstuff.sqlite3
