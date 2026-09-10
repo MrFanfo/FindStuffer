@@ -102,7 +102,7 @@ def test_api_inventory_flow(tmp_path: Path, monkeypatch) -> None:
                     params={"color": "#B52A60"},
                 )
                 assert location_qr.status_code == 200
-                assert b'#b52a60' in location_qr.content
+                assert b"#b52a60" in location_qr.content
                 invalid_qr_color = await client.get(
                     f"/api/v1/qr/locations/{location['public_id']}.svg",
                     params={"color": "not-a-color"},
@@ -171,6 +171,7 @@ def test_api_inventory_flow(tmp_path: Path, monkeypatch) -> None:
                 assert dashboard["location_count"] == 2
 
     asyncio.run(scenario())
+
 
 def test_required_basic_auth(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(tmp_path))
@@ -276,9 +277,7 @@ def test_required_basic_auth(tmp_path: Path, monkeypatch) -> None:
                     )
                 ).status_code == 200
 
-                settings = await client.get(
-                    "/api/v1/settings", auth=("owner", "new-password-123")
-                )
+                settings = await client.get("/api/v1/settings", auth=("owner", "new-password-123"))
                 assert settings.status_code == 200
                 assert "new-password-123" not in settings.text
                 exported = await client.get(
@@ -307,9 +306,7 @@ def test_request_body_limit_rejects_large_json(tmp_path: Path, monkeypatch) -> N
 
     async def scenario() -> None:
         transport = httpx.ASGITransport(app=app_module.app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             response = await client.post(
                 "/api/v1/import/preview",
                 content=b"x" * (app_module.MAX_REQUEST_BODY_BYTES + 1),
@@ -317,5 +314,67 @@ def test_request_body_limit_rejects_large_json(tmp_path: Path, monkeypatch) -> N
             )
             assert response.status_code == 413
             assert "12 MB" in response.json()["detail"]
+
+    asyncio.run(scenario())
+
+
+def test_import_contract_and_structured_project_http(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FINDSTUFF_DATABASE_PATH", str(tmp_path / "contract.sqlite3"))
+    monkeypatch.setenv("FINDSTUFF_REQUIRE_AUTH", "false")
+    monkeypatch.setenv("FINDSTUFF_AUTO_BACKUP_ENABLED", "false")
+    import findstuff.app as app_module
+
+    app_module = importlib.reload(app_module)
+
+    async def scenario() -> None:
+        transport = httpx.ASGITransport(app=app_module.app)
+        async with app_module.app.router.lifespan_context(app_module.app):
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                for endpoint in ("import-preview", "import"):
+                    response = await client.post(
+                        f"/api/v1/admin/{endpoint}",
+                        content='{"format":"findstuff-ops-v1","operations":[],"operations":[]}',
+                        headers={"content-type": "application/json"},
+                    )
+                    assert response.status_code == 400
+                    assert "duplicate" in response.text.lower()
+                template = (await client.get("/api/v1/admin/operations-template")).json()
+                assert template["schema_version"] == 2
+                assert template["operations"] == []
+                for entity in (
+                    "category_field",
+                    "compatibility_target",
+                    "project",
+                    "project_requirement",
+                ):
+                    fields = template["_field_definitions"][entity]
+                    assert all(
+                        "description" in field and "null_semantics" in field
+                        for field in fields.values()
+                    )
+                created = await client.post(
+                    "/api/v1/projects",
+                    json={
+                        "name": "HTTP project",
+                        "status": "planned",
+                        "notes": "Keep notes",
+                    },
+                )
+                assert created.status_code == 201, created.text
+                project = created.json()
+                changed = await client.patch(
+                    f"/api/v1/projects/{project['public_id']}", json={"name": "Renamed"}
+                )
+                assert changed.status_code == 200, changed.text
+                assert changed.json()["notes"] == "Keep notes"
+                assert changed.json()["status"] == "planned"
+                assert (
+                    await client.delete(f"/api/v1/projects/{project['public_id']}")
+                ).status_code == 204
+                archived = (await client.get(f"/api/v1/projects/{project['public_id']}")).json()
+                assert archived["status"] == "archived"
 
     asyncio.run(scenario())

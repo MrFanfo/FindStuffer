@@ -1,8 +1,10 @@
 import { defineConfig } from "vite";
+// @ts-expect-error Build-only JavaScript plugin
+import { offlineShell } from "./sw-build.mjs";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), offlineShell()],
   server: {
     port: 5173,
     proxy: {

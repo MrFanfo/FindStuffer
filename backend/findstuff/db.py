@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from collections.abc import AsyncGenerator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -64,6 +65,17 @@ def migrate(database_path: Path | None = None) -> None:
 
 @contextmanager
 def transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    if connection.in_transaction:
+        savepoint = f"nested_{uuid.uuid4().hex}"
+        connection.execute(f"SAVEPOINT {savepoint}")
+        try:
+            yield connection
+        except Exception:
+            connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            raise
+        finally:
+            connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+        return
     connection.execute("BEGIN IMMEDIATE")
     try:
         yield connection

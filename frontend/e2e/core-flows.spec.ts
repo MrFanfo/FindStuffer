@@ -78,6 +78,18 @@ async function mockApi(page: Page) {
         },
       });
     }
+    if (url.pathname === "/api/v1/compatibility-targets") return route.fulfill({ json: [] });
+    if (url.pathname.endsWith("/extensions")) return route.fulfill({ json: { custom_fields: {}, field_definitions: [], compatibility: [] } });
+    if (url.pathname === "/api/v1/preferences") return route.fulfill({ json: { pinned_places: [], favorite_categories: [], show_shopping: true } });
+    if (url.pathname === "/api/v1/attention") return route.fulfill({ json: { ai_pending: 0, reminders: [] } });
+    if (url.pathname === "/api/v1/items/query") {
+      const query = url.searchParams.get("q") || "";
+      const more = !query && !url.searchParams.get("cursor");
+      const missing = query.includes("missing");
+      return route.fulfill({ json: { query, normalized_query: query, count: missing ? 0 : query ? 1 : 2,
+        total: missing ? 0 : query ? 1 : 2, items: missing ? [] : url.searchParams.get("cursor") ? [{ ...item, public_id: "itm_second", name: "Flathead driver" }] : [item],
+        next_cursor: more ? "next-page" : null, has_more: more, matched_by: [], fuzzy: false, can_add: missing, can_mark_lost: missing } });
+    }
     if (url.pathname === "/api/v1/items/page") {
       return route.fulfill({
         json: {
@@ -190,7 +202,7 @@ test("human search and no-result actions", async ({ page }) => {
   await search.fill("screwdrivers");
   await Promise.all([
     page.waitForResponse((response) => (
-      new URL(response.url()).pathname === "/api/v1/search"
+      new URL(response.url()).pathname === "/api/v1/items/query"
     )),
     page.getByRole("button", { name: "Find", exact: true }).click(),
   ]);
@@ -201,7 +213,7 @@ test("human search and no-result actions", async ({ page }) => {
   await search.fill("missing widget");
   await Promise.all([
     page.waitForResponse((response) => (
-      new URL(response.url()).pathname === "/api/v1/search"
+      new URL(response.url()).pathname === "/api/v1/items/query"
       && new URL(response.url()).searchParams.get("q") === "missing widget"
     )),
     page.getByRole("button", { name: "Find", exact: true }).click(),
@@ -213,7 +225,7 @@ test("human search and no-result actions", async ({ page }) => {
 test("cursor pagination and document ownership", async ({ page }) => {
   await Promise.all([
     page.waitForResponse((response) => (
-      new URL(response.url()).pathname === "/api/v1/items/page"
+      new URL(response.url()).pathname === "/api/v1/items/query"
     )),
     page.getByRole("button", { name: /Load more from Findstuff/ }).click(),
   ]);

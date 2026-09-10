@@ -1,3 +1,4 @@
+import { CategoryValueInputs } from "../../components/CategoryValueInputs";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
@@ -37,6 +38,7 @@ type ScannedEntry = {
   unit: string;
   location_public_id: string;
   category_id: string;
+  custom_fields: Record<string, unknown>;
   expiration_date: string;
   image_url: string | null;
   save_image: boolean;
@@ -170,6 +172,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
       unit: defaults.unit,
       location_public_id: defaults.location_public_id,
       category_id: defaults.category_id,
+      custom_fields: {},
       expiration_date: "",
       image_url: null,
       save_image: false,
@@ -234,7 +237,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
           setScannedEntries((entries) => entries.filter((entry) => entry.code !== normalized));
           setMessage(`${result.existing_item.name}: consumed 1 ${result.existing_item.unit}.`);
         } else {
-          updateScannedEntry(normalized, (entry) => ({ ...entry, status: "error", result, error: result.existing_item ? "Quantity is already zero." : "This product is not in your inventory." }));
+          updateScannedEntry(normalized, (entry) => ({ ...entry, status: "error", result, error: (result.existing_items?.length || 0) > 1 ? "Stock exists in multiple places. Choose the record below to consume from." : result.existing_item ? "Quantity is already zero." : "This product is not in your inventory." }));
         }
         return;
       }
@@ -265,7 +268,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
           photo_preview: entry.photo_preview,
         };
       });
-      setMessage(result.existing_item ? "Already saved. Adjust the quantity below." : result.found ? "Product recognized. Keep scanning or review below." : "Code added. Add details in the review list.");
+      setMessage(result.existing_item ? "Stock found. Adjust an existing record or save stock in another place." : result.found ? "Product recognized. Keep scanning or review below." : "Code added. Add details in the review list.");
     } catch (error) {
       if (isOfflineFailure(error) && mode !== "consume") {
         updateScannedEntry(normalized, (entry) => ({ ...entry, status: "ready", error: "" }));
@@ -329,13 +332,15 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
     const chosen = categories.find((entry) => String(entry.id) === categoryId);
     changeScannedEntry(entryId, {
       category_id: categoryId,
+      custom_fields: {},
       ...(mode !== "putaway" && chosen?.default_location ? { location_public_id: chosen.default_location.public_id } : {}),
     });
   }
 
   async function saveScannedEntry(entry: ScannedEntry, inbox = false, addAnother = false) {
-    if (entry.result?.existing_item) {
-      changeScannedEntry(entry.id, { status: "error", error: "This barcode is already saved. Adjust its quantity instead." });
+    const sameStock = (entry.result?.existing_items || (entry.result?.existing_item ? [entry.result.existing_item] : [])).find((item) => item.name.trim().toLocaleLowerCase() === entry.name.trim().toLocaleLowerCase() && item.category_id === (entry.category_id ? Number(entry.category_id) : null) && item.location_public_id === (inbox ? "unassigned" : entry.location_public_id || "unassigned") && !item.serial_number);
+    if (sameStock) {
+      changeScannedEntry(entry.id, { status: "error", error: "This item is already saved in this category and place. Adjust that record’s quantity below, or choose another place." });
       return false;
     }
     if (!entry.name.trim() && !inbox) {
@@ -360,6 +365,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
         unit: entry.unit.trim() || "pcs",
         location_public_id: inbox ? "unassigned" : entry.location_public_id || "unassigned",
         category_id: inbox ? null : entry.category_id ? Number(entry.category_id) : null,
+        custom_fields: inbox ? {} : entry.custom_fields,
         low_stock_threshold: entry.low_stock_threshold || null,
         expiration_date: entryCapabilities.expiration ? entry.expiration_date || null : null,
         tags: inbox ? ["inbox"] : [],
@@ -417,7 +423,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
   }
 
   async function saveAllScanned() {
-    const entries = scannedRef.current.filter((entry) => !entry.result?.existing_item);
+    const entries = scannedRef.current;
     if (entries.length === 0) {
       setMessage("All scanned barcodes are already saved. Use the quantity controls below.");
       return;
@@ -449,7 +455,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
   }
 
   return (
-    <section className="scan-page">
+    <section className="scan-page"><h1 className="sr-only">Capture</h1>
       <div className="capture-modes" role="tablist" aria-label="Capture mode">{([
         ["scan", "Scan", "scan"],
         ["quick", "Quick add", "plus"],
@@ -482,7 +488,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
             const entryCapabilities = capabilitiesForCategory(categories, entry.category_id);
             const entryCategory = categories.find((categoryEntry) => String(categoryEntry.id) === entry.category_id);
             const entryLocation = flatLocations.find((locationEntry) => locationEntry.public_id === entry.location_public_id);
-            const existingItem = entry.result?.existing_item || null;
+            const existingItems = entry.result?.existing_items || (entry.result?.existing_item ? [entry.result.existing_item] : []);
             const normalizedName = entry.name.trim().toLocaleLowerCase();
             const duplicateMatches = items.filter((item) => (
               entry.code && item.barcode === entry.code
@@ -497,6 +503,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
               <label>Quantity<input inputMode="decimal" value={entry.quantity} onChange={(event) => changeScannedEntry(entry.id, { quantity: event.target.value })} /></label>
               <label>Unit<select value={entry.unit} onChange={(event) => changeScannedEntry(entry.id, { unit: event.target.value })}>{Array.from(new Set([entry.unit, sessionDefaults.unit, ...units, "pcs", "box", "pack", "bag", "g", "kg", "ml", "l"])).filter(Boolean).map((unit) => <option value={unit} key={unit}>{unit}</option>)}</select></label>
               <div className="picker-field"><span>Category</span><button type="button" onClick={() => setPicker({ id: entry.id, type: "category" })}><Icon name="tag" size={15} /><strong>{entryCategory ? categoryOptionLabel(entryCategory) : "No category"}</strong></button></div>
+              <CategoryValueInputs key={entry.category_id} category={entry.category_id} values={entry.custom_fields} onChange={(custom_fields) => changeScannedEntry(entry.id, { custom_fields })} />
               <div className="picker-field"><span>Put it in</span><button type="button" onClick={() => setPicker({ id: entry.id, type: "location" })}><Icon name="pin" size={15} /><strong>{entryLocation?.path || "Choose location"}</strong></button></div>
               {recentLocations.length > 0 && mode !== "putaway" && <div className="recent-location-row capture-recents"><small>Recent locations</small>{recentLocations.map((location) => <button type="button" key={location.public_id} onClick={() => changeScannedEntry(entry.id, { location_public_id: location.public_id })}>{location.name}</button>)}</div>}
               {entryCapabilities.expiration && <label>Expiration <small>(optional)</small><input type="date" value={entry.expiration_date} onChange={(event) => changeScannedEntry(entry.id, { expiration_date: event.target.value })} /></label>}
@@ -509,12 +516,13 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
               <div className="scan-entry-main">
                 <div className="scan-entry-top"><div><strong>{entry.name || "New item"}</strong><small>{entry.code || "Manual capture"}</small></div><button type="button" aria-label="Remove captured item" onClick={() => removeScannedEntry(entry.id)}><Icon name="close" size={16} /></button></div>
                 <p className={`scan-entry-status ${entry.status === "error" ? "error" : ""}`}>{entry.status === "looking_up" ? "Looking up..." : entry.error || (entry.result?.found ? `${product?.brand || "Product"} recognized` : "Needs details")}</p>
-                {existingItem ? <div className="scan-existing-item"><strong>Already in inventory</strong><span>{existingItem.quantity} {existingItem.unit} · {existingItem.location_path}</span><div><button type="button" className="secondary" disabled={busy || Number(existingItem.quantity) <= 0} onClick={() => void onAdjust(existingItem, -1)}><Icon name="minus" size={15} />1</button><button type="button" className="primary" disabled={busy} onClick={() => void onAdjust(existingItem, 1)}><Icon name="plus" size={15} />1</button><button type="button" onClick={() => void onOpenItem(existingItem.public_id)}>Open item</button></div></div> : reviewFields}
-                {!existingItem && duplicateMatches.length > 0 && <div className="duplicate-suggestions"><strong>Possible duplicate{duplicateMatches.length === 1 ? "" : "s"}</strong>{duplicateMatches.map((item) => <button type="button" key={item.public_id} onClick={() => void onOpenItem(item.public_id)}><span>{item.name}</span><small>{item.quantity} {item.unit} · {item.location_path}</small></button>)}</div>}
+                {existingItems.map((stock) => <div className="scan-existing-item" key={stock.public_id}><strong>{stock.name}</strong><span>{stock.quantity} {stock.unit} · {stock.location_path}</span><div><button type="button" className="secondary" disabled={busy || Number(stock.quantity) < 1} onClick={() => void onAdjust(stock, -1).then(() => removeScannedEntry(entry.id))}><Icon name="minus" size={15} />Consume 1 here</button>{mode !== "consume" && <button type="button" className="primary" disabled={busy} onClick={() => void onAdjust(stock, 1).then(() => removeScannedEntry(entry.id))}><Icon name="plus" size={15} />Add 1 here</button>}<button type="button" onClick={() => void onOpenItem(stock.public_id)}>Open item</button></div></div>)}
+                {mode !== "consume" && reviewFields}
+                {mode !== "consume" && duplicateMatches.length > 0 && <div className="duplicate-suggestions"><strong>Related stock — check category and place</strong>{duplicateMatches.map((item) => <button type="button" key={item.public_id} onClick={() => void onOpenItem(item.public_id)}><span>{item.name}</span><small>{item.quantity} {item.unit} · {item.location_path}</small></button>)}</div>}
                 {product?.package_quantity && <small className="scan-product-note">Package: {product.package_quantity}</small>}
                 {entry.image_url && <label className="scan-image-choice"><input type="checkbox" checked={entry.save_image} onChange={(event) => changeScannedEntry(entry.id, { save_image: event.target.checked })} />Save product image</label>}
-                {!existingItem && <div className="capture-template-save"><input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Template name" aria-label="Template name" /><button type="button" disabled={!templateName.trim()} onClick={() => saveTemplate(entry)}>Save template</button></div>}
-                <div className="scan-entry-actions"><button type="button" className="secondary" onClick={() => removeScannedEntry(entry.id)}>Remove</button>{!existingItem && <><button type="button" className="outline-button" disabled={busy || saving} onClick={() => void saveScannedEntry(entry, true)}>Inbox</button><button type="button" className="secondary" disabled={busy || saving || !entry.name.trim()} onClick={() => void saveScannedEntry(entry, false, true)}>Save + another</button><button type="button" className="primary" disabled={busy || saving || !entry.name.trim()} onClick={() => void saveScannedEntry(entry)}>{saving ? "Saving..." : "Save item"}</button></>}</div>
+                {mode !== "consume" && <div className="capture-template-save"><input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Template name" aria-label="Template name" /><button type="button" disabled={!templateName.trim()} onClick={() => saveTemplate(entry)}>Save template</button></div>}
+                <div className="scan-entry-actions"><button type="button" className="secondary" onClick={() => removeScannedEntry(entry.id)}>Remove</button>{mode !== "consume" && <><button type="button" className="outline-button" disabled={busy || saving} onClick={() => void saveScannedEntry(entry, true)}>Inbox</button><button type="button" className="secondary" disabled={busy || saving || !entry.name.trim()} onClick={() => void saveScannedEntry(entry, false, true)}>Save + another</button><button type="button" className="primary" disabled={busy || saving || !entry.name.trim()} onClick={() => void saveScannedEntry(entry)}>{saving ? "Saving..." : "Save item"}</button></>}</div>
               </div>
             </article>;
           })}

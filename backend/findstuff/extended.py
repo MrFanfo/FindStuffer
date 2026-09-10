@@ -26,7 +26,6 @@ from .inventory import (
     get_item_row,
     get_location_row,
     hard_delete_item,
-    list_items,
     list_location_tree,
     location_path,
     new_public_id,
@@ -39,6 +38,7 @@ from .inventory import (
     update_item,
     update_location,
 )
+from .operations_contract import validate_item_values, validate_revision, validate_shape
 
 
 def generate_low_stock_shopping(connection: sqlite3.Connection) -> int:
@@ -146,22 +146,26 @@ def duplicate_candidates(connection: sqlite3.Connection, public_id: str) -> list
     candidates = connection.execute(
         """
         SELECT public_id FROM items
-        WHERE id != ? AND archived_at IS NULL AND (
+        WHERE id != ? AND archived_at IS NULL AND category_id IS ?
+        AND location_id = ? AND trim(serial_number) = trim(?) COLLATE NOCASE AND (
             lower(trim(name)) = lower(trim(?))
             OR (serial_number != '' AND serial_number = ? COLLATE NOCASE)
             OR (barcode_override != '' AND barcode_override = ?)
         ) LIMIT 20
         """,
-        (item["id"], item["name"], item["serial_number"], item["barcode_override"]),
+        (
+            item["id"],
+            item["category_id"],
+            item["location_id"],
+            item["serial_number"],
+            item["name"],
+            item["serial_number"],
+            item["barcode_override"],
+        ),
     ).fetchall()
-    return [
-        next(
-            value
-            for value in list_items(connection, limit=250)
-            if value["public_id"] == row["public_id"]
-        )
-        for row in candidates
-    ]
+    from .inventory import get_item
+
+    return [get_item(connection, row["public_id"]) for row in candidates]
 
 
 def create_project(
@@ -177,6 +181,8 @@ def create_project(
 
 
 def list_projects(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    from .projects import project_detail
+
     projects = connection.execute(
         "SELECT * FROM projects ORDER BY status = 'active' DESC, updated_at DESC"
     ).fetchall()
@@ -202,6 +208,7 @@ def list_projects(connection: sqlite3.Connection) -> list[dict[str, Any]]:
         ]
         result.append(
             {
+                **project_detail(connection, project["public_id"]),
                 "public_id": project["public_id"],
                 "name": project["name"],
                 "description": project["description"],
@@ -214,7 +221,10 @@ def list_projects(connection: sqlite3.Connection) -> list[dict[str, Any]]:
 
 def delete_project(connection: sqlite3.Connection, public_id: str) -> None:
     with transaction(connection):
-        cursor = connection.execute("DELETE FROM projects WHERE public_id = ?", (public_id,))
+        cursor = connection.execute(
+            "UPDATE projects SET status='archived', updated_at=CURRENT_TIMESTAMP WHERE public_id=?",
+            (public_id,),
+        )
         if cursor.rowcount != 1:
             raise NotFoundError("Project not found")
 
@@ -267,29 +277,30 @@ def list_item_reservations(
 def reserve_item(
     connection: sqlite3.Connection, project_public_id: str, item_public_id: str, quantity: Decimal
 ) -> None:
-    project = connection.execute(
-        "SELECT id FROM projects WHERE public_id = ?", (project_public_id,)
-    ).fetchone()
-    if project is None:
-        raise NotFoundError("Project not found")
-    item = get_item_row(connection, item_public_id)
-    requested = to_milli(quantity)
-    reserved = connection.execute(
-        """
-        SELECT COALESCE(sum(quantity_milli), 0) FROM project_reservations
-        WHERE item_id = ? AND project_id != ?
-        """,
-        (item["id"], project["id"]),
-    ).fetchone()[0]
-    if reserved + requested > item["quantity_milli"]:
-        raise ConflictError("Reservation exceeds available quantity")
+    from .projects import other_holds
+
     with transaction(connection):
+        project = connection.execute(
+            "SELECT id FROM projects WHERE public_id = ?", (project_public_id,)
+        ).fetchone()
+        if project is None:
+            raise NotFoundError("Project not found")
+        item = get_item_row(connection, item_public_id)
+        requested = to_milli(quantity)
+        if requested <= 0 or item["archived_at"]:
+            raise ValueError("Reservation requires positive quantity and active inventory")
+        if connection.execute(
+            "SELECT 1 FROM project_requirements WHERE item_id=? AND project_id=? "
+            "AND reserve=1 AND status!='cancelled'",
+            (item["id"], project["id"]),
+        ).fetchone():
+            raise ConflictError("This project already reserves stock through a requirement")
+        reserved = other_holds(connection, item["id"], project["id"])
+        if reserved + requested > item["quantity_milli"]:
+            raise ConflictError("Reservation exceeds available quantity")
         connection.execute(
-            """
-            INSERT INTO project_reservations(project_id, item_id, quantity_milli)
-            VALUES (?, ?, ?)
-            ON CONFLICT(project_id, item_id) DO UPDATE SET quantity_milli = excluded.quantity_milli
-            """,
+            "INSERT INTO project_reservations(project_id,item_id,quantity_milli) VALUES(?,?,?) "
+            "ON CONFLICT(project_id,item_id) DO UPDATE SET quantity_milli=excluded.quantity_milli",
             (project["id"], item["id"], requested),
         )
 
@@ -400,6 +411,14 @@ def export_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         "inventory_events",
         "location_rules",
         "shopping_list_entries",
+        "category_fields",
+        "item_field_values",
+        "compatibility_targets",
+        "compatibility_names",
+        "item_compatibility",
+        "project_compatibility",
+        "project_requirements",
+        "requirement_compatibility",
         "projects",
         "project_reservations",
         "loans",
@@ -556,43 +575,72 @@ def _location_public_id_from_match(connection: sqlite3.Connection, match: dict[s
 
 
 def _item_public_id_from_match(connection: sqlite3.Connection, match: dict[str, Any]) -> str:
-    if match.get("public_id"):
-        get_item_row(connection, str(match["public_id"]))
-        return str(match["public_id"])
-    if match.get("barcode"):
-        barcode = str(match["barcode"])
-        rows = connection.execute(
-            """
-            SELECT items.public_id
-            FROM items
-            LEFT JOIN products ON products.id = items.product_id
-            WHERE items.archived_at IS NULL
-              AND COALESCE(NULLIF(items.barcode_override, ''), products.barcode, '') = ?
-            LIMIT 2
-            """,
-            (barcode,),
-        ).fetchall()
-        if len(rows) == 1:
-            return str(rows[0]["public_id"])
-        if len(rows) > 1:
-            raise ConflictError(f"Barcode is ambiguous: {barcode}")
-        raise ValueError(f"Item not found by barcode: {barcode}")
-    if match.get("name"):
-        name = str(match["name"])
-        rows = connection.execute(
-            """
-            SELECT public_id FROM items
-            WHERE archived_at IS NULL AND name = ? COLLATE NOCASE
-            LIMIT 2
-            """,
-            (name,),
-        ).fetchall()
-        if len(rows) == 1:
-            return str(rows[0]["public_id"])
-        if len(rows) > 1:
-            raise ConflictError(f"Item name is ambiguous: {name}")
-        raise ValueError(f"Item not found by name: {name}")
-    raise ValueError("Item operation needs match.public_id, match.barcode, or match.name")
+    conditions = ["items.archived_at IS NULL"]
+    parameters: list[Any] = []
+    identity = None
+    for key in ("public_id", "id", "barcode", "name"):
+        if match.get(key) is not None and match.get(key) != "":
+            identity = key
+            break
+    if identity is None:
+        raise ValueError(
+            "Item operation needs match.public_id, match.id, match.barcode, or match.name"
+        )
+    for key in ("public_id", "id", "barcode", "name", "serial_number"):
+        if key not in match:
+            continue
+        value = match[key]
+        if key == "id":
+            if isinstance(value, bool) or not str(value).isdigit():
+                raise ValueError("Item match.id must be a positive integer")
+            conditions.append("items.id = ?")
+            parameters.append(int(value))
+        elif key == "barcode":
+            conditions.append(
+                "COALESCE(NULLIF(items.barcode_override, ''), products.barcode, '') = ?"
+            )
+            parameters.append(str(value))
+        else:
+            conditions.append(
+                f"trim(items.{key}) = ?" + (" COLLATE NOCASE" if key != "public_id" else "")
+            )
+            parameters.append(str(value).strip())
+    for key in ("category_id", "category", "category_path", "category_name"):
+        if key in match:
+            conditions.append("items.category_id IS ?")
+            parameters.append(_resolve_category_id(connection, match[key]))
+            break
+    for key in ("location_public_id", "location", "location_path", "location_name"):
+        if key in match:
+            conditions.append("locations.public_id = ?")
+            parameters.append(_resolve_location_public_id(connection, match[key]) or "unassigned")
+            break
+    rows = connection.execute(
+        "SELECT items.public_id, items.name, items.category_id, "
+        "items.location_id, items.serial_number "
+        "FROM items JOIN locations ON locations.id=items.location_id "
+        "LEFT JOIN products ON products.id=items.product_id WHERE "
+        + " AND ".join(conditions)
+        + " LIMIT 6",
+        parameters,
+    ).fetchall()
+    if len(rows) == 1:
+        return str(rows[0]["public_id"])
+    if len(rows) > 1:
+        candidates = "; ".join(_item_identity_description(connection, row) for row in rows)
+        from .import_protocol import ImportFailure
+
+        raise ImportFailure(
+            f"Item {identity} is ambiguous: {match[identity]}. Candidates: {candidates}. "
+            "Use public_id or category/location qualifiers.",
+            "ambiguous_match",
+            f"match.{identity}",
+            candidates=[
+                _preview_item_fields(connection, _item_snapshot(connection, row["public_id"]))
+                for row in rows
+            ],
+        )
+    raise ValueError(f"Item not found by {identity}: {match[identity]}")
 
 
 def _parent_location_from_data(connection: sqlite3.Connection, data: dict[str, Any]) -> str | None:
@@ -869,7 +917,15 @@ def _item_snapshot(connection: sqlite3.Connection, public_id: str) -> dict[str, 
             (row["id"],),
         )
     ]
+    from .extensions import item_extensions
+
+    extras = item_extensions(connection, public_id)
     return {
+        "custom_fields": extras["custom_fields"],
+        "compatibility": [
+            {key: entry[key] for key in ("target", "status", "notes", "source_url", "adapter")}
+            for entry in extras["compatibility"]
+        ],
         "public_id": row["public_id"],
         "name": row["name"],
         "description": row["description"],
@@ -877,6 +933,7 @@ def _item_snapshot(connection: sqlite3.Connection, public_id: str) -> dict[str, 
         "category_id": row["category_id"],
         "location_public_id": row["location_public_id"],
         "quantity": from_milli(row["quantity_milli"]),
+        "fullness_percent": row["fullness_percent"],
         "unit": row["unit"],
         "purchase_price_minor": row["purchase_price_minor"],
         "purchase_currency": row["purchase_currency"],
@@ -900,29 +957,32 @@ def _item_snapshot(connection: sqlite3.Connection, public_id: str) -> dict[str, 
     }
 
 
+def _item_identity_description(connection: sqlite3.Connection, row: sqlite3.Row) -> str:
+    category = (
+        category_path(connection, row["category_id"]) if row["category_id"] else "Uncategorised"
+    )
+    place = location_path(connection, row["location_id"])
+    return f"{row['name']} [{row['public_id']}] · category: {category} · location: {place}" + (
+        f" · serial: {row['serial_number']}" if row["serial_number"] else ""
+    )
+
+
 def _duplicate_item_for_add(
     connection: sqlite3.Connection, values: dict[str, Any]
 ) -> sqlite3.Row | None:
-    name = str(values.get("name", "")).strip()
-    if not name:
-        return None
-    category_id = values.get("category_id")
-    if category_id is None:
-        return connection.execute(
-            """
-            SELECT public_id, name FROM items
-            WHERE archived_at IS NULL AND category_id IS NULL AND name = ? COLLATE NOCASE
-            LIMIT 1
-            """,
-            (name,),
-        ).fetchone()
     return connection.execute(
-        """
-        SELECT public_id, name FROM items
-        WHERE archived_at IS NULL AND category_id = ? AND name = ? COLLATE NOCASE
-        LIMIT 1
-        """,
-        (category_id, name),
+        "SELECT items.public_id, items.name, items.category_id, "
+        "items.location_id, items.serial_number "
+        "FROM items JOIN locations ON locations.id=items.location_id "
+        "WHERE items.archived_at IS NULL AND items.category_id IS ? "
+        "AND trim(items.name) = ? COLLATE NOCASE AND locations.public_id = ? "
+        "AND trim(items.serial_number) = ? COLLATE NOCASE LIMIT 1",
+        (
+            values.get("category_id"),
+            str(values.get("name", "")).strip(),
+            values.get("location_public_id") or "unassigned",
+            str(values.get("serial_number", "")).strip(),
+        ),
     ).fetchone()
 
 
@@ -1090,8 +1150,18 @@ def _undo_item_update(connection: sqlite3.Connection, public_id: str, data: dict
             "links",
         )
     }
+    if "fullness_percent" in data:
+        changes["fullness_percent"] = data["fullness_percent"]
     changes["expected_version"] = int(row["version"])
     update_item(connection, public_id, changes, source="import_undo")
+    if "custom_fields" in data:
+        from .custom_fields import restore_item_values
+
+        restore_item_values(connection, row["id"], data["custom_fields"])
+    if "compatibility" in data:
+        from .compatibility import set_item_compatibility
+
+        set_item_compatibility(connection, row["id"], data["compatibility"], allow_inactive=True)
     current = get_item_row(connection, public_id)
     set_item_tags(connection, public_id, data.get("tags", []), int(current["version"]))
 
@@ -1100,6 +1170,19 @@ def _apply_import_undo_operation(connection: sqlite3.Connection, operation: dict
     entity = operation["entity"]
     action = operation["action"]
     data = operation.get("data", {})
+    from .extension_schemas import ENTITY_MODELS
+
+    if entity in ENTITY_MODELS:
+        from .extensions import undo_entity
+
+        undo_entity(connection, operation)
+        return
+    if entity == "project_reservation" and action == "delete":
+        connection.execute(
+            "DELETE FROM project_reservations WHERE project_id=? AND item_id=?",
+            (operation["project_id"], operation["item_id"]),
+        )
+        return
     if entity == "category":
         if action == "delete":
             delete_category(connection, _category_id_from_undo(connection, operation))
@@ -1178,9 +1261,13 @@ def undo_import_batch(connection: sqlite3.Connection, public_id: str) -> dict[st
     if row["undone_at"]:
         return {"undone": False, "already_undone": True, "public_id": public_id}
     undo_ops = json.loads(row["undo_json"])
-    for operation in reversed(undo_ops):
-        _apply_import_undo_operation(connection, operation)
     with transaction(connection):
+        for operation in reversed(undo_ops):
+            _apply_import_undo_operation(connection, operation)
+        connection.execute(
+            "UPDATE import_receipts SET undone_at=CURRENT_TIMESTAMP WHERE batch_public_id=?",
+            (public_id,),
+        )
         connection.execute(
             "UPDATE import_batches SET undone_at = CURRENT_TIMESTAMP WHERE public_id = ?",
             (public_id,),
@@ -1197,13 +1284,15 @@ def _normalized_item_values(
         raise ValueError("Item tags must be a list")
 
     location_public_id = None
+    location_seen = False
     for key in ("location_public_id", "location", "location_path", "location_name"):
         if key in values:
+            location_seen = True
             location_public_id = _resolve_location_public_id(connection, values.pop(key))
             break
     if location_public_id is not None:
         values["location_public_id"] = location_public_id
-    elif include_default_location:
+    elif include_default_location or location_seen:
         values["location_public_id"] = "unassigned"
 
     category_id = None
@@ -1216,7 +1305,9 @@ def _normalized_item_values(
     if category_seen:
         values["category_id"] = category_id
 
-    normalized_tags = [str(tag).strip() for tag in tags if str(tag).strip()] if tags else None
+    normalized_tags = (
+        [str(tag).strip() for tag in tags if str(tag).strip()] if tags is not None else None
+    )
     return values, normalized_tags
 
 
@@ -1281,7 +1372,9 @@ def _operation_preview_detail(
                 detail.update(
                     {
                         "status": "error",
-                        "message": (f"Duplicate item by name and category: {duplicate['name']}"),
+                        "message": "Duplicate item by name and category at the same location: "
+                        + _item_identity_description(connection, duplicate),
+                        "duplicate_public_id": duplicate["public_id"],
                     }
                 )
             else:
@@ -1323,9 +1416,21 @@ def _operation_preview_detail(
     return detail
 
 
+def _preview_item_fields(connection: sqlite3.Connection, item: dict[str, Any]) -> dict[str, Any]:
+    location = get_location_row(connection, item["location_public_id"])
+    return {
+        **item,
+        "category_path": category_path(connection, item["category_id"])
+        if item["category_id"]
+        else None,
+        "location_path": location_path(connection, location["id"]),
+    }
+
+
 def _operations_preview(
     payload: dict[str, Any], connection: sqlite3.Connection | None = None
 ) -> dict[str, Any]:
+    validate_revision(payload)
     operations = payload.get("operations")
     if not isinstance(operations, list):
         raise ValueError("Operations import needs an operations array")
@@ -1346,6 +1451,7 @@ def _operations_preview(
     }
     errors: list[str] = []
     details: list[dict[str, Any]] = []
+    origins: dict[str, int] = {}
     try:
         for index, operation in enumerate(operations, start=1):
             if not isinstance(operation, dict):
@@ -1365,6 +1471,7 @@ def _operations_preview(
                 op, entity_type = _operation_parts(operation, index)
                 _operation_data(operation)
                 _operation_match(operation)
+                validate_shape(operation, op, entity_type)
             except ValueError as exc:
                 errors.append(str(exc))
                 details.append(
@@ -1384,30 +1491,104 @@ def _operations_preview(
                 preview_connection or connection, operation, index, op, entity_type
             )
             details.append(detail)
+            if detail.get("duplicate_public_id") in origins:
+                detail["message"] += (
+                    f" (created by earlier Operation #{origins[detail['duplicate_public_id']]})"
+                )
             if detail["status"] == "error":
                 errors.append(f"{detail['label']}: {detail['message']}")
                 continue
             if preview_connection is not None:
                 try:
-                    if entity_type == "category":
-                        _apply_category_operation(preview_connection, op, operation)
-                    elif entity_type == "location":
-                        _apply_location_operation(preview_connection, op, operation)
-                    else:
-                        _apply_item_operation(preview_connection, op, operation)
-                except (ConflictError, NotFoundError, ValueError, KeyError, TypeError) as exc:
+                    match = _operation_match(operation)
+                    before = None
+                    if entity_type == "item" and op != "add":
+                        before = _item_snapshot(
+                            preview_connection,
+                            _item_public_id_from_match(preview_connection, match),
+                        )
+                        detail["before"] = _preview_item_fields(preview_connection, before)
+                    with transaction(preview_connection):
+                        if entity_type == "category":
+                            applied = _apply_category_operation(preview_connection, op, operation)
+                        elif entity_type == "location":
+                            applied = _apply_location_operation(preview_connection, op, operation)
+                        else:
+                            applied = _apply_item_operation(preview_connection, op, operation)
+                    if op == "add" and applied and isinstance(applied, str):
+                        origins[applied] = index
+                    if entity_type == "item":
+                        public_id = str(applied) if op == "add" else before["public_id"]
+                        after = _item_snapshot(preview_connection, public_id)
+                        detail["after"] = _preview_item_fields(preview_connection, after)
+                        if before and before["location_public_id"] != after["location_public_id"]:
+                            detail["moved"] = True
+                        detail["temporary_identity"] = op == "add"
+                    elif entity_type == "location" and op != "delete":
+                        place_id = (
+                            str(applied)
+                            if op == "add" and applied
+                            else _location_public_id_from_match(preview_connection, match)
+                            if op != "add"
+                            else None
+                        )
+                        if place_id:
+                            place = _location_snapshot(preview_connection, place_id)
+                            detail["after"] = place
+                            if place["kind"] == "room" and place["parent_public_id"]:
+                                parent = _location_snapshot(
+                                    preview_connection, place["parent_public_id"]
+                                )
+                                if parent["kind"] in ("drawer", "box", "container"):
+                                    detail["warnings"] = [
+                                        f"Unusual hierarchy: room {place['path']} "
+                                        f"is inside a {parent['kind']}."
+                                    ]
+                    elif entity_type == "category" and op != "delete":
+                        category_id = (
+                            int(applied)
+                            if op == "add" and applied
+                            else _category_id_from_match(preview_connection, match)
+                            if op != "add"
+                            else None
+                        )
+                        if category_id:
+                            detail["after"] = _category_snapshot(preview_connection, category_id)
+                except (
+                    ConflictError,
+                    NotFoundError,
+                    ValueError,
+                    KeyError,
+                    TypeError,
+                    sqlite3.IntegrityError,
+                ) as exc:
                     detail.update({"status": "error", "message": str(exc)})
                     errors.append(f"{detail['label']}: {detail['message']}")
+        counts.update(
+            {
+                "items_added": sum(d["entity"] == "item" and d["status"] == "add" for d in details),
+                "items_moved": sum(bool(d.get("moved")) for d in details),
+                "locations_created": sum(
+                    d["entity"] == "location" and d["status"] == "add" for d in details
+                ),
+                "categories_created": sum(
+                    d["entity"] == "category" and d["status"] == "add" for d in details
+                ),
+                "warnings": sum(len(d.get("warnings", [])) for d in details),
+                "errors": len(errors),
+            }
+        )
         return {
             "valid": not errors,
             "dry_run": True,
             "mode": "operations",
+            "atomic": payload.get("schema_version") == 2,
             "counts": counts,
             "errors": errors,
             "details": details,
             "note": (
-                "Operations are applied in order. "
-                "Use paths for nested categories and locations."
+                "Legacy non-atomic import: successful operations remain applied if another fails. "
+                "Use schema_version 2 for all-or-nothing behavior. Operations apply in input order."
             ),
         }
     finally:
@@ -1418,6 +1599,7 @@ def _operations_preview(
 def _apply_category_operation(
     connection: sqlite3.Connection, op: str, operation: dict[str, Any]
 ) -> bool | int:
+    validate_shape(operation, op, "category")
     data = _operation_data(operation)
     match = _operation_match(operation)
     if op == "add":
@@ -1471,6 +1653,7 @@ def _apply_category_operation(
 def _apply_location_operation(
     connection: sqlite3.Connection, op: str, operation: dict[str, Any]
 ) -> bool | str:
+    validate_shape(operation, op, "location")
     data = _operation_data(operation)
     match = _operation_match(operation)
     if op == "add":
@@ -1504,6 +1687,7 @@ def _apply_location_operation(
 def _apply_item_operation(
     connection: sqlite3.Connection, op: str, operation: dict[str, Any]
 ) -> bool | str:
+    validate_shape(operation, op, "item")
     data = _operation_data(operation)
     match = _operation_match(operation)
     if op == "add":
@@ -1513,8 +1697,10 @@ def _apply_item_operation(
         duplicate = _duplicate_item_for_add(connection, values)
         if duplicate:
             raise ConflictError(
-                f"Item already exists with this name and category: {duplicate['name']}"
+                "Item already exists with this name and category at the same location: "
+                + _item_identity_description(connection, duplicate)
             )
+        values = validate_item_values(values, adding=True)
         item = create_item(connection, values, source="import")
         if tags is not None:
             set_item_tags(connection, item["public_id"], tags, item["version"])
@@ -1524,6 +1710,7 @@ def _apply_item_operation(
         archive_item(connection, public_id)
         return True
     values, tags = _normalized_item_values(connection, data, include_default_location=False)
+    values = validate_item_values(values, adding=False)
     values.pop("quantity_delta", None)
     values.pop("add_quantity", None)
     values.pop("remove_quantity", None)
@@ -1532,7 +1719,13 @@ def _apply_item_operation(
         quantity_delta = -Decimal(str(data["remove_quantity"]))
     if quantity_delta is not None:
         row = get_item_row(connection, public_id)
-        adjust_quantity(connection, public_id, Decimal(str(quantity_delta)), int(row["version"]))
+        adjust_quantity(
+            connection,
+            public_id,
+            Decimal(str(quantity_delta)),
+            int(row["version"]),
+            source="import",
+        )
         values.pop("quantity", None)
     if values:
         row = get_item_row(connection, public_id)
@@ -1562,6 +1755,7 @@ def _apply_operations_import(
     }
     errors: list[str] = []
     undo_ops: list[dict[str, Any]] = []
+    details = []
     for index, operation in enumerate(payload["operations"], start=1):
         op, entity_type = _operation_parts(operation, index)
         label = _operation_label(operation, index, op, entity_type)
@@ -1581,12 +1775,13 @@ def _apply_operations_import(
                     before = _item_snapshot(
                         connection, _item_public_id_from_match(connection, match)
                     )
-            if entity_type == "category":
-                applied = _apply_category_operation(connection, op, operation)
-            elif entity_type == "location":
-                applied = _apply_location_operation(connection, op, operation)
-            else:
-                applied = _apply_item_operation(connection, op, operation)
+            with transaction(connection):
+                if entity_type == "category":
+                    applied = _apply_category_operation(connection, op, operation)
+                elif entity_type == "location":
+                    applied = _apply_location_operation(connection, op, operation)
+                else:
+                    applied = _apply_item_operation(connection, op, operation)
             if applied:
                 if op == "add" and entity_type == "category":
                     category = _category_snapshot(connection, int(applied))
@@ -1654,14 +1849,36 @@ def _apply_operations_import(
                         )
         except (ConflictError, NotFoundError, ValueError, KeyError, TypeError) as exc:
             errors.append(f"{label}: {exc}")
+            details.append(
+                {
+                    "operation_index": index,
+                    "status": "failed",
+                    "committed": False,
+                    "message": str(exc),
+                }
+            )
             continue
+        details.append(
+            {
+                "operation_index": index,
+                "status": "committed" if applied else "skipped",
+                "committed": bool(applied),
+            }
+        )
         result["operations"] += 1
         if applied:
             result[op] += 1
             result[_count_key(entity_type)] += 1
         else:
             result["skipped"] += 1
-    response = {"valid": not errors, "mode": "operations", "created": result, "errors": errors}
+    response = {
+        "valid": not errors,
+        "mode": "operations",
+        "created": result,
+        "errors": errors,
+        "atomic": False,
+        "details": details,
+    }
     batch_id = _record_import_batch(
         connection, mode="operations", summary=result, undo_ops=undo_ops, payload=payload
     )
@@ -1673,18 +1890,54 @@ def _apply_operations_import(
 def import_preview(
     payload: dict[str, Any], connection: sqlite3.Connection | None = None
 ) -> dict[str, Any]:
+    if connection is not None:
+        from .import_protocol import receipt, validate_envelope
+
+        if _is_operations_import(payload):
+            validate_envelope(payload)
+        previous = receipt(connection, payload)
+        if previous:
+            return {
+                "valid": True,
+                "dry_run": True,
+                "replayed": True,
+                "counts": {"changes": 0},
+                "details": [],
+                "errors": [],
+                "note": (
+                    "This batch was already processed. "
+                    "Retry returns its receipt without new writes."
+                )
+                + (" It has since been undone." if previous.get("undone") else ""),
+            }
     if _is_operations_import(payload):
+        if payload.get("schema_version") == 2 and connection is not None:
+            from .import_protocol import preview_v2
+
+            return preview_v2(connection, payload)
         return _operations_preview(payload, connection)
     if payload.get("format") != "findstuff-export-v1" or not isinstance(
         payload.get("tables"), dict
     ):
         raise ValueError("Unsupported Findstuff export format")
-    allowed = {"locations", "categories", "products", "items", "tags", "item_tags"}
+    from .extension_exports import TABLES
+
+    allowed = {"locations", "categories", "products", "items", "tags", "item_tags", *TABLES}
     counts = {
         table: len(rows)
         for table, rows in payload["tables"].items()
         if table in allowed and isinstance(rows, list)
     }
+    errors = []
+    for table, rows in payload["tables"].items():
+        if table not in allowed:
+            continue  # Full exports contain auxiliary tables not supported by merge.
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            errors.append(f"{table}: expected an array of record objects")
+    if errors:
+        return {"valid": False, "dry_run": True, "counts": counts, "details": [], "errors": errors}
+    if connection is not None:
+        return _raw_import_preview(connection, payload, counts)
     return {
         "valid": True,
         "dry_run": True,
@@ -1704,10 +1957,84 @@ def import_preview(
     }
 
 
-def apply_import_merge(connection: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+def _raw_import_preview(
+    connection: sqlite3.Connection, payload: dict[str, Any], counts: dict[str, int]
+) -> dict[str, Any]:
+    clone = sqlite3.connect(":memory:")
+    clone.row_factory = sqlite3.Row
+    clone.execute("PRAGMA foreign_keys = ON")
+    connection.backup(clone)
+    details = []
+    errors = []
+    try:
+        result = _apply_import_merge_untracked(clone, payload)
+        for table, rows in payload["tables"].items():
+            if table not in counts:
+                continue
+            for row_index, row in enumerate(rows):
+                field = {"categories": "slug", "products": "barcode", "tags": "name"}.get(
+                    table, "public_id"
+                )
+                exists = (
+                    table
+                    in {
+                        "item_tags",
+                        "item_field_values",
+                        "compatibility_names",
+                        "item_compatibility",
+                        "project_compatibility",
+                        "requirement_compatibility",
+                        "project_reservations",
+                    }
+                    or connection.execute(
+                        f"SELECT 1 FROM {table} WHERE {field} = ?", (row.get(field),)
+                    ).fetchone()
+                )
+                detail = {
+                    "index": len(details) + 1,
+                    "table": table,
+                    "row_index": row_index,
+                    "entity": table,
+                    "action": "merge",
+                    "label": row.get("name", table),
+                    "status": "skip" if exists else "add",
+                    "message": "Existing identity: kept locally." if exists else "Will add record.",
+                }
+                if table == "items":
+                    detail["after"] = _preview_item_fields(
+                        clone, _item_snapshot(clone, row["public_id"])
+                    )
+                elif table == "locations":
+                    detail["after"] = _location_snapshot(clone, row["public_id"])
+                details.append(detail)
+        counts = {**counts, **{f"{key}_created": value for key, value in result["created"].items()}}
+    except (ConflictError, NotFoundError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
+        errors.append(f"Export merge: {exc}")
+    finally:
+        clone.close()
+    return {
+        "valid": not errors,
+        "dry_run": True,
+        "counts": counts,
+        "details": details,
+        "errors": errors,
+        "note": "Preview simulated this entire merge without changing your inventory.",
+    }
+
+
+def _apply_import_merge_untracked(
+    connection: sqlite3.Connection, payload: dict[str, Any]
+) -> dict[str, Any]:
     if _is_operations_import(payload):
+        validate_revision(payload)
+        if payload.get("schema_version") == 2:
+            from .import_protocol import apply_v2
+
+            return apply_v2(connection, payload)
         return _apply_operations_import(connection, payload)
     preview = import_preview(payload)
+    if not preview["valid"]:
+        raise ValueError("; ".join(preview["errors"]))
     tables = payload["tables"]
     result = {"categories": 0, "locations": 0, "products": 0, "items": 0, "tags": 0}
     category_ids: dict[int, int] = {}
@@ -1861,6 +2188,9 @@ def apply_import_merge(connection: sqlite3.Connection, payload: dict[str, Any]) 
             mapped_location = location_ids.get(row["location_id"])
             if mapped_location is None:
                 raise ValueError(f"Item {row['name']} references a missing location")
+            for field, mapping in (("category_id", category_ids), ("product_id", product_ids)):
+                if row.get(field) is not None and row[field] not in mapping:
+                    raise ValueError(f"Item {row['name']} references a missing {field}")
             values = [row.get(column) for column in item_columns]
             cursor = connection.execute(
                 f"""
@@ -1897,6 +2227,15 @@ def apply_import_merge(connection: sqlite3.Connection, payload: dict[str, Any]) 
                     (item_ids[row["item_id"]], tag_ids[row["tag_id"]]),
                 )
 
+        from .extension_exports import merge_extensions
+
+        checkpoint = len(undo_ops)
+        merge_extensions(connection, tables, category_ids, item_ids, undo_ops)
+        for entry in undo_ops[checkpoint:]:
+            if entry["action"] == "erase":
+                key = entry["entity"] + "s"
+                result[key] = result.get(key, 0) + 1
+
     with transaction(connection):
         rebuild_search_index(connection)
     response = {"valid": preview["valid"], "mode": "merge", "created": result}
@@ -1906,3 +2245,30 @@ def apply_import_merge(connection: sqlite3.Connection, payload: dict[str, Any]) 
     if batch_id:
         response["import_public_id"] = batch_id
     return response
+
+
+def apply_import_merge(connection: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+    from .import_protocol import identity, receipt, validate_envelope
+
+    if _is_operations_import(payload):
+        validate_envelope(payload)
+        if payload.get("schema_version") == 2:
+            return _apply_import_merge_untracked(connection, payload)
+        if (
+            payload.get("duplicate_policy", "error") != "error"
+            or payload.get("ordering", "input") != "input"
+        ):
+            raise ValueError("Duplicate policies and dependency ordering require schema_version 2")
+    with transaction(connection):
+        previous = receipt(connection, payload)
+        if previous:
+            return previous
+        result = _apply_import_merge_untracked(connection, payload)
+        import_id, digest = identity(payload)
+        result.update(import_id=import_id, replayed=False)
+        connection.execute(
+            "INSERT INTO import_receipts(import_id,payload_hash,batch_public_id,result_json) "
+            "VALUES(?,?,?,?)",
+            (import_id, digest, result.get("import_public_id"), json.dumps(result)),
+        )
+        return result

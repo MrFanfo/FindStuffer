@@ -93,7 +93,7 @@ function itemFormulaValues(item: Item, field: FormulaField): Array<string | numb
   if (field === "low_stock") return [String(isLowStock(item))];
   if (field === "has_photo") return [String(Boolean(item.primary_photo_url))];
   if (field === "missing_location") return [String(item.location_public_id === "unassigned")];
-  return [item.updated_at];
+  return [item.updated_at.slice(0, 10)];
 }
 
 function formulaRuleMatches(item: Item, rule: FormulaRule, explicitChoices?: string[]): boolean {
@@ -107,8 +107,11 @@ function formulaRuleMatches(item: Item, rule: FormulaRule, explicitChoices?: str
   if (!wanted) return true;
   if (rule.operator === "contains") return textValues.some((value) => value.includes(wantedText));
   if (rule.operator === "not-contains") return textValues.every((value) => !value.includes(wantedText));
-  if (rule.operator === "equals") return textValues.some((value) => value === wantedText);
-  if (rule.operator === "not-equals") return textValues.every((value) => value !== wantedText);
+  if (rule.operator === "equals" || rule.operator === "not-equals") {
+    const numeric = ["quantity", "value", "weight", "length", "width", "height"].includes(rule.field);
+    const matches = numeric ? values.some((value) => value !== "" && Number(value) === Number(wanted)) : textValues.some((value) => value === wantedText);
+    return rule.operator === "equals" ? matches : !matches;
+  }
   if (rule.operator === "one-of") return textValues.some((value) => choices.some((choice) => value === choice || value.endsWith(` > ${choice}`)));
   if (rule.operator === "not-one-of") return textValues.every((value) => choices.every((choice) => value !== choice && !value.endsWith(` > ${choice}`)));
   if (["gt", "gte", "lt", "lte"].includes(rule.operator)) {

@@ -1,3 +1,4 @@
+import { useState as useSettingsState } from "react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import {
   api,
@@ -23,7 +24,7 @@ export type ThemePreference = "light" | "dark" | "system";
 type RetryAction = { action: () => Promise<void>; label: string };
 
 
-export function ManageView({ items, dashboard, locations, categories, locationTypes, units, busy, theme, setNotice, notify, onBack, onThemeChange, onInventoryChanged, onLocations, onCategories, onDefaultRules, onOffCategoryMappings, onInbox, onUnitsChanged }: {
+export function ManageView({ items, dashboard, locations, locationTypes, units, busy, theme, setNotice, notify, onBack, onThemeChange, onInventoryChanged, onDefaultRules, onOffCategoryMappings, onInbox, onUnitsChanged }: {
   items: Item[];
   dashboard: Dashboard | null;
   locations: LocationNode[];
@@ -44,6 +45,10 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
   onInbox: () => void;
   onUnitsChanged: (units: string[]) => void;
 }) {
+  const [settingsQuery, setSettingsQuery] = useSettingsState("");
+  const [settingsGroup, setSettingsGroup] = useSettingsState("all");
+  const visibleSetting = (label: string, group: string) => (settingsGroup === "all" || settingsGroup === group) && (label + " " + (label === "Integrations" ? "AI MQTT Home Assistant endpoint model API" : label === "Security" ? "password sign out session" : label === "Appearance" ? "theme dark light device" : "")).toLowerCase().includes(settingsQuery.toLowerCase());
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [settings, setSettings] = useState<ApplicationSettings | null>(null);
   const [rules, setRules] = useState<LocationRule[]>([]);
   const [suggestions, setSuggestions] = useState<EnrichmentSuggestion[]>([]);
@@ -91,13 +96,19 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
 
   const load = useCallback(async () => {
     try {
-      const [nextSettings, nextRules, nextSuggestions, nextEnrichmentStatus, nextUpdate] = await Promise.all([
-        api.settings(),
-        api.locationRules(),
-        api.enrichmentSuggestions("pending"),
-        api.enrichmentStatus(),
-        api.softwareUpdateStatus(),
+      const results = await Promise.allSettled([
+        api.settings(), api.locationRules(), api.enrichmentSuggestions("pending"),
+        api.enrichmentStatus(), api.softwareUpdateStatus(),
       ]);
+      const [settingsResult, rulesResult, suggestionsResult, enrichmentResult, updateResult] = results;
+      const names = ["Settings", "Place defaults", "AI suggestions", "Product enrichment", "Software updates"];
+      setLoadErrors(results.flatMap((result, index) => result.status === "rejected" ? [names[index]] : []));
+      if (rulesResult.status === "fulfilled") setRules(rulesResult.value);
+      if (suggestionsResult.status === "fulfilled") setSuggestions(suggestionsResult.value);
+      if (enrichmentResult.status === "fulfilled") setMissingEnrichmentCount(enrichmentResult.value.missing);
+      if (updateResult.status === "fulfilled") setSoftwareUpdate(updateResult.value);
+      if (settingsResult.status !== "fulfilled") return;
+      const nextSettings = settingsResult.value;
       setSettings({
         ...nextSettings,
         inventory_display: nextSettings.inventory_display || {
@@ -109,11 +120,7 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
           show_model: false,
         },
       });
-      setSoftwareUpdate(nextUpdate);
       onUnitsChanged(nextSettings.units);
-      setRules(nextRules);
-      setSuggestions(nextSuggestions);
-      setMissingEnrichmentCount(nextEnrichmentStatus.missing);
       setNotificationsEnabled(nextSettings.notifications.enabled);
       setNotificationUrl(nextSettings.notifications.ntfy_url);
       setExpirationDays(String(nextSettings.notifications.expiration_days));
@@ -397,16 +404,18 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
 
   return (
     <section className="workspace-page manage-page settings-workspace">
-      <header className="workspace-header"><button className="text-button workspace-back" onClick={onBack}><Icon name="chevron" size={16} />Extra</button><p className="eyebrow">SETTINGS</p><h1>Make Findstuff yours</h1><p>Choose how inventory looks, adjust app behavior, connect services, and inspect this installation.</p></header>
+      {loadErrors.map((section) => <p className="error-banner" role="alert" key={section}>{section} could not load. <button onClick={() => void load()}>Retry</button></p>)}
+      <header className="workspace-header"><button className="text-button workspace-back" onClick={onBack}><Icon name="chevron" size={16} />More</button><p className="eyebrow">SETTINGS</p><h1>Make Findstuff yours</h1><p>Choose how inventory looks, adjust app behavior, connect services, and inspect this installation.</p></header>
+      <label className="search settings-search"><input type="search" aria-label="Search settings" placeholder="Find a setting" value={settingsQuery} onChange={(event) => setSettingsQuery(event.target.value)} /></label>
+      <nav className="settings-groups" aria-label="Settings groups">{[["all", "All settings"], ["appearance", "Appearance"], ["inventory", "Inventory defaults"], ["integrations", "Integrations"], ["system", "System"]].map(([value, label]) => <button key={value} aria-pressed={settingsGroup === value} onClick={() => setSettingsGroup(value)}>{label}</button>)}</nav>
+
       {manageActivity && <div className="inline-activity manage-activity" role="status"><span className="activity-spinner" />{manageActivity}</div>}
-      <button className="feature-link ai-inbox-link" onClick={onInbox}><span><Icon name="spark" /></span><div><strong>AI Inbox</strong><small>Review photos and approve, edit, or reject suggested Items</small></div><Icon name="chevron" /></button>
-      <button className="feature-link" onClick={onLocations}><span><Icon name="pin" /></span><div><strong>Places</strong><small>Build your room, shelf, drawer, and box hierarchy</small></div><Icon name="chevron" /></button>
-      <button className="feature-link" onClick={onCategories}><span><Icon name="tag" /></span><div><strong>Categories</strong><small>{categories.length} Categories · hierarchy, details, and default Places</small></div><Icon name="chevron" /></button>
-      <button className="feature-link" onClick={onOffCategoryMappings}><span><Icon name="spark" /></span><div><strong>Open Food Facts category mapping</strong><small>Review scanned categories, assignments, and JSON imports</small></div><Icon name="chevron" /></button>
+      <button hidden={!visibleSetting("AI Inbox", "integrations")} className="feature-link ai-inbox-link" onClick={onInbox}><span><Icon name="spark" /></span><div><strong>AI Inbox</strong><small>Review photos and approve, edit, or reject suggested Items</small></div><Icon name="chevron" /></button>
+      <button hidden={!visibleSetting("Open Food Facts category mapping", "integrations")} className="feature-link" onClick={onOffCategoryMappings}><span><Icon name="spark" /></span><div><strong>Open Food Facts category mapping</strong><small>Review scanned categories, assignments, and JSON imports</small></div><Icon name="chevron" /></button>
 
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Appearance</strong><small>{theme === "system" ? "Follows this device" : `${theme[0].toUpperCase()}${theme.slice(1)} theme`}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="theme-options" role="radiogroup" aria-label="Color theme">{(["light", "dark", "system"] as ThemePreference[]).map((option) => <button type="button" role="radio" aria-checked={theme === option} className={theme === option ? "active" : ""} key={option} onClick={() => onThemeChange(option)}><span className={`theme-preview ${option}`} aria-hidden="true" /><strong>{option === "system" ? "Device" : option[0].toUpperCase() + option.slice(1)}</strong><small>{option === "system" ? "Match system setting" : `${option} colors`}</small></button>)}</div></div></details>
+      <details hidden={!visibleSetting("Appearance", "appearance")}><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Appearance</strong><small>{theme === "system" ? "Follows this device" : `${theme[0].toUpperCase()}${theme.slice(1)} theme`}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="theme-options" role="radiogroup" aria-label="Color theme">{(["light", "dark", "system"] as ThemePreference[]).map((option) => <button type="button" role="radio" aria-checked={theme === option} className={theme === option ? "active" : ""} key={option} onClick={() => onThemeChange(option)}><span className={`theme-preview ${option}`} aria-hidden="true" /><strong>{option === "system" ? "Device" : option[0].toUpperCase() + option.slice(1)}</strong><small>{option === "system" ? "Match system setting" : `${option} colors`}</small></button>)}</div></div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="box" /></span><span><strong>Inventory cards</strong><small>Choose the details shown in every Item row</small></span><Icon name="chevron" /></summary><div className="manage-panel inventory-display-settings"><p className="panel-copy">Names always remain visible and wrap on small screens. Brand is hidden by default to leave more room.</p><div>{settings && ([
+      <details hidden={!visibleSetting("Inventory cards", "appearance")}><summary><span className="summary-icon"><Icon name="box" /></span><span><strong>Inventory cards</strong><small>Choose the details shown in every Item row</small></span><Icon name="chevron" /></summary><div className="manage-panel inventory-display-settings"><p className="panel-copy">Names always remain visible and wrap on small screens. Brand is hidden by default to leave more room.</p><div>{settings && ([
         ["show_photo", "Photo", "Item image or placeholder"],
         ["show_location", "Place", "Where the Item is stored"],
         ["show_category", "Category", "Category badge beside the name"],
@@ -415,10 +424,10 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
         ["show_model", "Model", "Model below the Item name"],
       ] as Array<[keyof InventoryDisplaySettings, string, string]>).map(([key, label, detail]) => <label className="display-option" key={key}><span><strong>{label}</strong><small>{detail}</small></span><input type="checkbox" checked={settings.inventory_display[key]} onChange={(event) => void setInventoryDisplay(key, event.target.checked)} /></label>)}</div></div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="search" /></span><span><strong>Search language</strong><small>Aliases, nicknames, and household terms</small></span><Icon name="chevron" /></summary><div className="manage-panel"><SearchAliasManager items={items} locations={locations} /></div></details>
+      <details hidden={!visibleSetting("Search language", "inventory")}><summary><span className="summary-icon"><Icon name="search" /></span><span><strong>Search language</strong><small>Aliases, nicknames, and household terms</small></span><Icon name="chevron" /></summary><div className="manage-panel"><SearchAliasManager items={items} locations={locations} /></div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="user" /></span><span><strong>Security</strong><small>Change the administrator password</small></span><Icon name="chevron" /></summary><div className="manage-panel">
-        <p className="panel-copy">Change the password used to open Findstuff and call its API. It stays write-only and is excluded from exports and backup ZIPs.</p>
+      <details hidden={!visibleSetting("Security", "system")}><summary><span className="summary-icon"><Icon name="user" /></span><span><strong>Security</strong><small>Change the administrator password</small></span><Icon name="chevron" /></summary><div className="manage-panel">
+        <button className="secondary" onClick={() => void api.logout().then(() => window.location.reload()).catch(() => setNotice("Sign out failed. Try again."))}>Sign out of this device</button><p className="panel-copy">Change the password used to open Findstuff and call its API. It stays write-only and is excluded from exports and backup ZIPs.</p>
         <form className="form-card compact-form" onSubmit={changeAdminPassword}>
           <label>Current password<input required type="password" autoComplete="current-password" value={currentAdminPassword} onChange={(event) => setCurrentAdminPassword(event.target.value)} /></label>
           <label>New password<input required minLength={10} maxLength={256} type="password" autoComplete="new-password" value={newAdminPassword} onChange={(event) => setNewAdminPassword(event.target.value)} /><small>At least 10 characters.</small></label>
@@ -428,18 +437,18 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
         <p className="panel-copy">After saving, Findstuff will return to its sign-in page for the new password.</p>
       </div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Recent activity</strong><small>{dashboard?.recent_events.length ? "Latest inventory changes" : "No changes yet"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="event-list">{!dashboard?.recent_events.length && <div className="empty-inline"><span>Changes will appear here</span></div>}{dashboard?.recent_events.slice(0, 12).map((event, index) => <div className="event" key={`${event.created_at}-${index}`}><span>{activityLabel(event.action)}</span><strong>{event.item_name}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>)}</div></div></details>
+      <details hidden={!visibleSetting("Recent activity", "system")}><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Recent activity</strong><small>{dashboard?.recent_events.length ? "Latest inventory changes" : "No changes yet"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="event-list">{!dashboard?.recent_events.length && <div className="empty-inline"><span>Changes will appear here</span></div>}{dashboard?.recent_events.slice(0, 12).map((event, index) => <div className="event" key={`${event.created_at}-${index}`}><span>{activityLabel(event.action)}</span><strong>{event.item_name}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>)}</div></div></details>
 
-      <button className="feature-link" onClick={onDefaultRules}><span><Icon name="settings" /></span><div><strong>Default locations</strong><small>{rules.length} rules · search, edit, and inspect automatic destinations</small></div><Icon name="chevron" /></button>
+      <button hidden={!visibleSetting("Default locations", "inventory")} className="feature-link" onClick={onDefaultRules}><span><Icon name="settings" /></span><div><strong>Default locations</strong><small>{rules.length} rules · search, edit, and inspect automatic destinations</small></div><Icon name="chevron" /></button>
 
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Customization</strong><small>{locationTypes.length} Place types · {units.length} units of measure</small></span><Icon name="chevron" /></summary><div className="manage-panel customization-panel">
+      <details hidden={!visibleSetting("Customization", "inventory")}><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Customization</strong><small>{locationTypes.length} Place types · {units.length} units of measure</small></span><Icon name="chevron" /></summary><div className="manage-panel customization-panel">
         <section className="customization-group"><div><strong>Place types</strong><small>Names available when creating or editing a Place</small></div><div className="type-chip-row">{locationTypes.map((entry) => <span key={entry.name}>{entry.name}</span>)}</div><form className="form-card compact-form type-form" onSubmit={addPlaceType}><label>New Place type<input value={customPlaceType} onChange={(event) => setCustomPlaceType(event.target.value)} placeholder="crate, suitcase, rack…" maxLength={40} /></label><button className="secondary" disabled={!customPlaceType.trim()}>Add Place type</button></form></section>
         <section className="customization-group"><div><strong>Units of measure</strong><small>Units available when recording Item quantities</small></div><div className="type-chip-row">{units.map((entry) => <span key={entry}>{entry}<button type="button" aria-label={`Remove ${entry}`} onClick={() => void removeUnit(entry)}><Icon name="close" size={12} /></button></span>)}</div><form className="form-card compact-form type-form" onSubmit={addUnit}><label>New unit<input value={customUnit} onChange={(event) => setCustomUnit(event.target.value)} placeholder="tray, bottle, reel, sheet…" maxLength={24} /></label><button className="secondary" disabled={!customUnit.trim()}>Add unit</button></form></section>
       </div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Notifications</strong><small>{notificationsEnabled ? "ntfy alerts enabled" : "Alerts are off"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><form className="form-card compact-form" onSubmit={saveNotifications}><label className="toggle"><input type="checkbox" checked={notificationsEnabled} onChange={(event) => setNotificationsEnabled(event.target.checked)} /><span><strong>Enable notifications</strong><small>Low stock and upcoming expiration alerts</small></span></label><label>ntfy topic URL<input type="url" value={notificationUrl} onChange={(event) => setNotificationUrl(event.target.value)} placeholder="https://ntfy.sh/your-private-topic" /></label><label>Access token {settings?.notifications.ntfy_token_set && <small>(saved)</small>}<input type="password" value={notificationToken} onChange={(event) => setNotificationToken(event.target.value)} placeholder="Leave blank to keep existing" /></label><label>Warn before expiration<input type="number" min="0" max="365" value={expirationDays} onChange={(event) => setExpirationDays(event.target.value)} /><small>Days before the expiration date</small></label><button className="secondary">Save notifications</button></form><button className="outline-button" onClick={() => void perform(() => api.testNotification(), "Test notification sent")}>Send test notification</button></div></details>
+      <details hidden={!visibleSetting("Notifications", "integrations")}><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Notifications</strong><small>{notificationsEnabled ? "ntfy alerts enabled" : "Alerts are off"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><form className="form-card compact-form" onSubmit={saveNotifications}><label className="toggle"><input type="checkbox" checked={notificationsEnabled} onChange={(event) => setNotificationsEnabled(event.target.checked)} /><span><strong>Enable notifications</strong><small>Low stock and upcoming expiration alerts</small></span></label><label>ntfy topic URL<input type="url" value={notificationUrl} onChange={(event) => setNotificationUrl(event.target.value)} placeholder="https://ntfy.sh/your-private-topic" /></label><label>Access token {settings?.notifications.ntfy_token_set && <small>(saved)</small>}<input type="password" value={notificationToken} onChange={(event) => setNotificationToken(event.target.value)} placeholder="Leave blank to keep existing" /></label><label>Warn before expiration<input type="number" min="0" max="365" value={expirationDays} onChange={(event) => setExpirationDays(event.target.value)} /><small>Days before the expiration date</small></label><button className="secondary">Save notifications</button></form><button className="outline-button" onClick={() => void perform(() => api.testNotification(), "Test notification sent")}>Send test notification</button></div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Software update</strong><small>{updateLabel}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
+      <details hidden={!visibleSetting("Software update", "system")}><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Software update</strong><small>{updateLabel}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
         <p className="panel-copy">{softwareUpdate?.enabled ? "Install published FindStuffer releases without leaving the app." : "In-app updates are disabled for this installation. Update safely on the Linux machine with ./update-docker.sh."}</p>
         <div className="integration-list update-status-list">
           <p><span>Status</span><b className={`integration-status ${updateLabel === "Up to date" ? "ready" : ""}`}>{updateLabel}</b></p>
@@ -451,7 +460,7 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
         <div className="button-row">{softwareUpdate?.enabled && <button className="primary" disabled={busy || softwareUpdate?.status === "running" || softwareUpdate?.status === "queued" || softwareUpdate?.update_available === false} onClick={() => void requestUpdate()}><Icon name="spark" size={16} />Install update</button>}<button className="secondary" disabled={busy} onClick={() => void perform(async () => setSoftwareUpdate(await api.softwareUpdateStatus()), "Update status refreshed")}>Check again</button></div>
       </div></details>
 
-      <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Integrations</strong><small>Configure AI and Home Assistant MQTT</small></span><Icon name="chevron" /></summary><div className="manage-panel integration-settings">
+      <details hidden={!visibleSetting("Integrations", "integrations")}><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Integrations</strong><small>Configure AI and Home Assistant MQTT</small></span><Icon name="chevron" /></summary><div className="manage-panel integration-settings">
         <section className="integration-config-card">
           <div className="integration-config-heading"><div><strong>AI parser & vision</strong><small>OpenAI-compatible chat-completions endpoint for commands and AI Scan</small></div><b className={`integration-status ${settings?.integrations.ai.enabled ? "ready" : ""}`}>{settings?.integrations.ai.enabled ? "Enabled" : "Disabled"}</b></div>
           <form className="form-card compact-form" onSubmit={saveAiSettings}>
@@ -490,14 +499,14 @@ export function ManageView({ items, dashboard, locations, categories, locationTy
         <div className="integration-list"><p><span>Open Food Facts</span><b className="integration-status ready">Ready</b></p><p><span>Speech-to-text</span><b className="integration-status">{settings?.integrations.stt_configured ? "Ready" : "Browser only"}</b></p></div>
         <p className="panel-copy">Secrets are write-only: the app never returns the AI key or MQTT password through its API, JSON exports, or backup ZIPs. Re-enter them after restoring a backup.</p>
       </div></details>
-      <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Enrichment queue</strong><small>{missingEnrichmentCount === null ? "Checking barcode Items…" : missingEnrichmentCount ? `${missingEnrichmentCount} barcode Item${missingEnrichmentCount === 1 ? "" : "s"} missing enrichment` : "No barcode Items are missing enrichment"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className={`enrichment-missing-card ${missingEnrichmentCount === 0 ? "complete" : ""}`}><span><Icon name={missingEnrichmentCount === 0 ? "check" : "qr"} size={21} /></span><div><strong>{missingEnrichmentCount ?? "—"}</strong><small>barcode Item{missingEnrichmentCount === 1 ? "" : "s"} missing enrichment</small></div></div><p className="panel-copy">Queue eligible barcode Items that Open Food Facts has not enriched yet, then process a small batch. Automatic maintenance handles this periodically.</p><div className="button-row"><button className="secondary" disabled={!missingEnrichmentCount} onClick={() => void perform(() => api.queueMissingEnrichment(), "Missing enrichment jobs queued")}>Queue missing</button><button className="primary" onClick={() => void perform(() => api.runEnrichment(), "Enrichment batch processed")}>Run batch now</button></div><small>Current provider: Open Food Facts.</small></div></details>
-      <details><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>External enrichment review</strong><small>{suggestions.length} pending imported suggestion{suggestions.length === 1 ? "" : "s"}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
+      <details hidden={!visibleSetting("Enrichment queue", "integrations")}><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>Enrichment queue</strong><small>{missingEnrichmentCount === null ? "Checking barcode Items…" : missingEnrichmentCount ? `${missingEnrichmentCount} barcode Item${missingEnrichmentCount === 1 ? "" : "s"} missing enrichment` : "No barcode Items are missing enrichment"}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className={`enrichment-missing-card ${missingEnrichmentCount === 0 ? "complete" : ""}`}><span><Icon name={missingEnrichmentCount === 0 ? "check" : "qr"} size={21} /></span><div><strong>{missingEnrichmentCount ?? "—"}</strong><small>barcode Item{missingEnrichmentCount === 1 ? "" : "s"} missing enrichment</small></div></div><p className="panel-copy">Queue eligible barcode Items that Open Food Facts has not enriched yet, then process a small batch. Automatic maintenance handles this periodically.</p><div className="button-row"><button className="secondary" disabled={!missingEnrichmentCount} onClick={() => void perform(() => api.queueMissingEnrichment(), "Missing enrichment jobs queued")}>Queue missing</button><button className="primary" onClick={() => void perform(() => api.runEnrichment(), "Enrichment batch processed")}>Run batch now</button></div><small>Current provider: Open Food Facts.</small></div></details>
+      <details hidden={!visibleSetting("External enrichment review", "integrations")}><summary><span className="summary-icon"><Icon name="spark" /></span><span><strong>External enrichment review</strong><small>{suggestions.length} pending imported suggestion{suggestions.length === 1 ? "" : "s"}</small></span><Icon name="chevron" /></summary><div className="manage-panel">
         <p className="panel-copy">Export missing/weak metadata, let an external agent research it, import the response, then review patches before they change your inventory.</p>
         <div className="button-row"><button className="secondary" onClick={() => void perform(downloadEnrichmentExport, "Enrichment request downloaded")}>Export request JSON</button><label className="upload-import compact-upload"><strong>Import response JSON</strong><input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void readEnrichmentResponse(event.target.files[0])} /></label></div>
         {enrichmentFile !== null && <button className="primary wide" onClick={() => void perform(async () => { const result = await api.importEnrichmentResponse(enrichmentFile); setEnrichmentFile(null); await load(); return result; }, "Enrichment response imported")}>Validate and import suggestions</button>}
         <div className="suggestion-list">{suggestions.length === 0 && <div className="empty-inline"><span>No pending suggestions</span></div>}{suggestions.map((suggestion) => <article className="suggestion-row" key={suggestion.public_id}><div><strong>{suggestion.item_name}</strong><small>{suggestion.path} · {Math.round(suggestion.confidence * 100)}% confidence</small><code>{typeof suggestion.value === "object" ? JSON.stringify(suggestion.value) : String(suggestion.value)}</code>{suggestion.sources[0]?.url && <a href={suggestion.sources[0].url} target="_blank" rel="noreferrer">{suggestion.sources[0].label || "Source"}</a>}{suggestion.uncertainty && <em>{suggestion.uncertainty}</em>}</div><div><button className="primary" onClick={() => void perform(async () => { await api.acceptSuggestion(suggestion.public_id); await onInventoryChanged(); }, "Suggestion accepted")}>Accept</button><button onClick={() => void perform(() => api.rejectSuggestion(suggestion.public_id), "Suggestion rejected")}>Reject</button></div></article>)}</div>
       </div></details>
-      <SystemInfo system={system} diskFreePercent={diskFreePercent} setupHealth={setupHealth} onRefresh={() => void load()} />
+      <div hidden={!visibleSetting("System storage health version database", "system")}><SystemInfo system={system} diskFreePercent={diskFreePercent} setupHealth={setupHealth} onRefresh={() => void load()} /></div>
     </section>
   );
 }

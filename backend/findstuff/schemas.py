@@ -135,10 +135,17 @@ class InventoryDisplaySettingsUpdate(StrictModel):
 class ProjectCreate(StrictModel):
     name: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=4000)
+    status: Literal["planned", "active", "completed", "archived"] = "active"
+    notes: str = Field(default="", max_length=8000)
+    compatibility: list[str] = Field(default_factory=list, max_length=50)
 
 
 class ProjectStatusUpdate(StrictModel):
-    status: Literal["active", "completed", "archived"]
+    name: str = Field(default="", min_length=1, max_length=240)
+    description: str = Field(default="", max_length=4000)
+    status: Literal["planned", "active", "completed", "archived"] = "planned"
+    notes: str = Field(default="", max_length=8000)
+    compatibility: list[str] = Field(default_factory=list, max_length=50)
 
 
 class ReservationCreate(StrictModel):
@@ -258,6 +265,8 @@ class AIScanProposalPatch(StrictModel):
 
 
 class ItemBase(StrictModel):
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
+    compatibility: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
     name: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=4000)
     notes: str = Field(default="", max_length=8000)
@@ -298,6 +307,8 @@ class ItemCreate(ItemBase):
 
 
 class ItemPatch(StrictModel):
+    custom_fields: dict[str, Any] | None = None
+    compatibility: list[dict[str, Any]] | None = Field(default=None, max_length=100)
     name: str | None = Field(default=None, min_length=1, max_length=240)
     description: str | None = Field(default=None, max_length=4000)
     notes: str | None = Field(default=None, max_length=8000)

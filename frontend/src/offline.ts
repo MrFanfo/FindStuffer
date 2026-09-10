@@ -1,4 +1,4 @@
-import type { Bootstrap } from "./api";
+import { api, type Item, type Bootstrap } from "./api";
 
 export type OfflineCreateOperation = {
   id: string;
@@ -9,6 +9,9 @@ export type OfflineCreateOperation = {
   photo?: Blob;
   photoWidth?: number;
   photoHeight?: number;
+  item?: Item;
+  imageApplied?: boolean;
+  photoApplied?: boolean;
   error?: string;
 };
 
@@ -28,6 +31,7 @@ export type OfflineOperation = OfflineCreateOperation | OfflineAdjustOperation;
 
 const DATABASE_NAME = "findstuff-offline-v1";
 const QUEUE_STORE = "operations";
+const ENTITY_STORE = "items";
 const META_STORE = "metadata";
 const SNAPSHOT_KEY = "bootstrap";
 
@@ -37,9 +41,10 @@ function openDatabase(): Promise<IDBDatabase> {
       reject(new Error("Offline storage is unavailable in this browser"));
       return;
     }
-    const request = indexedDB.open(DATABASE_NAME, 1);
+    const request = indexedDB.open(DATABASE_NAME, 2);
     request.onupgradeneeded = () => {
       const database = request.result;
+      if (!database.objectStoreNames.contains(ENTITY_STORE)) database.createObjectStore(ENTITY_STORE, { keyPath: "public_id" });
       if (!database.objectStoreNames.contains(QUEUE_STORE)) {
         database.createObjectStore(QUEUE_STORE, { keyPath: "id" });
       }
@@ -61,9 +66,10 @@ async function transact<T>(
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(storeName, mode);
     const request = operation(transaction.objectStore(storeName));
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => undefined;
     request.onerror = () => reject(request.error || new Error("Offline storage failed"));
-    transaction.oncomplete = () => database.close();
+    transaction.oncomplete = () => { database.close(); resolve(request.result); };
+    transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Offline storage write was aborted")); };
     transaction.onerror = () => {
       database.close();
       reject(transaction.error || new Error("Offline storage transaction failed"));
@@ -101,22 +107,51 @@ export async function setOfflineOperationError(id: string, error: string): Promi
   if (operation) await putOfflineOperation({ ...operation, error });
 }
 
-export async function saveOfflineSnapshot(snapshot: Bootstrap): Promise<void> {
-  await transact(META_STORE, "readwrite", (store) => store.put({
-    key: SNAPSHOT_KEY,
-    value: snapshot,
-    savedAt: new Date().toISOString(),
-  }));
+export async function saveOfflineSnapshot(snapshot: Bootstrap, complete = false): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction([ENTITY_STORE, META_STORE], "readwrite");
+    const entities = tx.objectStore(ENTITY_STORE);
+    const metadata = tx.objectStore(META_STORE);
+    if (complete) entities.clear();
+    for (const item of snapshot.items) entities.put(item);
+    const existing = metadata.get(SNAPSHOT_KEY);
+    existing.onsuccess = () => {
+      // Migrate legacy snapshots without losing records on the first search.
+      for (const item of existing.result?.value?.items || []) if (!complete && !snapshot.items.some((entry) => entry.public_id === item.public_id)) entities.put(item);
+      metadata.put({ key: SNAPSHOT_KEY, value: { ...snapshot, items: [] },
+        savedAt: new Date().toISOString(), completeAt: complete ? new Date().toISOString() : existing.result?.completeAt || null });
+    };
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onerror = tx.onabort = () => { database.close(); reject(tx.error || new Error("Could not save offline inventory")); };
+  });
 }
 
-export async function loadOfflineSnapshot(): Promise<{
-  value: Bootstrap;
-  savedAt: string;
-} | null> {
-  const record = await transact<{ key: string; value: Bootstrap; savedAt: string } | undefined>(
-    META_STORE,
-    "readonly",
-    (store) => store.get(SNAPSHOT_KEY),
-  );
-  return record ? { value: record.value, savedAt: record.savedAt } : null;
+export async function loadOfflineSnapshot(): Promise<{ value: Bootstrap; savedAt: string; completeAt: string | null } | null> {
+  const record = await transact<{ value: Bootstrap; savedAt: string; completeAt?: string } | undefined>(META_STORE, "readonly", (store) => store.get(SNAPSHOT_KEY));
+  if (!record) return null;
+  const entities = await transact<Item[]>(ENTITY_STORE, "readonly", (store) => store.getAll());
+  const items = new Map((record.value.items || []).map((item) => [item.public_id, item]));
+  entities.forEach((item) => items.set(item.public_id, item));
+  return { value: { ...record.value, items: [...items.values()], items_next_cursor: null, items_has_more: false }, savedAt: record.savedAt, completeAt: record.completeAt || null };
 }
+
+export async function downloadOfflineInventory(progress: (count: number) => void): Promise<number> {
+  const snapshot = await api.bootstrap("", undefined, true);
+  const items = new Map(snapshot.items.map((item) => [item.public_id, item]));
+  let cursor = snapshot.items_next_cursor;
+  progress(items.size);
+  while (cursor) {
+    const page = await api.itemPage("", cursor, undefined, { includeZero: true });
+    page.items.forEach((item) => items.set(item.public_id, item));
+    cursor = page.next_cursor;
+    progress(items.size);
+  }
+  await saveOfflineSnapshot({ ...snapshot, items: [...items.values()], items_next_cursor: null, items_has_more: false }, true);
+  return items.size;
+}
+
+window.addEventListener("findstuff:item-removed", (event) => {
+  const id = (event as CustomEvent<string>).detail;
+  if (typeof id === "string") void transact(ENTITY_STORE, "readwrite", (store) => store.delete(id)).catch(() => undefined);
+});

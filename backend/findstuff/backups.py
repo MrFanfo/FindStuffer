@@ -124,9 +124,7 @@ def backup_status(output: Path | None = None) -> dict[str, Any]:
             if not path.is_dir() or path.name.startswith("."):
                 continue
             try:
-                completed.append(
-                    datetime.strptime(path.name, TIMESTAMP_FORMAT).replace(tzinfo=UTC)
-                )
+                completed.append(datetime.strptime(path.name, TIMESTAMP_FORMAT).replace(tzinfo=UTC))
             except ValueError:
                 continue
     completed.sort(reverse=True)
@@ -135,6 +133,9 @@ def backup_status(output: Path | None = None) -> dict[str, Any]:
         "last_backup_at": completed[0].isoformat() if completed else None,
         "backup_count": len(completed),
         "retention": settings.backup_keep,
+        "destination": str(backup_output),
+        "off_device_copy": "unverified",
+        "last_restore": restore_status(),
     }
 
 
@@ -233,12 +234,7 @@ def _restore_root() -> Path:
 def _safe_restore_member(info: zipfile.ZipInfo) -> PurePosixPath:
     name = info.filename.replace("\\", "/")
     path = PurePosixPath(name)
-    if (
-        not name
-        or path.is_absolute()
-        or ".." in path.parts
-        or any(not part for part in path.parts)
-    ):
+    if not name or path.is_absolute() or ".." in path.parts or any(not part for part in path.parts):
         raise ValueError("Backup contains an unsafe file path")
     file_type = (info.external_attr >> 16) & 0o170000
     if file_type and stat.S_ISLNK(file_type):
@@ -265,9 +261,7 @@ def _validate_restore_database(database_path: Path, stage: Path) -> dict[str, in
         }
         missing = sorted(REQUIRED_RESTORE_TABLES - tables)
         if missing:
-            raise ValueError(
-                f"Backup database is missing required tables: {', '.join(missing)}"
-            )
+            raise ValueError(f"Backup database is missing required tables: {', '.join(missing)}")
         for row in connection.execute("SELECT file_path, thumbnail_path FROM photos"):
             for value in row:
                 if not value:
@@ -297,12 +291,8 @@ def _validate_restore_database(database_path: Path, stage: Path) -> dict[str, in
                 document_count += 1
         return {
             "items": int(connection.execute("SELECT count(*) FROM items").fetchone()[0]),
-            "locations": int(
-                connection.execute("SELECT count(*) FROM locations").fetchone()[0]
-            ),
-            "categories": int(
-                connection.execute("SELECT count(*) FROM categories").fetchone()[0]
-            ),
+            "locations": int(connection.execute("SELECT count(*) FROM locations").fetchone()[0]),
+            "categories": int(connection.execute("SELECT count(*) FROM categories").fetchone()[0]),
             "photos": int(connection.execute("SELECT count(*) FROM photos").fetchone()[0]),
             "documents": document_count,
         }
@@ -312,7 +302,9 @@ def _validate_restore_database(database_path: Path, stage: Path) -> dict[str, in
         connection.close()
 
 
-def stage_backup_restore(archive_path: Path, original_name: str) -> dict[str, Any]:
+def stage_backup_restore(
+    archive_path: Path, original_name: str, *, preview: bool = False
+) -> dict[str, Any]:
     root = _restore_root()
     root.mkdir(parents=True, exist_ok=True)
     marker = root / RESTORE_MARKER
@@ -368,6 +360,15 @@ def stage_backup_restore(archive_path: Path, original_name: str) -> dict[str, An
         (stage / "photos").mkdir(exist_ok=True)
         (stage / "documents").mkdir(exist_ok=True)
         counts = _validate_restore_database(database_path, stage)
+        if preview:
+            shutil.rmtree(stage)
+            return {
+                "status": "validated",
+                "counts": counts,
+                "manifest": manifest,
+                "filename": Path(original_name).name[:240],
+                "size_bytes": archive_path.stat().st_size,
+            }
         queued_at = datetime.now(UTC).isoformat()
         request = {
             "stage_id": stage_id,
@@ -501,9 +502,7 @@ def apply_pending_restore() -> dict[str, Any] | None:
             "status": "complete",
             "message": "Full backup restored successfully",
             "counts": counts,
-            "safety_backup": str(
-                Path("backups") / "pre-restore" / safety_backup.name
-            ),
+            "safety_backup": str(Path("backups") / "pre-restore" / safety_backup.name),
         }
         _write_restore_status(**result)
         return result

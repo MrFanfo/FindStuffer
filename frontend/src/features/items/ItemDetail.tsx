@@ -1,3 +1,5 @@
+import { CategoryValueInputs } from "../../components/CategoryValueInputs";
+import { ItemStructuredData } from "./ItemStructuredData";
 import JsBarcode from "jsbarcode";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -139,6 +141,10 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   run: (action: () => Promise<unknown>, success: string, scope?: RefreshScope, options?: ActionOptions) => Promise<void>;
 }) {
   const photoRail = useRef<HTMLDivElement | null>(null);
+  const [storedCustomFields, setStoredCustomFields] = useState<Record<string, unknown>>(item.custom_fields || {});
+  const [customFieldEdits, setCustomFieldEdits] = useState<Record<string, unknown>>({});
+  const [saveError, setSaveError] = useState("");
+  const [savingDetails, setSavingDetails] = useState(false);
   const [editing, setEditing] = useState(false);
   const [detailTab, setDetailTab] = useState<"overview" | "details" | "activity" | "more">("overview");
   const [picker, setPicker] = useState<"move" | "category" | "editCategory" | null>(null);
@@ -163,6 +169,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
       value === null ? "" : String(value),
     ),
   );
+  const [extrasErrors, setExtrasErrors] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryEvent[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [documents, setDocuments] = useState<ItemDocument[]>([]);
@@ -192,6 +199,12 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   const detailCapabilities = capabilitiesForCategory(categories, item.category_id);
   const editCapabilities = capabilitiesForCategory(categories, category);
 
+  useEffect(() => {
+    if (!editing) return;
+    let current = true;
+    void api.item(item.public_id).then((record) => { if (current) setStoredCustomFields(record.custom_fields || {}); }).catch(() => { if (current) setSaveError("Could not refresh category properties; close and reopen the editor to retry."); });
+    return () => { current = false; };
+  }, [editing, item.public_id, item.version]);
   useEffect(() => {
     if (embedded && window.matchMedia("(min-width: 1100px)").matches) return;
     const scrollTop = window.scrollY;
@@ -263,26 +276,21 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   }, [related, relatedGroupMode]);
 
   const loadExtras = useCallback(async () => {
-    try {
-      const [detail, nextProjects, nextRules] = await Promise.all([api.itemDetail(item.public_id), api.projects(), api.locationRules()]);
-      setHistory(detail.history);
-      setPhotos(detail.photos);
-      setDocuments(detail.documents);
-      setEnrichment(detail.enrichment);
-      setLots(detail.lots);
-      setMaintenance(detail.maintenance);
-      setReservations(detail.reservations);
-      setRelated(detail.related);
-      setProjects(nextProjects);
-      setDefaultRules(nextRules);
-      setReservationProject((current) => (
-        current && nextProjects.some((project) => project.public_id === current && project.status === "active")
-          ? current
-          : nextProjects.find((project) => project.status === "active")?.public_id || ""
-      ));
-    } catch {
-      // The core item is already visible; keep the sheet usable if optional data fails.
+    const results = await Promise.allSettled([api.itemDetail(item.public_id), api.projects(), api.locationRules()]);
+    const [detailResult, projectResult, rulesResult] = results;
+    const names = ["Photos, documents and item history", "Projects", "Place defaults"];
+    setExtrasErrors(results.flatMap((result, index) => result.status === "rejected" ? [names[index]] : []));
+    if (detailResult.status === "fulfilled") {
+      const detail = detailResult.value;
+      setHistory(detail.history); setPhotos(detail.photos); setDocuments(detail.documents);
+      setEnrichment(detail.enrichment); setLots(detail.lots); setMaintenance(detail.maintenance);
+      setReservations(detail.reservations); setRelated(detail.related);
     }
+    if (projectResult.status === "fulfilled") {
+      setProjects(projectResult.value);
+      setReservationProject((current) => current || projectResult.value.find((project) => project.status === "active")?.public_id || "");
+    }
+    if (rulesResult.status === "fulfilled") setDefaultRules(rulesResult.value);
   }, [item.public_id]);
   useEffect(() => { void loadExtras(); }, [loadExtras]);
   useEffect(() => {
@@ -296,6 +304,8 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    setSaveError(""); setSavingDetails(true);
+    try {
     const updated = await api.updateItem(item, {
       name,
       description,
@@ -308,6 +318,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
       low_stock_threshold: threshold || null,
       fullness_percent: editCapabilities.fullness ? fullness : null,
       category_id: category ? Number(category) : null,
+      ...(Object.keys(customFieldEdits).length ? { custom_fields: customFieldEdits } : {}),
       purchase_price_minor: editCapabilities.price && purchasePrice ? Math.round(Number(purchasePrice) * 100) : null,
       purchase_currency: editCapabilities.price && purchasePrice ? "EUR" : null,
       estimated_price_minor: editCapabilities.price && estimatedPrice ? Math.round(Number(estimatedPrice) * 100) : null,
@@ -320,7 +331,9 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     });
     const tagged = await api.setTags(updated, tags.split(",").map((tag) => tag.trim()).filter(Boolean));
     await onChanged(tagged);
-    setEditing(false);
+    setEditing(false); setCustomFieldEdits({});
+    } catch (reason) { setSaveError(reason instanceof Error ? reason.message : "Could not save changes"); }
+    finally { setSavingDetails(false); }
   }
 
   async function upload(file: File) {
@@ -459,9 +472,10 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   return (
     <div className={embedded ? "embedded-item-detail item-detail-backdrop" : "modal-backdrop item-detail-backdrop"} role="dialog" aria-modal={desktopEmbedded ? undefined : "true"} aria-label={item.name} onMouseDown={(event) => { if (!desktopEmbedded && event.target === event.currentTarget) onClose(); }}>
       <article className="detail-sheet">
+        {extrasErrors.map((section) => <p className="error-banner" role="alert" key={section}>{section} could not load. <button onClick={() => void loadExtras()}>Retry</button></p>)}
         <div className="sheet-handle" aria-hidden="true" />
-        <header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div>{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}<h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /></div><button className="text-button" onClick={() => setEditing(!editing)}>{editing ? "Cancel" : "Edit"}</button></header>
-        {(detailCapabilities.photos || photos.length > 0) && <section className="detail-photo-hero" aria-label="Item photos">
+        <header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><strong className="detail-quantity-summary">{item.quantity} {item.unit}</strong>{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div>{editing && <button className="text-button" onClick={() => setEditing(false)}>Cancel editing</button>}</header>
+        {(detailCapabilities.photos || photos.length > 0) && <section className={`detail-photo-hero ${photos.length ? "" : "empty-photo"}`} aria-label="Item photos">
           <div className="detail-photo-rail" ref={photoRail}>
             {photos.map((photo, index) => <figure key={photo.public_id}><img src={photo.url} alt={`${item.name} photo ${index + 1}`} /><button aria-label={`Delete photo ${index + 1}`} onClick={() => run(() => api.deletePhoto(photo).then(loadExtras), "Photo removed")}><Icon name="close" size={15} /></button></figure>)}
             {detailCapabilities.photos && <label className="photo-add-tile"><Icon name="camera" size={28} /><span>{photos.length ? "Add photo" : "Add a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(event) => event.target.files?.[0] && void upload(event.target.files[0])} /></label>}
@@ -482,7 +496,9 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             {editCapabilities.links && <label>Links<textarea rows={3} value={linksValue} onChange={(event) => setLinksValue(event.target.value)} placeholder="Manual | https://example.com/manual.pdf" /></label>}
             {editCapabilities.price && <div className="form-row"><label>Purchase price (€)<input inputMode="decimal" value={purchasePrice} onChange={(event) => setPurchasePrice(event.target.value)} /></label><label>Current estimate (€)<input inputMode="decimal" value={estimatedPrice} onChange={(event) => setEstimatedPrice(event.target.value)} /></label></div>}
             {editCapabilities.specs && <><label>Weight (g)<input inputMode="numeric" value={weight} onChange={(event) => setWeight(event.target.value)} /></label><div className="form-row dimensions"><label>Length mm<input inputMode="numeric" value={dimensions[0]} onChange={(event) => setDimensions([event.target.value, dimensions[1], dimensions[2]])} /></label><label>Width mm<input inputMode="numeric" value={dimensions[1]} onChange={(event) => setDimensions([dimensions[0], event.target.value, dimensions[2]])} /></label><label>Height mm<input inputMode="numeric" value={dimensions[2]} onChange={(event) => setDimensions([dimensions[0], dimensions[1], event.target.value])} /></label></div></>}
-            <button className="primary wide" disabled={busy}>Save changes</button>
+            <CategoryValueInputs key={category} category={category} values={{ ...storedCustomFields, ...customFieldEdits }} onChange={(values) => setCustomFieldEdits(values)} />
+            {saveError && <p role="alert">{saveError}</p>}
+            <button className="primary wide" disabled={busy || savingDetails}>Save changes</button>
           </form>
         ) : (
           <>
@@ -497,6 +513,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             <div className="detail-tab-panel" hidden={detailTab !== "details"}>
             {showLinksData && <section className="detail-section"><div className="section-heading"><div><h2>Links</h2><span>{itemLinks.length ? `${itemLinks.length} saved` : "Manuals, datasheets, and references"}</span></div>{detailCapabilities.links && <button type="button" className="text-button" onClick={() => setEditing(true)}>{itemLinks.length ? "Edit" : "Add link"}</button>}</div>{itemLinks.length ? <div className="link-list">{itemLinks.map((link, index) => <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer"><Icon name="spark" size={14} /><span>{link.label}</span></a>)}</div> : <div className="empty-inline"><span>No links yet</span></div>}</section>}
             <DocumentSection item={item} documents={documents} onReload={loadExtras} onItemChanged={onChanged} notify={(message) => { void run(async () => undefined, message, "none"); }} />
+            <ItemStructuredData item={item} onChanged={onChanged} />
             {showReservationData && <section className="detail-section"><div className="section-heading"><div><h2>Reservations</h2><span>{reservations.length ? `${reservations.length} project hold${reservations.length === 1 ? "" : "s"}` : "No project holds yet"}</span></div></div><div className="reservation-list">{reservations.length === 0 && <div className="empty-inline"><span>Nothing reserved</span></div>}{reservations.map((reservation) => <div className="reservation" key={reservation.project_public_id}><span>{reservation.project_name}</span><small>{reservation.quantity} {reservation.unit} · {reservation.project_status}</small><button aria-label={`Remove ${reservation.project_name} reservation`} onClick={() => void removeReservation(reservation)}><Icon name="close" size={15} /></button></div>)}</div>{detailCapabilities.reservation && activeProjects.length > 0 && <form className="inline-lot-form" onSubmit={addReservation}><select value={reservationProject} onChange={(event) => setReservationProject(event.target.value)} aria-label="Project">{activeProjects.map((project) => <option key={project.public_id} value={project.public_id}>{project.name}</option>)}</select><input inputMode="decimal" value={reservationQuantity} onChange={(event) => setReservationQuantity(event.target.value)} aria-label="Reservation quantity" /><button className="secondary" disabled={!reservationProject || !reservationQuantity.trim()}>Reserve</button></form>}{detailCapabilities.reservation && activeProjects.length === 0 && <div className="empty-inline"><span>Create an active project to reserve this item</span></div>}</section>}
             {showBatchData && <section className="detail-section"><div className="section-heading"><div><h2>Expiration batches</h2><span>{lots.length ? `${lots.length} batch${lots.length === 1 ? "" : "es"}` : "Track multiple dates for one item"}</span></div></div><div className="lot-list">{lots.length === 0 && <div className="empty-inline"><span>No batches recorded</span></div>}{lots.map((lot) => <div className="lot-row" key={lot.public_id}><div><strong>{lot.quantity} {item.unit}</strong><small>{lot.expiration_date ? `Expires ${lot.expiration_date}` : "No expiration date"}</small>{lot.note && <em>{lot.note}</em>}</div><button aria-label="Remove batch" onClick={() => run(async () => { await api.deleteLot(item, lot); const refreshed = await api.item(item.public_id); await onChanged(refreshed); await loadExtras(); }, "Batch removed")}><Icon name="close" size={14} /></button></div>)}</div>{detailCapabilities.batches && <form className="inline-lot-form" onSubmit={addLot}><input inputMode="decimal" value={lotQuantity} onChange={(event) => setLotQuantity(event.target.value)} aria-label="Batch quantity" /><input type="date" value={lotExpiration} onChange={(event) => setLotExpiration(event.target.value)} aria-label="Batch expiration date" /><input value={lotNote} onChange={(event) => setLotNote(event.target.value)} placeholder="batch note" aria-label="Batch note" /><button className="secondary" disabled={!lotQuantity}>Add batch</button></form>}</section>}
             {showMaintenanceData && <section className="detail-section"><div className="section-heading"><div><h2>Maintenance</h2><span>{maintenance.length ? `${maintenance.length} recurring task${maintenance.length === 1 ? "" : "s"}` : "Optional schedules for tools and equipment"}</span></div></div><div className="maintenance-list">{maintenance.length === 0 && <div className="empty-inline"><span>No maintenance tasks</span></div>}{maintenance.map((task) => <article className={`maintenance-row ${new Date(`${task.next_due_at}T23:59:59`).getTime() < Date.now() ? "overdue" : ""}`} key={task.public_id}><div><strong>{task.title}</strong><small>Every {task.interval_days} days · next {task.next_due_at}</small>{task.notes && <p>{task.notes}</p>}</div><button className="secondary" onClick={() => run(async () => { await api.completeMaintenance(item, task); await loadExtras(); }, "Maintenance completed")}>Done</button></article>)}</div>{detailCapabilities.maintenance && <form className="maintenance-form" onSubmit={addMaintenance}><input required value={maintenanceTitle} onChange={(event) => setMaintenanceTitle(event.target.value)} placeholder="Lube rails" aria-label="Maintenance title" /><input inputMode="numeric" value={maintenanceInterval} onChange={(event) => setMaintenanceInterval(event.target.value)} aria-label="Interval days" /><input value={maintenanceNotes} onChange={(event) => setMaintenanceNotes(event.target.value)} placeholder="notes" aria-label="Maintenance notes" /><button className="secondary" disabled={!maintenanceTitle.trim()}>Add task</button></form>}</section>}

@@ -56,7 +56,7 @@ def _claim_operation(
     return None
 
 
-def apply_offline_operation(
+def _apply_offline_operation(
     connection: sqlite3.Connection,
     operation_id: str,
     kind: str,
@@ -71,28 +71,10 @@ def apply_offline_operation(
             tags = values.pop("tags", [])
             if not isinstance(tags, list):
                 raise ValueError("Offline item tags must be a list")
-            name = str(values.get("name") or "").strip()
-            category_id = values.get("category_id")
-            existing = connection.execute(
-                """
-                SELECT public_id
-                FROM items
-                WHERE archived_at IS NULL
-                  AND name = ? COLLATE NOCASE
-                  AND (
-                    (category_id IS NULL AND ? IS NULL)
-                    OR category_id = ?
-                  )
-                ORDER BY id DESC
-                LIMIT 1
-                """,
-                (name, category_id, category_id),
-            ).fetchone()
-            item = (
-                get_item(connection, existing["public_id"])
-                if existing
-                else create_item(connection, values, source="offline")
-            )
+            from .schemas import ItemCreate
+
+            values = ItemCreate.model_validate(values).model_dump()
+            item = create_item(connection, values, source="offline")
             if tags:
                 item = set_item_tags(
                     connection,
@@ -143,3 +125,15 @@ def apply_offline_operation(
         "status": "applied",
         "result": get_item(connection, result["public_id"]),
     }
+
+
+def apply_offline_operation(
+    connection: sqlite3.Connection,
+    operation_id: str,
+    kind: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    # Claim, inventory changes and replay result commit together. A crash cannot
+    # leave an applied change without its idempotency record.
+    with transaction(connection):
+        return _apply_offline_operation(connection, operation_id, kind, payload)

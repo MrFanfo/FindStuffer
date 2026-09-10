@@ -7,6 +7,8 @@ export function LoginView({
 }) {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -33,14 +35,16 @@ export function LoginView({
         <div className="brand-mark" aria-hidden="true">F</div>
         <p className="eyebrow">PRIVATE INVENTORY</p>
         <h1>Welcome to Findstuff</h1>
-        <p>Sign in once on this device. Your secure session stays available to the installed app for 90 days.</p>
+        <p>Sign in to your private inventory. This device stays signed in for up to 90 days.</p>
         <form className="form-card compact-form" onSubmit={submit}>
           <label>Username<input required autoCapitalize="none" autoCorrect="off" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-          <label>Password<input required autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          <label>Password<input required autoComplete="current-password" type={showPassword ? "text" : "password"} onKeyUp={(event) => setCapsLock(event.getModifierState("CapsLock"))} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          <button type="button" aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? "Hide password" : "Show password"}</button>
+          {capsLock && <p role="status">Caps Lock is on.</p>}
           {error && <div className="login-error" role="alert">{error}</div>}
           <button className="primary wide" disabled={submitting || !username.trim() || !password}>{submitting ? "Signing in…" : "Sign in"}</button>
         </form>
-        <small>The password stays on this device and is sent only to your Findstuff server. Use the private HTTPS address when signing in from a phone.</small>
+        <details><summary>Forgot your password?</summary><p>Ask the person who runs this Findstuff server to recover or reset the saved administrator password. A password saved by Findstuff takes priority over the initial setup password.</p></details><small>Use your private HTTPS address when signing in from another device.</small>
       </section>
     </main>
   );

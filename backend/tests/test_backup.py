@@ -174,9 +174,7 @@ def test_stored_backup_archive_rejects_invalid_ids(tmp_path: Path, monkeypatch) 
         stored_backup_archive("../secrets", tmp_path / "downloads")
 
 
-def test_full_backup_can_be_staged_and_restored_safely(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_full_backup_can_be_staged_and_restored_safely(tmp_path: Path, monkeypatch) -> None:
     data = tmp_path / "data"
     database_path = data / "findstuff.sqlite3"
     monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(data))
@@ -224,9 +222,7 @@ def test_full_backup_can_be_staged_and_restored_safely(
     assert json.loads(secrets_path.read_text(encoding="utf-8"))["ai_api_key"] == "keep-me"
 
 
-def test_restore_rejects_unsafe_or_non_findstuff_archives(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_restore_rejects_unsafe_or_non_findstuff_archives(tmp_path: Path, monkeypatch) -> None:
     data = tmp_path / "data"
     monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(data))
     monkeypatch.setenv("FINDSTUFF_DATABASE_PATH", str(data / "findstuff.sqlite3"))
@@ -252,3 +248,22 @@ def test_restore_rejects_unsafe_or_non_findstuff_archives(
         archive.writestr("findstuff.sqlite3", "not sqlite")
     with pytest.raises(ValueError, match="supported Findstuff"):
         stage_backup_restore(invalid, invalid.name)
+
+
+def test_restore_preview_never_queues_or_replaces_inventory(tmp_path: Path, monkeypatch) -> None:
+    data = tmp_path / "preview-data"
+    database_path = data / "findstuff.sqlite3"
+    monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(data))
+    monkeypatch.setenv("FINDSTUFF_DATABASE_PATH", str(database_path))
+    migrate(database_path)
+    connection = connect(database_path)
+    create_item(connection, {"name": "Original inventory"})
+    archive = backup_archive(tmp_path / "downloads")
+    result = stage_backup_restore(archive, "review.zip", preview=True)
+    assert result["status"] == "validated"
+    assert result["counts"]["items"] == 1
+    assert result["manifest"]["app"] == "findstuff"
+    assert apply_pending_restore() is None
+    assert connection.execute("SELECT name FROM items").fetchone()[0] == "Original inventory"
+    assert not list((data / ".restore").glob("*/findstuff.sqlite3"))
+    connection.close()

@@ -35,6 +35,15 @@ export type ImportBatch = {
 };
 
 export type ImportPreviewDetail = {
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  moved?: boolean;
+  validation_status?: "valid" | "warning" | "failed";
+  source_after?: Record<string, unknown>;
+  transferred_quantity?: string;
+  warnings?: string[];
+  table?: string;
+  row_index?: number;
   index: number;
   action: string;
   entity: string;
@@ -76,6 +85,7 @@ export type CategoryCapabilities = {
 };
 
 export type Item = {
+  custom_fields?: Record<string, unknown>;
   public_id: string;
   version: number;
   name: string;
@@ -189,6 +199,16 @@ export type ItemDocument = {
   updated_at: string;
 };
 
+export type ConsolidationPreview = { token: string; source: string; target: string; item_count: number; items: Array<{ public_id: string; name: string }>; source_rules: Array<{ public_id: string; match_value: string }>; categories_retained: number; target_defaults: { name: string } | null };
+export type HomePreferences = { pinned_places: string[]; favorite_categories: number[]; show_shopping: boolean };
+export type Attention = { ai_pending: number; reminders: Array<{ kind: string; item_id: string; item_name: string; title: string; due: string }> };
+export type BackupPreview = { filename: string; size_bytes: number; counts: Record<string, number>; manifest: { created_at: string; includes: string[] } };
+
+export type InventoryQueryOptions = {
+  filter?: string; sort?: string; location?: string; category_id?: string;
+  tag?: string; formula?: string; compatibility?: string;
+};
+
 export type ItemPage = {
   items: Item[];
   next_cursor: string | null;
@@ -196,6 +216,10 @@ export type ItemPage = {
 };
 
 export type HumanSearchResult = {
+  available_tags?: string[];
+  total: number;
+  next_cursor: string | null;
+  has_more: boolean;
   query: string;
   normalized_query: string;
   count: number;
@@ -224,6 +248,7 @@ export type BarcodeResult = {
   local?: boolean;
   warning?: string;
   existing_item?: Item | null;
+  existing_items?: Item[];
   mapped_category?: {
     id: number;
     name: string;
@@ -422,7 +447,7 @@ export type Project = {
   public_id: string;
   name: string;
   description: string;
-  status: "active" | "completed" | "archived";
+  status: "planned" | "active" | "completed" | "archived";
   reservations: Array<{
     item_public_id: string;
     item_name: string;
@@ -586,6 +611,9 @@ export type ApplicationSettings = {
       configured: boolean;
     };
     backup: {
+      destination?: string;
+      off_device_copy?: string;
+      last_restore?: { status: string; message?: string; completed_at?: string };
       enabled: boolean;
       last_backup_at: string | null;
       backup_count: number;
@@ -774,7 +802,7 @@ function shouldRetryRequest(error: unknown, method: string, attempt: number, sig
   return error.message === "Failed to fetch" || error.message.includes("timed out");
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const method = options?.method || "GET";
   const coalesceKey = method === "GET" && !options?.signal ? path : "";
   if (coalesceKey && inFlightGetRequests.has(coalesceKey)) {
@@ -805,7 +833,7 @@ async function doRequest<T>(path: string, options?: RequestInit): Promise<T> {
   let timedOut = false;
   const timeoutMs = path.startsWith("/api/v1/admin/restore")
     ? 30 * 60 * 1000
-    : 20000;
+    : path.startsWith("/api/v1/admin/import") ? 45000 : 20000;
   const timeout = window.setTimeout(() => {
     timedOut = true;
     controller.abort();
@@ -847,8 +875,8 @@ async function doRequest<T>(path: string, options?: RequestInit): Promise<T> {
     let message = `Request failed (${response.status})`;
     let diagnostic: AIConnectionDiagnostic | null = null;
     try {
-      const body = (await response.json()) as { detail?: string; diagnostic?: AIConnectionDiagnostic };
-      if (body.detail) message = body.detail;
+      const body = (await response.json()) as { detail?: string | { message?: string }; diagnostic?: AIConnectionDiagnostic };
+      if (body.detail) message = typeof body.detail === "string" ? body.detail : body.detail.message || message;
       if (body.diagnostic) diagnostic = body.diagnostic;
     } catch {
       // The status remains useful when the server did not return JSON.
@@ -870,8 +898,14 @@ export const api = {
   bootstrap: (query = "", options?: RequestInit, includeZero = false) =>
     request<Bootstrap>(`/api/v1/bootstrap?q=${encodeURIComponent(query)}&limit=250&include_zero=${includeZero ? "true" : "false"}`, options),
   dashboard: (options?: RequestInit) => request<Dashboard>("/api/v1/dashboard", options),
-  analytics: (days = 90) =>
-    request<Analytics>(`/api/v1/analytics?days=${encodeURIComponent(String(days))}`),
+  consolidationPreview: (source: string, target: string) => request<ConsolidationPreview>(`/api/v1/categories/consolidation-preview?source=${source}&target=${target}`),
+  consolidateCategories: (source: string, target: string, token: string) => request<{ updated: number }>(`/api/v1/categories/consolidate?source=${source}&target=${target}&token=${token}`, { method: "POST" }),
+  preferences: () => request<HomePreferences>("/api/v1/preferences"),
+  savePreferences: (values: Partial<HomePreferences>) => request<HomePreferences>("/api/v1/preferences", { method: "PATCH", body: JSON.stringify(values) }),
+  attention: () => request<Attention>("/api/v1/attention"),
+  previewBackup: (file: File) => request<BackupPreview>(`/api/v1/admin/restore?preview=true&filename=${encodeURIComponent(file.name)}`, { method: "POST", body: file, headers: { "Content-Type": "application/zip" } }),
+  analytics: (days = 90, includeImports = false) =>
+    request<Analytics>(`/api/v1/analytics?days=${encodeURIComponent(String(days))}&include_imports=${includeImports}`),
   syncOfflineOperation: (
     operationId: string,
     kind: "create_item" | "adjust_quantity",
@@ -958,9 +992,16 @@ export const api = {
     if (filters.archivedOnly) parameters.set("archived_only", "true");
     return request<ItemPage>(`/api/v1/items/page?${parameters.toString()}`, options);
   },
-  humanSearch: (query: string, includeZero = false) =>
+  inventoryQuery: (query: string, filters: InventoryQueryOptions, includeZero: boolean, cursor: string | null = null, options?: RequestInit) => {
+    const params = new URLSearchParams({ q: query, include_zero: String(includeZero), limit: "100" });
+    Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
+    if (cursor) params.set("cursor", cursor);
+    return request<HumanSearchResult>(`/api/v1/items/query?${params}`, options);
+  },
+  humanSearch: (query: string, includeZero = false, cursor: string | null = null, options?: RequestInit) =>
     request<HumanSearchResult>(
-      `/api/v1/search?q=${encodeURIComponent(query)}&include_zero=${includeZero ? "true" : "false"}`,
+      `/api/v1/search?q=${encodeURIComponent(query)}&include_zero=${includeZero}&cursor=${encodeURIComponent(cursor || "")}`,
+      options,
     ),
   searchAliases: () => request<SearchAlias[]>("/api/v1/search/aliases"),
   searchLearningCandidates: () =>
@@ -1365,11 +1406,11 @@ export const api = {
       body: JSON.stringify({ destination_public_id, expected_version: item.version }),
     }),
   archive: (item: Item) =>
-    request<void>(`/api/v1/items/${item.public_id}`, { method: "DELETE" }),
+    request<void>(`/api/v1/items/${item.public_id}`, { method: "DELETE" }).then(() => { window.dispatchEvent(new CustomEvent("findstuff:item-removed", { detail: item.public_id })); }),
   restoreItem: (publicId: string) =>
     request<Item>(`/api/v1/items/${publicId}/restore`, { method: "POST" }),
   hardDeleteItem: (item: Item) =>
-    request<void>(`/api/v1/items/${item.public_id}/permanent`, { method: "DELETE" }),
+    request<void>(`/api/v1/items/${item.public_id}/permanent`, { method: "DELETE" }).then(() => { window.dispatchEvent(new CustomEvent("findstuff:item-removed", { detail: item.public_id })); }),
 };
 
 export function flattenLocations(nodes: LocationNode[]): LocationNode[] {

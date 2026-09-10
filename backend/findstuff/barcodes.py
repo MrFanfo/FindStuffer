@@ -358,25 +358,10 @@ def local_product(connection: sqlite3.Connection, code: str) -> dict[str, Any] |
     )
 
 
-def existing_item_for_barcode(
-    connection: sqlite3.Connection, code: str
-) -> dict[str, Any] | None:
-    row = connection.execute(
-        """
-        SELECT items.public_id
-        FROM items
-        LEFT JOIN products ON products.id = items.product_id
-        WHERE items.archived_at IS NULL
-          AND (items.barcode_override = ? OR products.barcode = ?)
-        ORDER BY items.updated_at DESC, items.id DESC
-        LIMIT 1
-        """,
-        (code, code),
-    ).fetchone()
-    if row:
-        return get_item(connection, row["public_id"])
-    # Older scans may have stored an equivalent UPC/EAN without its padding zero.
-    for candidate in connection.execute(
+def existing_items_for_barcode(connection: sqlite3.Connection, code: str) -> list[dict[str, Any]]:
+    """Return every stock record, including equivalent UPC/EAN spellings."""
+    matches = []
+    for row in connection.execute(
         """
         SELECT items.public_id,
                COALESCE(NULLIF(items.barcode_override, ''), products.barcode) AS barcode
@@ -387,11 +372,16 @@ def existing_item_for_barcode(
         """
     ):
         try:
-            if normalize_barcode(candidate["barcode"]) == code:
-                return get_item(connection, candidate["public_id"])
+            if normalize_barcode(row["barcode"]) == code:
+                matches.append(get_item(connection, row["public_id"]))
         except ValueError:
             continue
-    return None
+    return matches
+
+
+def existing_item_for_barcode(connection: sqlite3.Connection, code: str) -> dict[str, Any] | None:
+    matches = existing_items_for_barcode(connection, code)
+    return matches[0] if len(matches) == 1 else None
 
 
 def suggest_location(
@@ -571,22 +561,29 @@ async def lookup_barcode(
     full: bool = False,
 ) -> dict[str, Any]:
     code = normalize_barcode(value)
-    existing_item = existing_item_for_barcode(connection, code)
+    existing_items = existing_items_for_barcode(connection, code)
+    existing_item = existing_items[0] if len(existing_items) == 1 else None
     if not refresh:
         local = local_product(connection, code)
         if local is not None:
-            return add_category_mapping(connection, {
-                "found": True,
-                "product": local,
-                "cached": True,
-                "local": True,
-                "existing_item": existing_item,
-                "suggested_location": suggest_location(connection, local),
-            }, observe=observe)
+            return add_category_mapping(
+                connection,
+                {
+                    "found": True,
+                    "product": local,
+                    "cached": True,
+                    "local": True,
+                    "existing_item": existing_item,
+                    "existing_items": existing_items,
+                    "suggested_location": suggest_location(connection, local),
+                },
+                observe=observe,
+            )
         cached = cached_result(connection, code)
         if cached is not None:
             cached["cached"] = True
             cached["existing_item"] = existing_item
+            cached["existing_items"] = existing_items
             cached["suggested_location"] = suggest_location(connection, cached.get("product"))
             return add_category_mapping(connection, cached, observe=observe)
     last_error: Exception | None = None
@@ -645,20 +642,30 @@ async def lookup_barcode(
     if result is None and last_error is not None and not saw_response:
         stale = stale_product(connection, code)
         if stale:
-            return add_category_mapping(connection, {
-                "found": True,
-                "product": stale,
-                "cached": True,
-                "warning": str(last_error),
-                "existing_item": existing_item,
-                "suggested_location": suggest_location(connection, stale),
-            }, observe=observe)
+            return add_category_mapping(
+                connection,
+                {
+                    "found": True,
+                    "product": stale,
+                    "cached": True,
+                    "warning": str(last_error),
+                    "existing_item": existing_item,
+                    "existing_items": existing_items,
+                    "suggested_location": suggest_location(connection, stale),
+                },
+                observe=observe,
+            )
         raise RuntimeError("Product lookup is temporarily unavailable") from last_error
     save_result(connection, code, result)
-    return add_category_mapping(connection, {
-        "found": result is not None,
-        "product": result,
-        "cached": False,
-        "existing_item": existing_item,
-        "suggested_location": suggest_location(connection, result),
-    }, observe=observe)
+    return add_category_mapping(
+        connection,
+        {
+            "found": result is not None,
+            "product": result,
+            "cached": False,
+            "existing_item": existing_item,
+            "existing_items": existing_items,
+            "suggested_location": suggest_location(connection, result),
+        },
+        observe=observe,
+    )

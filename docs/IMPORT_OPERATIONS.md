@@ -1,506 +1,223 @@
-# Import operations
+# Import operations and the AI template
 
-Findstuff operation files describe a list of inventory changes in JSON. They can
-add items, adjust quantities, move or update items, build category and location
-trees, or archive records. A single file can contain any mixture of these
-changes. Entries run in order, from the top of the `operations` array to the
-bottom.
+Open **More → Data → Chatbot operations template** to download the complete,
+current contract. It comes from the backend validators and contains an empty
+`operations` array, so the template itself creates nothing. Download a fresh
+copy after changing categories, places, custom fields, targets or projects.
 
-You can write an operation file yourself, but the easiest workflow is to
-download Findstuff's template and give it to ChatGPT or another chatbot. The
-template is both a machine-readable reference and a prompt: it explains the
-schema, lists every supported operation, includes examples, and contains the
-current categories, locations, location kinds, and units from your inventory.
+Give the template and your requested changes to your chatbot. Ask it to return
+only the completed JSON object, without Markdown fences or commentary. The
+contract includes current inventory identities and metadata; treat it as
+inventory data when sharing it externally.
 
-The operations workflow is for changing the current inventory. It is different
-from **Download JSON export**, which copies the inventory data for backup or
-migration.
+## Review and apply
 
-## Complete chatbot workflow
+1. Choose the returned JSON file in More → Data.
+2. Inspect the summary, each operation's status, destination category/place,
+   quantity, warnings and complete before/after details.
+3. Edit item fields directly, edit any operation or exported row as JSON, or
+   reject a line. Fix references to any rejected parent or other dependency.
+4. Save or discard every row draft, then select **Review changes again**.
+5. Select **Apply reviewed changes**. The importer revalidates against current
+   database state when applying, so intervening changes can still block it.
 
-### 1. Download a fresh template
+Version 2 is atomic: any failed operation rolls back the entire batch. Preview
+runs the same executor on a temporary database and never commits to inventory.
+Warnings allow commit; failures do not. Recent imports retain five undo
+snapshots; successful retry receipts persist beyond those snapshots.
 
-1. Open **Extra > Data**.
-2. Find the **Import** section.
-3. Select **Download operations template**.
-4. Findstuff downloads `findstuff-operations-template.json`.
-
-There is one combined template for all operation types. You do not need a
-different template for adding items, changing stock, moving items, or creating
-categories and locations.
-
-Download a new copy when your category, location, location-kind, or unit lists
-have changed. The `_available_*` sections are a snapshot taken when the file is
-downloaded. The template's root `operations` array is deliberately empty; the
-examples live under `instructions.operation_examples`, so importing an
-unchanged template cannot accidentally create example records.
-
-The template can reveal the names and hierarchy of your categories and
-locations. Treat it as inventory data when uploading it to an external chatbot.
-
-### 2. Give the template and your request to the chatbot
-
-Attach `findstuff-operations-template.json`, then explain the desired result in
-ordinary language. Be precise about quantities and about the existing item,
-category, or location to change.
-
-For example:
-
-> Follow the instructions in the attached Findstuff operations template.
-> Add 3 USB-C cables to Electronics > Cables in Studio > Drawer 2. Add 2 to
-> the quantity of the existing AA batteries, move the soldering iron to
-> Workshop > Tool wall, and create Workshop > Components > Connectors as a
-> category. Return only the completed JSON, with no Markdown or explanation.
-
-The downloaded file also contains a reusable prompt under
-`instructions.suggested_chatbot_prompt`. You can paste it into the conversation
-and replace its last line with your requested changes.
-
-For safer results:
-
-- Refer to full category and location paths, especially when names repeat.
-- Say whether a number is a new absolute quantity or an amount to add/remove.
-- Include a barcode or public ID when two items have the same name.
-- Ask the chatbot not to guess. Clarify ambiguous matches before generating the
-  file.
-- Request only JSON, without a Markdown code fence. If the chatbot displays a
-  code block, copy only the JSON inside it into a `.json` file.
-
-The chatbot should return a root object with `format` set to
-`findstuff-ops-v1` and an `operations` array. The instructional and
-`_available_*` fields may remain in the response; Findstuff ignores them during
-the import.
-
-### 3. Preview the chatbot's JSON
-
-1. Save or download the chatbot response with a `.json` extension.
-2. Return to **Extra > Data**.
-3. Under **Import data**, choose the response file.
-4. Wait for the preview.
-
-Preview does not change the live inventory. Findstuff makes a temporary copy of
-the current database, validates each operation, and simulates the complete file
-in order. This means a later operation can safely refer to a category or
-location created by an earlier operation in the same file.
-
-The preview shows:
-
-- counts for all operations, adds, modifications, deletions, categories,
-  locations, and items;
-- one dry-run result for each operation;
-- records that will be skipped because they already exist; and
-- errors such as an unknown path, ambiguous name, duplicate item, invalid
-  field, or unsafe deletion.
-
-**Merge into this inventory** stays disabled while preview errors exist. Copy
-the errors back to the chatbot, ask it to correct the JSON, save the corrected
-response, and preview it again. Always review the individual dry-run details,
-not only the totals.
-
-### 4. Merge the reviewed operations
-
-When the preview is clean and matches your request, select **Merge into this
-inventory**. Findstuff applies the operations in their listed order and refreshes
-the inventory.
-
-Adding a category or location that already exists under the same parent is
-skipped, so structure-seeding files can be run again. Adding an item with the
-same name and category is treated as a duplicate error; use `modify` with
-`add_quantity` or `remove_quantity` when the item already exists.
-
-If the live inventory changes between preview and merge, an operation can still
-fail. Findstuff reports every failed operation with its number, type, useful
-record label, and database reason, and continues with later operations where it
-can. Review any reported issues before assuming the entire request was applied.
-
-### 5. Undo or roll back an import
-
-Successful, tracked imports appear under **Recent imports**. Findstuff retains
-the latest five import records; when a sixth is created, the oldest undo record
-is removed automatically.
-
-Select **Undo** beside an import to reverse its tracked changes. Undo runs the
-recorded inverse operations in reverse order: imported additions are removed,
-updates are restored to their previous values, and archived records are
-restored. An import can be undone once.
-
-Undo is not a replacement for a full backup. Later manual edits or later imports
-can depend on the earlier changes and may prevent a clean undo—for example, a
-new item may now use a category that the older import created. When several
-imports depend on one another, undo the newest dependent import first. Use
-**Download full Backup** before a large or high-risk reorganization.
-
-## File shape
+## Envelope, retries and limits
 
 ```json
 {
   "format": "findstuff-ops-v1",
-  "operations": [
-    {
-      "op": "add",
-      "type": "location",
-      "data": {
-        "name": "Studio",
-        "kind": "room"
-      }
-    }
-  ]
+  "schema_version": 2,
+  "import_id": "unique-id-for-this-intended-batch",
+  "duplicate_policy": "error",
+  "ordering": "input",
+  "operations": []
 }
 ```
 
-Supported `op` values:
+The format marker remains `findstuff-ops-v1`; `schema_version` selects behavior.
+Unsupported versions are rejected. Explicit version 1 remains compatible with
+the historical partial-success behavior: completed operations remain applied,
+and results identify successful and failed operations. The UI promotes files
+with no version to version 2 when first reviewed; older API clients omitting the
+version retain legacy behavior. New templates always specify version 2.
 
-- `add`: create a record.
-- `modify`: update an existing record.
-- `delete`: remove/archive a record.
-- Aliases: `create`, `update`, `remove`, `archive`, and `deleted`.
+Keep `import_id` unchanged on retries. Missing IDs are derived from a SHA-256
+hash of semantic content. An identical retry returns the original result with
+`replayed: true`, without repeating any changes. Reusing an ID for different
+content fails. An undone receipt is marked `undone`; replay does not reapply it.
+Use a new ID only for deliberately new work, such as another stock delivery.
 
-Supported `type` values:
+Limits are 1,000 operations, 4 MiB of UTF-8 JSON and 32 levels of JSON nesting.
+The executor checks a 30-second budget between operations; an execution-budget
+failure rolls back version 2. The UI allows 45 seconds for import requests.
+Split 5,000 operations into separately reviewed batches. These are bounded
+synchronous jobs, without an asynchronous job queue; a single slow operation or
+waiting for SQLite's write lock can exceed the between-operation budget.
 
-- `location`
-- `category`
-- `item`
+JSON must have no comments, trailing commas, duplicate keys, NaN or Infinity.
+Unknown operation, data and matching fields are rejected. Documented template
+helpers (`_...`, `instructions`, `app_version`, `$defs`) are ignored. Do not
+include them in the generated changes file unless needed for your own records.
 
-For nested records, prefer full paths such as `Studio > Armadio > Anta sinistra`
-or `Electronics > Components > Resistors`. Names are accepted only when they
-match exactly one record.
+## Stock identity and duplicate policies
 
-## Matching
+Import add collisions compare active stock by:
 
-`modify` and `delete` operations need a `match` object.
+`trimmed name + category + physical location + trimmed serial number`
 
-Locations can be matched by:
+Name and serial matching use SQLite NOCASE, which is ASCII case-insensitive.
+Internal whitespace remains significant. A null category is a category value;
+Unassigned is a real system place. Different serials distinguish physical assets.
+Barcode describes a product and can be shared by stock at several places.
 
-- `public_id`
-- `location_public_id`
-- `path`
-- `name`
-- `location`
+**The same canonical name and category at two different places is valid.**
+Keep both named `PTFE Push-Fit Pneumatic Fittings`, for example, with quantity 3
+in Box A and quantity 14 in Box B. Never append place names to bypass uniqueness.
 
-Categories can be matched by:
+| Policy | Exact item-add collision |
+| --- | --- |
+| `error` (default) | Reject and report the conflicting record. |
+| `skip` | Validate the proposal, then leave existing stock unchanged. |
+| `merge_quantity` | Add the proposed quantity (default 1); retain existing identity and metadata. Units must agree. |
+| `replace` | Update only explicitly supplied fields on the existing record. Supplied quantity is absolute; omitted fields stay unchanged. |
 
-- `id`
-- `category_id`
-- `path`
-- `name`
-- `category`
+Policies apply per batch, against both existing inventory and earlier successful
+operations. They also govern move/split destination collisions, except that
+`replace` is disallowed for transfers. Category/place adds reuse same-parent
+identities. Explicit category metadata on add may update that category; use
+`modify` to change an existing place.
 
-Items can be matched by:
+Raw inventory exports preserve stock by `public_id`, including separately
+identified historical records with identical composite fields. The database
+retains those identities; it does not collapse records based on names. Manual
+captures likewise retain their own request identity rather than silently
+merging stock. Import duplicate policies are explicit decisions for operations.
 
-- `public_id`
-- `barcode`
-- `name`
+## Matching, references and dependencies
 
-If a name or barcode matches more than one item/location, the import fails
-instead of guessing.
+Prefer item `public_id`, then database-local numeric `id`, then exact barcode
+with category/place/serial qualifiers, then exact name with those qualifiers.
+Every supplied qualifier must agree. A name alone is allowed only when unique.
+Ambiguous matches list the candidates, including IDs, category, place and stock.
 
-## Locations
+Categories resolve by numeric ID, full path, or an unambiguous leaf name.
+Locations resolve by public ID, full path, or an unambiguous leaf name. Use one
+reference alias for each field. Full paths use ` > ` as the separator. There is
+no backslash escape for a literal `>` in a name: use an existing object's ID.
+For newly created separator-containing names, create the structure first and
+export its generated IDs before a second batch references them.
 
-Location operations can create, rename, move in the hierarchy, change type,
-change description, and delete empty locations.
+Repeated category/place names are valid under different immediate parents,
+even within the same larger tree. Same-parent duplicates and cycles are
+rejected. A room nested inside a box/drawer is unusual and produces a warning.
 
-Accepted location fields in `data`:
+Default `ordering: "input"` runs the array in order. Create parents before
+children, then fields/targets/projects before items and requirements using them.
+Earlier same-batch creations can be referenced by their exact names/full paths.
+Optional `ordering: "dependencies"` stably prioritizes structure additions and
+retries missing references after dependencies become available. Results retain
+original operation numbers and report `execution_order`. Unresolved or circular
+chains fail; the chatbot should still return correctly ordered operations.
 
-- `name`
-- `kind`
-- `description`
-- `parent_public_id`
-- `parent`
-- `parent_path`
-- `parent_name`
+## Item operations and quantity
 
-Examples:
+`add`, `modify`, `delete`, `move`, `split` and `merge` support items.
+`delete item` archives it. Prefer a stable ID for any destructive or stock action.
+
+- Quantities accept JSON numbers or decimal strings with at most three decimal
+  places. Absolute quantities and thresholds are nonnegative; zero is legal.
+- `add.quantity` is initial stock, defaulting to 1.
+- `modify.quantity` replaces stock. `quantity_delta` is signed;
+  `add_quantity` and `remove_quantity` are nonnegative amounts. Supply exactly
+  one quantity instruction. Stock cannot become negative.
+- Units are labels; changing a unit performs no numerical conversion.
+- On modify, omitted fields remain unchanged. Null is accepted only as
+  documented for the field. For item location, null/empty means Unassigned;
+  null category clears it. Empty text clears optional text, and `[]` clears
+  replacement collections such as tags, links and compatibility.
+- `custom_fields` is a patch map: omitted keys remain unchanged, `{}` preserves
+  existing values, and null is a value only for nullable definitions.
 
 ```json
 {
-  "format": "findstuff-ops-v1",
-  "operations": [
-    {
-      "op": "add",
-      "type": "location",
-      "data": { "name": "Studio", "kind": "room" }
-    },
-    {
-      "op": "add",
-      "type": "location",
-      "data": { "name": "Armadio", "kind": "cabinet", "parent": "Studio" }
-    },
-    {
-      "op": "modify",
-      "type": "location",
-      "match": { "path": "Studio > Armadio" },
-      "data": {
-        "name": "Armadio bianco",
-        "kind": "cabinet",
-        "description": "Main storage cabinet"
-      }
-    },
-    {
-      "op": "modify",
-      "type": "location",
-      "match": { "path": "Studio > Armadio bianco" },
-      "data": { "parent": "Soggiorno" }
-    },
-    {
-      "op": "delete",
-      "type": "location",
-      "match": { "path": "Soggiorno > Armadio bianco" }
-    }
-  ]
+  "op": "split",
+  "type": "item",
+  "match": {"public_id": "itm_REPLACE_WITH_REAL_ID"},
+  "data": {"location": "Workshop > Box B", "quantity": 5}
 }
 ```
 
-Delete rules:
+`move` with no quantity moves the whole record and retains its public ID,
+quantity and attachments when no destination collision exists. `split` requires
+positive quantity strictly below source stock; `move.quantity` may equal all
+stock. Partial transfers decrease source stock and create destination stock or
+merge into an exact destination under `merge_quantity`.
 
-- `unassigned` cannot be deleted or moved.
-- A location cannot be deleted while it contains child locations or active
-  items.
-- Move contained items/locations first, then delete.
+Split copies item fields, tags, custom values and explicit compatibility.
+Photos, documents, source lot metadata and other item relationships remain at
+source; preview warns about this. A full transfer into existing destination
+stock leaves the source record at zero. Full moves without collision retain
+all data on the original record.
 
-## Categories
+`merge` takes exactly one of `data.quantity` (a positive stock increment) or
+`data.source` (another exact item match). Record merge requires equal name,
+category, place, serial and unit. It transfers quantity, then zeros and archives
+the source; metadata and attachments remain on their respective records.
 
-Category operations can create, rename, move in the hierarchy, delete empty
-categories, and assign or clear a default location.
+## Hierarchy moves
 
-Accepted category fields in `data`:
+Modify a location's `parent`/`parent_public_id` to move its entire subtree to
+another root, drawer or container. All contained items keep their location IDs
+and quantities; paths and search indexes update. Modify a category's
+`parent`/`parent_id` to move its subtree in the same way. Null parent makes it a
+root. Self/descendant moves and same-parent name collisions fail.
 
-- `name`
-- `parent_id`
-- `parent`
-- `parent_path`
-- `parent_name`
-- `default_location`
-- `default_location_path`
-- `default_location_public_id`
-- `metadata_enabled`
+Use the parent selector when editing places/categories in the UI. Moving a
+category cannot detach an explicit field override from its ancestor or create
+unrelated inherited fields with the same key; adjust those definitions first.
 
-`metadata_enabled` is an optional object of `true`/`false` switches for
-`expiration`, `batches`, `maintenance`, `reservation`, `enrichment`, `photos`,
-`identity`, `specs`, `price`, `links`, and `shopping_list`. Use `{}` or `null`
-to clear a category-specific override and return to inherited/default behavior.
+## Projects, category fields and compatibility
 
-Category default locations are stored as category default-location rules. When a
-category is renamed or moved by an operation, an existing default-location rule
-that matched the old category path/name is carried to the new path. When a
-category is deleted by an operation, matching category default-location rules
-are removed.
+These four explicit entity types support `add`, `modify`, and `delete`:
 
-Examples:
+| Entity | Matching | Delete behavior |
+| --- | --- | --- |
+| `category_field` | Public ID or source category + key | Deactivate, retain values |
+| `compatibility_target` | Public ID, canonical name or alias | Deactivate, retain relationships |
+| `project` | Public ID or unambiguous name | Archive |
+| `project_requirement` | Public ID or project + name | Cancel |
 
-```json
-{
-  "format": "findstuff-ops-v1",
-  "operations": [
-    {
-      "op": "add",
-      "type": "category",
-      "data": { "name": "Electronics" }
-    },
-    {
-      "op": "add",
-      "type": "category",
-      "data": {
-        "name": "Cables",
-        "parent": "Electronics",
-        "default_location": "Studio > Armadio"
-      }
-    },
-    {
-      "op": "modify",
-      "type": "category",
-      "match": { "path": "Electronics > Cables" },
-      "data": {
-        "name": "USB cables",
-        "parent": "Electronics",
-        "default_location": "Studio > Armadio > Anta sinistra"
-      }
-    },
-    {
-      "op": "modify",
-      "type": "category",
-      "match": { "path": "Electronics > USB cables" },
-      "data": { "default_location": null }
-    },
-    {
-      "op": "delete",
-      "type": "category",
-      "match": { "path": "Electronics > USB cables" }
-    }
-  ]
-}
-```
+The generated template contains complete fields, enums, defaults, null behavior,
+constraints, references, examples and current definitions for all four. See
+[Projects and structured inventory](PROJECTS_AND_METADATA.md) for their exact
+quantity and inheritance rules.
 
-Delete rules:
+## Validation, audit and recovery
 
-- A category cannot be deleted while it contains child categories or active
-  items.
-- Move items and subcategories first, then delete.
+Each preview result has an operation number, action/status, validation status
+(`valid`, `warning`, `failed`), message, before/after values and warnings.
+Summary counts include created places/categories/items, moved items, merges,
+replacements, skips and warnings. New entity changes are counted too.
 
-## Items
+Structured validation errors include `operation_index`, `error_code`, `field`
+and `conflicting_item_id` when applicable. Collisions include the full conflicting
+object and an earlier operation number if the collision arose within this
+batch. Pydantic field errors distinguish missing values, type failures, invalid
+enums and range failures. Semantic errors identify missing references, cycles,
+ambiguity or a failed field-definition migration with affected item IDs.
 
-Item operations can add, modify, archive, assign location, assign category,
-change quantity/unit, update tags, and change normal item metadata.
+Committed version 2 changes record import provenance for affected objects.
+`GET /api/v1/items/{public_id}/import-provenance` returns recent item changes.
+Undo is atomic and retains the retry receipt. Review undo carefully after
+making subsequent edits to the same records; it restores the saved snapshots.
 
-Accepted item fields in `data`:
-
-- `name`
-- `description`
-- `notes`
-- `category_id`
-- `category`
-- `category_path`
-- `category_name`
-- `location_public_id`
-- `location`
-- `location_path`
-- `location_name`
-- `quantity`
-- `quantity_delta`
-- `add_quantity`
-- `remove_quantity`
-- `unit`
-- `purchase_price_minor`
-- `purchase_currency`
-- `estimated_price_minor`
-- `estimated_price_currency`
-- `weight_g`
-- `length_mm`
-- `width_mm`
-- `height_mm`
-- `serial_number`
-- `model`
-- `brand`
-- `expiration_date`
-- `low_stock_threshold`
-- `barcode`
-- `tags`
-- `links`
-
-Notes:
-
-- `quantity` and `low_stock_threshold` can be strings or numbers, with up to
-  three decimal places.
-- On `modify`, `quantity` replaces the current quantity. `add_quantity` adds a
-  positive amount and `remove_quantity` subtracts a positive amount.
-  `quantity_delta` is the signed equivalent. If a delta is supplied, it takes
-  precedence over an absolute `quantity` in the same operation.
-- Currency fields must be three-letter codes such as `EUR` or `USD`.
-- Price fields are minor units: cents for EUR/USD.
-- `expiration_date` uses `YYYY-MM-DD`.
-- `tags` replaces the item tag list when supplied.
-- `links` replaces the saved link list and must contain objects with `label` and
-  `url`.
-- `delete` archives an item. It does not permanently delete the item record.
-
-Examples:
-
-```json
-{
-  "format": "findstuff-ops-v1",
-  "operations": [
-    {
-      "op": "add",
-      "type": "item",
-      "data": {
-        "name": "ESP32-C3 board",
-        "location": "Studio > Armadio > Anta sinistra > Scaffale 1",
-        "category": "Electronics > Boards",
-        "quantity": "3",
-        "unit": "pcs",
-        "brand": "Espressif",
-        "model": "ESP32-C3",
-        "purchase_price_minor": 650,
-        "purchase_currency": "EUR",
-        "low_stock_threshold": "1",
-        "tags": ["electronics", "wifi", "microcontroller"]
-      }
-    },
-    {
-      "op": "modify",
-      "type": "item",
-      "match": { "name": "ESP32-C3 board" },
-      "data": {
-        "quantity": "5",
-        "location": "Studio > Cassettiera sinistra > Cassetto 2",
-        "category": "Electronics > Boards",
-        "notes": "Moved after restock",
-        "tags": ["electronics", "restocked"]
-      }
-    },
-    {
-      "op": "add",
-      "type": "item",
-      "data": {
-        "name": "San Benedetto frizzante",
-        "barcode": "8023263000534",
-        "brand": "San Benedetto",
-        "category": "Groceries",
-        "location": "Cucina",
-        "quantity": "6",
-        "unit": "bottle",
-        "expiration_date": "2026-12-31"
-      }
-    },
-    {
-      "op": "delete",
-      "type": "item",
-      "match": { "barcode": "8023263000534" }
-    }
-  ]
-}
-```
-
-## Full mixed example
-
-```json
-{
-  "format": "findstuff-ops-v1",
-  "operations": [
-    { "op": "add", "type": "location", "data": { "name": "Studio", "kind": "room" } },
-    { "op": "add", "type": "location", "data": { "name": "Armadio", "kind": "cabinet", "parent": "Studio" } },
-    { "op": "add", "type": "location", "data": { "name": "Scaffale 1", "kind": "shelf", "parent": "Studio > Armadio" } },
-
-    { "op": "add", "type": "category", "data": { "name": "Electronics" } },
-    {
-      "op": "add",
-      "type": "category",
-      "data": {
-        "name": "Boards",
-        "parent": "Electronics",
-        "default_location": "Studio > Armadio > Scaffale 1"
-      }
-    },
-
-    {
-      "op": "add",
-      "type": "item",
-      "data": {
-        "name": "Arduino Nano clone",
-        "category": "Electronics > Boards",
-        "location": "Studio > Armadio > Scaffale 1",
-        "quantity": "4",
-        "unit": "pcs",
-        "brand": "Generic",
-        "tags": ["arduino", "board"]
-      }
-    },
-    {
-      "op": "modify",
-      "type": "location",
-      "match": { "path": "Studio > Armadio > Scaffale 1" },
-      "data": { "name": "Scaffale schede" }
-    },
-    {
-      "op": "modify",
-      "type": "item",
-      "match": { "name": "Arduino Nano clone" },
-      "data": { "location": "Studio > Armadio > Scaffale schede" }
-    }
-  ]
-}
-```
-
-## Ready-made location seed
-
-`home-locations.findstuff.json` contains the Italian home/STUDIO location tree.
-Import it from **Extra > Data > Import** and merge after preview.
+Portable JSON exports include the new relational tables and remap references
+by stable identities when merged. Existing local metadata is retained and
+missing relationships/values are filled in. Full ZIP backups include the whole
+database, photos and documents. Data can validate a ZIP's integrity and media
+references without restoring it; restore remains an explicit replacement action.

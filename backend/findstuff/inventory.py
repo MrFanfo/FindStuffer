@@ -916,7 +916,7 @@ def rebuild_search_index(connection: sqlite3.Connection) -> None:
         reindex_item(connection, item["id"])
 
 
-def create_item(
+def _create_item(
     connection: sqlite3.Connection, values: dict[str, Any], *, source: str = "manual"
 ) -> dict[str, Any]:
     location = get_location_row(connection, values.pop("location_public_id", "unassigned"))
@@ -1027,7 +1027,12 @@ def create_item(
 
 
 def get_item(connection: sqlite3.Connection, public_id: str) -> dict[str, Any]:
-    return serialize_item(connection, get_item_row(connection, public_id))
+    from .extensions import item_extensions
+
+    return {
+        **serialize_item(connection, get_item_row(connection, public_id)),
+        **item_extensions(connection, public_id),
+    }
 
 
 def _fts_expression(query: str) -> str:
@@ -1182,7 +1187,7 @@ def list_items_page(
     }
 
 
-def update_item(
+def _update_item(
     connection: sqlite3.Connection,
     public_id: str,
     changes: dict[str, Any],
@@ -1216,9 +1221,7 @@ def update_item(
     }
     unknown_fields = set(changes) - allowed_fields - {"expected_version"}
     if unknown_fields:
-        raise ValueError(
-            "Unsupported item update field(s): " + ", ".join(sorted(unknown_fields))
-        )
+        raise ValueError("Unsupported item update field(s): " + ", ".join(sorted(unknown_fields)))
     row = get_item_row(connection, public_id)
     expected_version = changes.pop("expected_version")
     if row["version"] != expected_version:
@@ -1981,7 +1984,7 @@ def create_category(
     )
 
 
-def update_category(
+def _update_category(
     connection: sqlite3.Connection, category_id: int, changes: dict[str, Any]
 ) -> dict[str, Any]:
     row = get_category_row(connection, category_id)
@@ -2604,7 +2607,9 @@ def dashboard(connection: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
+def analytics(
+    connection: sqlite3.Connection, days: int = 90, *, include_imports: bool = True
+) -> dict[str, Any]:
     safe_days = max(7, min(int(days), 3650))
     item_rows = connection.execute(
         ITEM_SELECT + " WHERE items.archived_at IS NULL ORDER BY items.id"
@@ -2707,9 +2712,10 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
             missing_photo += 1
         if item.get("description") or item.get("notes"):
             completeness_counts["details"] += 1
-        if item.get("purchase_price_minor") is not None or item.get(
-            "estimated_price_minor"
-        ) is not None:
+        if (
+            item.get("purchase_price_minor") is not None
+            or item.get("estimated_price_minor") is not None
+        ):
             priced_items += 1
         created_on = date.fromisoformat(str(item["created_at"])[:10])
         age_days = (today - created_on).days
@@ -2743,11 +2749,14 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
                sum(CASE WHEN quantity_delta_milli < 0 THEN 1 ELSE 0 END) AS quantity_out,
                sum(CASE WHEN action = 'move' THEN 1 ELSE 0 END) AS moved
         FROM inventory_events
-        WHERE date(created_at) >= ?
+        WHERE (? OR COALESCE(source, '') NOT LIKE '%import%') AND date(created_at) >= ?
         GROUP BY date(created_at)
         ORDER BY day
         """,
-        (start.isoformat(),),
+        (
+            include_imports,
+            start.isoformat(),
+        ),
     ).fetchall()
     activity_by_day = {row["day"]: row for row in activity_rows}
     activity = [
@@ -2768,9 +2777,10 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
         connection.execute(
             """
             SELECT count(*) FROM inventory_events
-            WHERE date(created_at) >= ? AND date(created_at) < ?
+            WHERE (? OR COALESCE(source, '') NOT LIKE '%import%')
+              AND date(created_at) >= ? AND date(created_at) < ?
             """,
-            (prior_start.isoformat(), start.isoformat()),
+            (include_imports, prior_start.isoformat(), start.isoformat()),
         ).fetchone()[0]
     )
     busiest = max(activity, key=lambda entry: entry["changes"], default=None)
@@ -2785,11 +2795,14 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
                END AS action_group,
                count(*) AS event_count
         FROM inventory_events
-        WHERE date(created_at) >= ?
+        WHERE (? OR COALESCE(source, '') NOT LIKE '%import%') AND date(created_at) >= ?
         GROUP BY action_group
         ORDER BY event_count DESC, action_group
         """,
-        (start.isoformat(),),
+        (
+            include_imports,
+            start.isoformat(),
+        ),
     ).fetchall()
     action_labels = {
         "created": "Items created",
@@ -2802,12 +2815,15 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
         """
         SELECT source, count(*) AS event_count
         FROM inventory_events
-        WHERE date(created_at) >= ?
+        WHERE (? OR COALESCE(source, '') NOT LIKE '%import%') AND date(created_at) >= ?
         GROUP BY source
         ORDER BY event_count DESC, source COLLATE NOCASE
         LIMIT 8
         """,
-        (start.isoformat(),),
+        (
+            include_imports,
+            start.isoformat(),
+        ),
     ).fetchall()
     source_names = [str(row["source"] or "unknown") for row in source_rows]
     source_activity: list[dict[str, Any]] = []
@@ -2824,12 +2840,12 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
                 SELECT date(created_at) AS day, COALESCE(source, 'unknown') AS source,
                        count(*) AS event_count
                 FROM inventory_events
-                WHERE date(created_at) >= ?
+                WHERE (? OR COALESCE(source, '') NOT LIKE '%import%') AND date(created_at) >= ?
                   AND COALESCE(source, 'unknown') IN ({source_placeholders})
                 GROUP BY day, COALESCE(source, 'unknown')
                 ORDER BY day, source
                 """,
-                (start.isoformat(), *source_names),
+                (include_imports, start.isoformat(), *source_names),
             )
         ]
     consumed = connection.execute(
@@ -2838,13 +2854,17 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
                -sum(inventory_events.quantity_delta_milli) AS consumed_milli
         FROM inventory_events
         JOIN items ON items.id = inventory_events.item_id
-        WHERE inventory_events.quantity_delta_milli < 0
+        WHERE (? OR COALESCE(inventory_events.source, '') NOT LIKE '%import%')
+          AND inventory_events.quantity_delta_milli < 0
           AND date(inventory_events.created_at) >= ?
         GROUP BY items.id
         ORDER BY consumed_milli DESC, items.name COLLATE NOCASE
         LIMIT 8
         """,
-        (start.isoformat(),),
+        (
+            include_imports,
+            start.isoformat(),
+        ),
     ).fetchall()
     changed = connection.execute(
         """
@@ -2852,12 +2872,16 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
                max(inventory_events.created_at) AS last_changed_at
         FROM inventory_events
         JOIN items ON items.id = inventory_events.item_id
-        WHERE date(inventory_events.created_at) >= ?
+        WHERE (? OR COALESCE(inventory_events.source, '') NOT LIKE '%import%')
+          AND date(inventory_events.created_at) >= ?
         GROUP BY items.id
         ORDER BY event_count DESC, last_changed_at DESC, items.name COLLATE NOCASE
         LIMIT 8
         """,
-        (start.isoformat(),),
+        (
+            include_imports,
+            start.isoformat(),
+        ),
     ).fetchall()
     item_count = len(items)
     completeness = [
@@ -2866,9 +2890,7 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
             "label": label,
             "complete": completeness_counts[key],
             "total": item_count,
-            "percent": round(completeness_counts[key] / item_count * 100)
-            if item_count
-            else 100,
+            "percent": round(completeness_counts[key] / item_count * 100) if item_count else 100,
         }
         for key, label in (
             ("location", "Assigned to a place"),
@@ -2915,10 +2937,7 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
             "busiest_day": busiest["date"] if busiest and busiest["changes"] else None,
             "busiest_day_events": busiest["changes"] if busiest else 0,
         },
-        "values": [
-            {"currency": currency, **totals}
-            for currency, totals in sorted(values.items())
-        ],
+        "values": [{"currency": currency, **totals} for currency, totals in sorted(values.items())],
         "categories": [
             {"category_id": category_id, "label": label, "item_count": count}
             for (category_id, label), count in sorted(
@@ -2954,18 +2973,11 @@ def analytics(connection: sqlite3.Connection, days: int = 90) -> dict[str, Any]:
             for row in source_rows
         ],
         "source_activity": source_activity,
-        "stock": [
-            {"label": label, "count": count}
-            for label, count in stock_counts.items()
-        ],
-        "inventory_age": [
-            {"label": label, "count": count}
-            for label, count in age_counts.items()
-        ],
+        "stock": [{"label": label, "count": count} for label, count in stock_counts.items()],
+        "inventory_age": [{"label": label, "count": count} for label, count in age_counts.items()],
         "completeness": completeness,
         "expiration": [
-            {"label": label, "count": count}
-            for label, count in expiration_counts.items()
+            {"label": label, "count": count} for label, count in expiration_counts.items()
         ],
         "top_consumed": [
             {
@@ -2995,3 +3007,59 @@ def expiring_items(connection: sqlite3.Connection, days: int = 14) -> list[dict[
         for item in list_items(connection, limit=250)
         if item["expiration_date"] and item["expiration_date"] <= horizon.isoformat()
     ]
+
+
+def create_item(connection, values, *, source="manual"):
+    from .compatibility import set_item_compatibility
+    from .custom_fields import set_item_values
+
+    values = dict(values)
+    fields = values.pop("custom_fields", {})
+    compatibility = values.pop("compatibility", [])
+    with transaction(connection):
+        item = _create_item(connection, values, source=source)
+        row = get_item_row(connection, item["public_id"])
+        set_item_values(connection, row["id"], row["category_id"], fields, enforce_required=True)
+        set_item_compatibility(connection, row["id"], compatibility)
+        return get_item(connection, item["public_id"])
+
+
+def update_item(connection, public_id, changes, *, source="manual"):
+    from .compatibility import set_item_compatibility
+    from .custom_fields import set_item_values
+
+    changes = dict(changes)
+    marker = object()
+    fields = changes.pop("custom_fields", marker)
+    compatibility = changes.pop("compatibility", marker)
+    with transaction(connection):
+        row = get_item_row(connection, public_id)
+        if (
+            fields is not marker
+            or "category_id" in changes
+            and changes["category_id"] != row["category_id"]
+        ):
+            set_item_values(
+                connection,
+                row["id"],
+                changes.get("category_id", row["category_id"]),
+                fields if fields is not marker else {},
+                enforce_required=source != "import_undo",
+            )
+        if compatibility is not marker:
+            set_item_compatibility(connection, row["id"], compatibility)
+        if len(changes) == 1 and (fields is not marker or compatibility is not marker):
+            changes["notes"] = row[
+                "notes"
+            ]  # Metadata-only writes still advance optimistic version.
+        _update_item(connection, public_id, changes, source=source)
+        return get_item(connection, public_id)
+
+
+def update_category(connection, category_id, changes):
+    from .custom_fields import validate_field_tree
+
+    with transaction(connection):
+        result = _update_category(connection, category_id, changes)
+        validate_field_tree(connection)
+        return result

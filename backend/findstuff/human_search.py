@@ -6,7 +6,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from .db import transaction
-from .inventory import list_items, new_public_id
+from .inventory import new_public_id
 
 BUILTIN_SYNONYMS = {
     "screwdriver": ("driver", "phillips driver", "flathead driver"),
@@ -70,53 +70,17 @@ def human_search(
     *,
     include_zero: bool = False,
     limit: int = 100,
+    cursor: str | None = None,
 ) -> dict[str, Any]:
+    from .inventory_query import query_inventory
+
+    result = query_inventory(
+        connection, query=query, include_zero=include_zero, limit=limit, cursor=cursor
+    )
+    if cursor:
+        return result
     normalized = normalize_query(query)
-    variants, aliases = _variants(connection, query)
-    results: dict[str, dict[str, Any]] = {}
-    matched_by: list[str] = []
-    for alias in aliases:
-        if alias["target_type"] == "item" and alias["target_public_id"]:
-            rows = list_items(connection, include_zero=include_zero, limit=1000)
-            for item in rows:
-                if item["public_id"] == alias["target_public_id"]:
-                    results[item["public_id"]] = item
-                    matched_by.append("item alias")
-        elif alias["target_type"] == "location" and alias["target_public_id"]:
-            for item in list_items(
-                connection,
-                location_public_id=alias["target_public_id"],
-                include_zero=include_zero,
-                limit=limit,
-            ):
-                results[item["public_id"]] = item
-            matched_by.append("place alias")
-    for variant in variants:
-        try:
-            found = list_items(
-                connection, query=variant, include_zero=include_zero, limit=limit
-            )
-        except sqlite3.OperationalError:
-            found = []
-        for item in found:
-            results[item["public_id"]] = item
-        if found and variant != normalized:
-            matched_by.append(f"related term: {variant}")
-    fuzzy = False
-    if not results and normalized:
-        candidates = list_items(connection, include_zero=include_zero, limit=2000)
-        ranked = sorted(
-            ((_fuzzy_score(normalized, item), item) for item in candidates),
-            key=lambda value: (-value[0], value[1]["name"].casefold()),
-        )
-        for score, item in ranked:
-            if score < 0.46 or len(results) >= limit:
-                break
-            results[item["public_id"]] = item
-        fuzzy = bool(results)
-        if fuzzy:
-            matched_by.append("typo-tolerant match")
-    items = list(results.values())[: max(1, min(limit, 250))]
+    _, aliases = _variants(connection, query)
     with transaction(connection):
         dismissed = connection.execute(
             "SELECT 1 FROM dismissed_search_observations WHERE normalized_query = ?",
@@ -134,7 +98,7 @@ def human_search(
                     search_count = search_count + 1,
                     last_searched_at = CURRENT_TIMESTAMP
                 """,
-                (normalized, query[:300], len(items)),
+                (normalized, query[:300], result["total"]),
             )
         if aliases:
             connection.executemany(
@@ -142,16 +106,7 @@ def human_search(
                 "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 [(row["id"],) for row in aliases],
             )
-    return {
-        "query": query,
-        "normalized_query": normalized,
-        "count": len(items),
-        "items": items,
-        "matched_by": list(dict.fromkeys(matched_by)),
-        "fuzzy": fuzzy,
-        "can_add": not items,
-        "can_mark_lost": not items,
-    }
+    return result
 
 
 def list_aliases(connection: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -239,8 +194,6 @@ def save_alias(connection: sqlite3.Connection, values: dict[str, Any]) -> dict[s
 
 def delete_alias(connection: sqlite3.Connection, public_id: str) -> None:
     with transaction(connection):
-        cursor = connection.execute(
-            "DELETE FROM search_aliases WHERE public_id = ?", (public_id,)
-        )
+        cursor = connection.execute("DELETE FROM search_aliases WHERE public_id = ?", (public_id,))
     if cursor.rowcount != 1:
         raise ValueError("Search alias not found")

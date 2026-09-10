@@ -1,0 +1,23 @@
+import { api, request, type Item } from './api';
+
+export type CompatibilityTarget = { public_id: string; name: string; manufacturer: string; model: string; type: string; aliases: string[]; parent: string | null; active: boolean };
+export type CompatibilityRelation = { target: string; target_name?: string; status: string; notes: string; source_url: string; adapter: string; active?: boolean };
+export type CompatibilityResult = { target?: string; status: string; inherited: boolean; source_name?: string; notes?: string };
+export type CategoryField = { public_id: string; value_field_id: string; category: number; key: string; label: string; description: string; type: string; required: boolean; nullable: boolean; default: unknown; allowed_values: string[]; constraints: Record<string, unknown>; unit: string; sort_order: number; active: boolean; inherited: boolean; retained?: boolean; overrides: string | null; source_category_path: string; affected_items: number };
+export type Requirement = { public_id: string; project: string; name: string; item: string | null; item_name: string | null; category: number | null; required_quantity: string; inventory_quantity: string; inventory_quantity_available: string; acquired_quantity: string; purchased_quantity: string; missing_quantity: string; to_buy_quantity: string; unit: string; reserve: boolean; notes: string; status: string; satisfied: boolean; version: number; compatibility: string[]; compatibility_results: CompatibilityResult[]; warnings: string[] };
+export type PlanningProject = { public_id: string; name: string; description: string; notes: string; status: string; compatibility: string[]; requirements: Requirement[]; warnings: string[]; progress: { percent: number; total_lines: number; completed_lines: number; missing_lines: number; quantities_by_unit: Record<string, { required: string; covered: string }> } };
+export type ItemExtensions = { projects?: Array<{ public_id: string; name: string; status: string; requirement_public_id: string; requirement_name: string }>; custom_fields: Record<string, unknown>; field_definitions: CategoryField[]; compatibility: CompatibilityRelation[] };
+export type ImportOperation = { op: string; type: string; match?: Record<string, unknown>; data?: Record<string, unknown> };
+export const operationBatch = (operation: ImportOperation) => ({ format: 'findstuff-ops-v1', schema_version: 2, import_id: crypto.randomUUID(), operations: [operation] });
+export async function applyOperation(operation: ImportOperation) { return api.importMerge(operationBatch(operation)); }
+export const extensions = {
+  projects: () => request<PlanningProject[]>('/api/v1/projects'),
+  project: (id: string) => request<PlanningProject>(`/api/v1/projects/${encodeURIComponent(id)}`),
+  targets: () => request<CompatibilityTarget[]>('/api/v1/compatibility-targets'),
+  target: (id: string, offset = 0) => request<{ target: CompatibilityTarget; total: number; items: Array<Item & { effective_compatibility: CompatibilityResult }>; projects: Array<{ public_id: string; name: string }>; next_offset: number | null }>(`/api/v1/compatibility-targets/${encodeURIComponent(id)}?offset=${offset}`),
+  fields: (category: number) => request<CategoryField[]>(`/api/v1/category-fields?category=${category}`),
+  item: (id: string) => request<ItemExtensions>(`/api/v1/items/${encodeURIComponent(id)}/extensions`),
+  candidates: (project: string, requirement: string, query: string, offset = 0) => request<{ total: number; next_offset: number | null; items: Array<Item & { compatibility_results: CompatibilityResult[] }> }>(`/api/v1/projects/${project}/candidates?requirement=${requirement}&q=${encodeURIComponent(query)}&offset=${offset}`),
+  stock: (requirement: Requirement, quantity: string, location: string, requestId: string, customFields: Record<string, unknown>) => request<{ item: Item; requirement: Requirement }>(`/api/v1/project-requirements/${requirement.public_id}/stock`, { method: 'POST', body: JSON.stringify({ expected_version: requirement.version, quantity, location, request_id: requestId, custom_fields: customFields }) }),
+};
+export const quantity = (value: number) => String(Math.round(value * 1000) / 1000);

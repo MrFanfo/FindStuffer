@@ -10,6 +10,10 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 
 ## Features
 
+New in 1.9: [Projects, inherited category fields and compatibility](docs/PROJECTS_AND_METADATA.md),
+plus [editable, atomic AI imports](docs/IMPORT_OPERATIONS.md).
+See the [1.9.0 release notes](docs/RELEASE_NOTES_1.9.0.md).
+
 - Nested locations such as room → cabinet → drawer → shelf.
 - Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
   expiration dates, loans, projects, reservations, and maintenance records.
@@ -611,7 +615,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.8.1`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.9.0`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

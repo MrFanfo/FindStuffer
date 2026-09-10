@@ -1,3 +1,9 @@
+import { restoreInventoryPage, rememberInventoryPage } from "./features/inventory/inventoryHistory";
+import { rememberItem } from "./features/dashboard/recentItems";
+import { HomeExtras } from "./features/dashboard/HomeExtras";
+import { useNavigationHistory } from "./features/shell/useNavigationHistory";
+import { applyCapture } from "./features/capture/durableSave";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
@@ -9,6 +15,7 @@ import {
   type Category,
   type Dashboard,
   type Item,
+  type InventoryQueryOptions,
   type LocationNode,
   type LocationType,
 } from "./api";
@@ -45,6 +52,8 @@ import {
   setOfflineOperationError,
 } from "./offline";
 
+const ProjectsView = lazy(() => import("./features/planning/ProjectsView").then((module) => ({ default: module.ProjectsView })));
+const CompatibilityView = lazy(() => import("./features/planning/CompatibilityView").then((module) => ({ default: module.CompatibilityView })));
 const AnalyticsView = lazy(() => import("./features/analytics/AnalyticsView").then((module) => ({ default: module.AnalyticsView })));
 const DataView = lazy(() => import("./features/data-tools/DataView").then((module) => ({ default: module.DataView })));
 const ItemDetail = lazy(() => import("./features/items/ItemDetail").then((module) => ({ default: module.ItemDetail })));
@@ -61,7 +70,7 @@ const PlacesView = lazy(() => import("./features/places/PlacesView").then((modul
 const ScanView = lazy(() => import("./features/capture/ScanView").then((module) => ({ default: module.ScanView })));
 const PrintQueueDialog = lazy(() => import("./features/printing/PrintQueueDialog").then((module) => ({ default: module.PrintQueueDialog })));
 
-type View = "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "data" | "inventory-management" | "manage";
+type View = "projects" | "compatibility" | "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "data" | "inventory-management" | "manage";
 type InventorySearchOptions = { showBusy?: boolean };
 type AdjustmentQueue = {
   confirmed: Item;
@@ -129,15 +138,19 @@ function viewFromParameter(value: string | null): View | null {
   const views: Record<string, View> = {
     add: "capture",
     capture: "capture",
-    categories: "places",
-    category: "places",
+    categories: "categories",
+    category: "category",
     dashboard: "dashboard",
     "default-rules": "default-rules",
     defaults: "default-rules",
     find: "inventory",
     home: "dashboard",
     inventory: "inventory",
-    locations: "places",
+    projects: "projects",
+    compatibility: "compatibility",
+    locations: "locations",
+    location: "location",
+    "ai-inbox": "ai-inbox",
     manage: "manage",
     more: "extra",
     extra: "extra",
@@ -156,12 +169,16 @@ const nav: Array<{ id: View; label: string; icon: IconName }> = [
   { id: "inventory", label: "Inventory", icon: "search" },
   { id: "capture", label: "Capture", icon: "scan" },
   { id: "places", label: "Places", icon: "pin" },
-  { id: "extra", label: "Extra", icon: "more" },
+  { id: "extra", label: "More", icon: "more" },
 ];
 
 function App() {
+  const [inventoryScope, setInventoryScope] = useState<InventoryQueryOptions>({});
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [matchingTotal, setMatchingTotal] = useState<number | null>(null);
+  const [inventoryError, setInventoryError] = useState("");
   const [auth, setAuth] = useState<AuthStatus | null>(null);
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>(() => viewFromParameter(new URLSearchParams(location.search).get("view")) || "dashboard");
   const {
     items,
     setItems,
@@ -220,7 +237,6 @@ function App() {
   const refreshGeneration = useRef(0);
   const inventoryRefreshGeneration = useRef(0);
   const adjustmentQueue = useRef<Map<string, AdjustmentQueue>>(new Map());
-  const previousView = useRef<View>(view);
 
   useEffect(() => { itemsRef.current = items; }, [items]);
   useEffect(() => { savePrintQueue(printQueue); }, [printQueue]);
@@ -255,7 +271,6 @@ function App() {
   }, []);
   const navigate = useCallback((nextView: View) => {
     setView(nextView);
-    window.scrollTo({ top: 0 });
   }, []);
   const openCapture = useCallback((mode: CaptureMode = "scan", locationId?: string) => {
     setCaptureMode(mode);
@@ -328,6 +343,7 @@ function App() {
       const snapshot = await api.bootstrap(search, { signal: controller.signal }, inventoryIncludeZero);
       if (generation !== refreshGeneration.current) return;
       applyBootstrap(snapshot);
+      setInventoryScope((scope) => ({ ...scope }));
       if (showBusy) {
         notify("");
       }
@@ -346,7 +362,10 @@ function App() {
     search = query,
     options: { showBusy?: boolean } = {},
   ) => {
+    if (offlineMode) return;
     const showBusy = options.showBusy ?? false;
+    setInventorySearchBusy(true);
+    setInventoryError("");
     if (inventoryRefreshTimer.current !== null) {
       window.clearTimeout(inventoryRefreshTimer.current);
       inventoryRefreshTimer.current = null;
@@ -361,24 +380,21 @@ function App() {
       setInventorySearchBusy(true);
     }
     try {
-      const inventoryRequest = search.trim()
-        ? api.humanSearch(search, inventoryIncludeZero).then((result) => ({
-          items: result.items,
-          next_cursor: null,
-          has_more: false,
-        }))
-        : api.itemPage("", null, { signal: controller.signal }, { includeZero: inventoryIncludeZero });
+      const inventoryRequest = restoreInventoryPage(search, inventoryScope, inventoryIncludeZero, controller.signal);
       const [nextItems, nextDashboard] = await Promise.allSettled([
         inventoryRequest,
         api.dashboard({ signal: controller.signal }),
       ]);
       if (generation !== inventoryRefreshGeneration.current) return;
       if (nextItems.status === "fulfilled") {
+        rememberInventoryPage(search, inventoryScope, inventoryIncludeZero, nextItems.value.items.length);
         setItems(nextItems.value.items.map((item) => (
           adjustmentQueue.current.has(item.public_id)
             ? itemsRef.current.find((entry) => entry.public_id === item.public_id) || item
             : item
         )));
+        setMatchingTotal(nextItems.value.total);
+        setAvailableTags(nextItems.value.available_tags || []);
         setInventoryNextCursor(nextItems.value.next_cursor);
         setInventoryHasMore(nextItems.value.has_more);
       }
@@ -386,7 +402,15 @@ function App() {
       const failure = [nextItems, nextDashboard].find((result) => (
         result.status === "rejected" && !isRequestAborted(result.reason)
       ));
-      if (failure?.status === "rejected" && showBusy) {
+      if (failure?.status === "rejected") {
+        if (isOfflineFailure(failure.reason)) {
+          const cache = await loadOfflineSnapshot().catch(() => null);
+          if (cache && generation === inventoryRefreshGeneration.current) {
+            applyBootstrap(cache.value); setOfflineMode(true);
+            setConnectionIssue(`Offline · ${cache.value.items.length} cached items`);
+          }
+        }
+        setInventoryError(friendlyErrorMessage(failure.reason, "Unable to refresh inventory"));
         notify(friendlyErrorMessage(failure.reason, "Unable to refresh inventory"), {
           label: "Retry",
           action: async () => refreshInventory(search, { showBusy: true }),
@@ -394,50 +418,43 @@ function App() {
       }
     } finally {
       if (inventoryRefreshController.current === controller) inventoryRefreshController.current = null;
-      if (showBusy && generation === inventoryRefreshGeneration.current) {
+      if (generation === inventoryRefreshGeneration.current) {
         setBusy(false);
         setInventorySearchBusy(false);
       }
     }
-  }, [inventoryIncludeZero, notify, query]);
+  }, [inventoryIncludeZero, inventoryScope, notify, offlineMode, query]);
 
   const loadMoreInventory = useCallback(async () => {
-    if (!inventoryNextCursor || inventorySearchBusy || query.trim()) return;
+    if (!inventoryNextCursor || inventorySearchBusy) return;
+    const generation = inventoryRefreshGeneration.current;
     setInventorySearchBusy(true);
     try {
-      const page = await api.itemPage(
-        "",
-        inventoryNextCursor,
-        undefined,
-        { includeZero: inventoryIncludeZero },
-      );
+      const page = await api.inventoryQuery(query, inventoryScope, inventoryIncludeZero, inventoryNextCursor);
+      if (generation !== inventoryRefreshGeneration.current) return;
+      rememberInventoryPage(query, inventoryScope, inventoryIncludeZero, itemsRef.current.length + page.items.filter((item) => !itemsRef.current.some((known) => known.public_id === item.public_id)).length);
+      setMatchingTotal(page.total);
+      setInventoryError("");
       setItems((current) => {
         const seen = new Set(current.map((item) => item.public_id));
         return [...current, ...page.items.filter((item) => !seen.has(item.public_id))];
       });
       setInventoryNextCursor(page.next_cursor);
       setInventoryHasMore(page.has_more);
+    } catch (error) {
+      if (generation === inventoryRefreshGeneration.current) setInventoryError(friendlyErrorMessage(error, "Could not load more items. Try again."));
     } finally {
-      setInventorySearchBusy(false);
+      if (generation === inventoryRefreshGeneration.current) setInventorySearchBusy(false);
     }
-  }, [inventoryIncludeZero, inventoryNextCursor, inventorySearchBusy, query]);
+  }, [inventoryIncludeZero, inventoryScope, inventoryNextCursor, inventorySearchBusy, query]);
 
   const searchInventory = useCallback((value: string, options: InventorySearchOptions = {}) => {
     void refreshInventory(value, { showBusy: options.showBusy ?? true });
   }, [refreshInventory]);
 
   useEffect(() => {
-    const lastView = previousView.current;
-    previousView.current = view;
-    if (lastView !== "inventory" || view === "inventory") return;
-    setInventoryFilter("all");
-    setInventoryCategoryId(null);
-    setInventoryTag("");
-    setInventoryIncludeZero(false);
-    setQuery("");
-    setSelectedItem(null);
-    if (!inventoryIncludeZero) searchInventory("", { showBusy: false });
-  }, [inventoryIncludeZero, searchInventory, view]);
+    if (auth?.authenticated && view === "inventory") void refreshInventory(query);
+  }, [auth?.authenticated, inventoryScope, inventoryIncludeZero, view]);
 
   const scheduleRefresh = useCallback((search = query) => {
     if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
@@ -539,7 +556,7 @@ function App() {
           },
         });
       });
-  }, [applyBootstrap, inventoryIncludeZero, notify]); // Initialize once; searches are explicitly submitted.
+  }, [applyBootstrap, notify]); // Initial metadata load; inventory scope has its own request.
 
   useEffect(() => {
     if (!auth?.authenticated || items.length === 0) return;
@@ -555,34 +572,22 @@ function App() {
     void saveOfflineSnapshot(snapshot).catch(() => undefined);
   }, [auth, categories, dashboard, items, locationTypes, locations, units]);
 
-  useEffect(() => {
-    if (!auth?.authenticated) return;
-    const parameters = new URLSearchParams(window.location.search);
-    const itemId = parameters.get("item");
-    const locationId = parameters.get("location");
-    if (itemId) api.item(itemId).then(setSelectedItem).catch(() => undefined);
-    if (locationId) {
-      setSelectedLocationId(locationId);
-      if (parameters.get("mode") === "add") {
-        setAddLocation(locationId);
-        setCaptureMode("quick");
-        navigate("capture");
-      } else {
-        navigate("location");
-      }
-      return;
-    }
-    const requestedView = viewFromParameter(parameters.get("view"));
-    if (requestedView) {
-      if (requestedView === "capture") {
-        const requestedMode = parameters.get("mode");
-        if (["scan", "quick", "putaway", "consume", "assistant"].includes(requestedMode || "")) {
-          setCaptureMode(requestedMode as CaptureMode);
-        }
-      }
-      navigate(requestedView);
-    }
-  }, [auth?.authenticated, navigate]);
+  useEffect(() => { if (selectedItem) rememberItem(selectedItem); }, [selectedItem]);
+
+  useNavigationHistory({ view, item: selectedItem?.public_id || null,
+    location: view === "location" ? selectedLocationId : null,
+    category: view === "category" ? selectedCategoryId : null, mode: captureMode }, (route, nextItem) => {
+    setView(viewFromParameter(route.view) || (route.location ? "location" : "dashboard"));
+    setSelectedItem(nextItem || itemsRef.current.find((entry) => entry.public_id === route.item) || null);
+    setSelectedLocationId(route.location); setSelectedCategoryId(route.category);
+    if (route.location && route.mode === "add") { setAddLocation(route.location); setCaptureMode("quick"); setView("capture"); }
+    if (["scan", "quick", "putaway", "consume", "assistant"].includes(route.mode)) setCaptureMode(route.mode as CaptureMode);
+    const params = new URLSearchParams(window.location.search);
+    setQuery(params.get("q") || ""); setInventoryIncludeZero(params.get("zero") === "1");
+    setInventoryFilter((params.get("filter") || "all") as InventoryFilter);
+    setInventoryCategoryId(params.has("category_id") ? Number(params.get("category_id")) : null);
+    setInventoryTag(params.get("tag") || "");
+  }, Boolean(auth?.authenticated));
 
   async function run(
     action: () => Promise<unknown>,
@@ -835,72 +840,34 @@ function App() {
   async function createScannedItem(body: Record<string, unknown>, imageUrl?: string, photoFile?: File) {
     setBusy(true);
     try {
-      const tags = Array.isArray(body.tags) ? body.tags.filter((tag): tag is string => typeof tag === "string") : [];
-      const itemBody = { ...body };
-      delete itemBody.tags;
-      let item = await api.createItem(itemBody);
-      if (tags.length) item = await api.setTags(item, tags);
-      if (imageUrl) await api.importPhotoFromUrl(item, imageUrl);
-      if (photoFile) {
-        const resized = await resizePhoto(photoFile);
-        await api.uploadPhoto(item, resized.blob, resized.width, resized.height);
-        item = await api.item(item.public_id);
-      }
-      if (item.barcode) {
-        try {
-          await api.queueEnrichment(item);
-          await api.runEnrichment();
-          const enrichment = await api.enrichment(item);
-          for (const candidate of enrichment.candidates.filter((entry) => entry.status === "proposed" && Object.keys(entry.proposed).length > 0)) {
-            item = await api.applyEnrichment(candidate.public_id);
-          }
-        } catch {
-          // Barcode enrichment is best effort; keep the scanned item save fast and reliable.
+      const resized = photoFile ? await resizePhoto(photoFile) : null;
+      const operation: Extract<OfflineOperation, { kind: "create_item" }> = {
+        id: offlineOperationId(), kind: "create_item", createdAt: new Date().toISOString(), payload: body,
+        imageUrl, photo: resized?.blob, photoWidth: resized?.width, photoHeight: resized?.height,
+      };
+      await putOfflineOperation(operation);
+      let item: Item;
+      try {
+        item = await applyCapture(operation);
+        notify(`${item.name} added`);
+      } catch (error) {
+        if (!isOfflineFailure(error) && !operation.item) {
+          await setOfflineOperationError(operation.id, friendlyErrorMessage(error, "Save needs attention"));
+          setOfflineOperations(await listOfflineOperations());
+          throw error;
         }
+        item = operation.item || makeOfflineItem(body, operation.id, locations, categories, Boolean(photoFile));
+        await setOfflineOperationError(operation.id, operation.item ? "Item saved; photo pending. Retry synchronization." : "Waiting to reconnect");
+        notify(operation.item ? `${item.name} saved · photo pending` : `${item.name} saved offline`);
       }
       setItems((current) => [item, ...current.filter((entry) => entry.public_id !== item.public_id)]);
-      notify(imageUrl || photoFile ? `${item.name} added with image` : `${item.name} added`);
-      scheduleInventoryRefresh();
+      setOfflineOperations(await listOfflineOperations());
+      if (!item.public_id.startsWith("offline:")) scheduleInventoryRefresh();
       return item;
     } catch (error) {
-      if (isOfflineFailure(error)) {
-        const operationId = offlineOperationId();
-        const tags = Array.isArray(body.tags)
-          ? body.tags.filter((tag): tag is string => typeof tag === "string")
-          : [];
-        let resizedPhoto: Awaited<ReturnType<typeof resizePhoto>> | null = null;
-        if (photoFile) resizedPhoto = await resizePhoto(photoFile);
-        const operation: OfflineOperation = {
-          id: operationId,
-          kind: "create_item",
-          createdAt: new Date().toISOString(),
-          payload: { ...body, tags },
-          imageUrl,
-          photo: resizedPhoto?.blob,
-          photoWidth: resizedPhoto?.width,
-          photoHeight: resizedPhoto?.height,
-        };
-        await putOfflineOperation(operation);
-        const placeholder = makeOfflineItem(
-          body,
-          operationId,
-          locations,
-          categories,
-          Boolean(photoFile),
-        );
-        setItems((current) => [placeholder, ...current]);
-        setOfflineOperations(await listOfflineOperations());
-        notify(`${placeholder.name} saved offline · it will sync when Findstuff reconnects`);
-        return placeholder;
-      }
-      notify(friendlyErrorMessage(error, "Could not add scanned item"), {
-        label: "Retry",
-        action: async () => { await createScannedItem(body, imageUrl, photoFile); },
-      });
+      notify(friendlyErrorMessage(error, "Could not save item"));
       throw error;
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
   async function syncOfflineQueue() {
@@ -911,25 +878,10 @@ function App() {
       let synced = 0;
       for (const operation of queued) {
         try {
-          const response = await api.syncOfflineOperation(
-            operation.id,
-            operation.kind,
-            operation.payload,
-          );
-          let item = response.result;
+          const item = operation.kind === "create_item"
+            ? await applyCapture(operation)
+            : (await api.syncOfflineOperation(operation.id, operation.kind, operation.payload)).result;
           if (operation.kind === "create_item") {
-            if (operation.imageUrl) {
-              await api.importPhotoFromUrl(item, operation.imageUrl);
-            }
-            if (operation.photo) {
-              await api.uploadPhoto(
-                item,
-                operation.photo,
-                operation.photoWidth,
-                operation.photoHeight,
-              );
-            }
-            if (operation.imageUrl || operation.photo) item = await api.item(item.public_id);
             setItems((current) => [
               item,
               ...current.filter((entry) => (
@@ -979,7 +931,7 @@ function App() {
   }
 
   function openAnalyticsInventory(filter: InventoryFilter) {
-    const wantsZero = filter === "zero" || filter === "low";
+    const wantsZero = true;
     setInventoryFilter(filter);
     setInventoryCategoryId(null);
     setInventoryTag("");
@@ -987,7 +939,7 @@ function App() {
     setSelectedItem(null);
     if (wantsZero !== inventoryIncludeZero) {
       setInventoryIncludeZero(wantsZero);
-      void api.items("", undefined, { includeZero: wantsZero }).then(setItems).catch(() => undefined);
+
     }
     navigate("inventory");
   }
@@ -1012,7 +964,7 @@ function App() {
       ? "capture"
       : view === "default-rules" || view === "off-category-mappings" || view === "ai-inbox"
         ? "extra"
-        : view === "manage" || view === "analytics" || view === "data" || view === "inventory-management"
+        : view === "projects" || view === "compatibility" || view === "manage" || view === "analytics" || view === "data" || view === "inventory-management"
           ? "extra"
           : view;
   return (
@@ -1023,10 +975,12 @@ function App() {
       {notice && <div className={`toast ${retryNotice?.message === notice ? "has-action" : ""}`} role="status"><span className="toast-check"><Icon name="spark" size={16} /></span><p>{notice}</p>{retryNotice?.message === notice && <button className="toast-action" onClick={() => { const pendingAction = retryNotice; setRetryNotice(null); notify(`${pendingAction.label} in progress…`); void pendingAction.action().catch((error) => notify(friendlyErrorMessage(error, `${pendingAction.label} failed`))); }}>{retryNotice.label}</button>}<button onClick={() => { setNotice(""); setRetryNotice(null); }} aria-label="Dismiss message"><Icon name="close" size={16} /></button></div>}
 
       <main className="page-content">
-        <Suspense fallback={<div className="feature-loading" role="status"><span className="activity-spinner" />Loading…</div>}>
+        <ErrorBoundary resetKey={view}><Suspense fallback={<div className="feature-loading" role="status"><span className="activity-spinner" />Loading…</div>}>
         {view === "inventory" && (
           <div className={`inventory-desktop-layout ${selectedItem ? "has-detail" : ""}`}>
           <InventoryView
+            availableTags={availableTags} availableUnits={units} onScopeChange={setInventoryScope} matchingTotal={matchingTotal} error={inventoryError} offline={offlineMode}
+            lowTotalCount={dashboard?.low_stock_count || 0} expiringTotalCount={dashboard?.expiring_count || 0}
             items={items}
             locations={locations}
             categories={categories}
@@ -1186,8 +1140,10 @@ function App() {
         {view === "off-category-mappings" && <OffCategoryMappingsView categories={categories} busy={busy} onBack={() => navigate("manage")} onOpenItem={setSelectedItem} onNotice={setNotice} />}
         {view === "default-rules" && <DefaultRulesView locations={locations} categories={categories} busy={busy} onBack={() => navigate("manage")} onChanged={() => refresh(undefined, { showBusy: false })} notify={notify} />}
         {view === "ai-inbox" && <AIScanInboxView categories={categories} locations={locations} units={units} busy={busy} onBack={() => navigate("manage")} onInventoryChanged={() => refresh()} notify={notify} />}
-        {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} />}
-        {view === "extra" && <ExtraView offlineOperations={offlineOperations} offlineMode={offlineMode} syncing={syncingOffline} onAnalytics={() => navigate("analytics")} onData={() => navigate("data")} onInventoryManagement={() => navigate("inventory-management")} onSettings={() => navigate("manage")} onSync={() => syncOfflineQueue()} onDiscard={async (id) => { await deleteOfflineOperation(id); setOfflineOperations(await listOfflineOperations()); if (navigator.onLine) await refresh("", { showBusy: false }); }} />}
+        {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} ><HomeExtras locations={locations} empty={dashboard?.item_count === 0} onItem={setSelectedItem} onPlace={(id) => { setSelectedLocationId(id); navigate("location"); }} onInbox={() => navigate("ai-inbox")} onManage={() => navigate("inventory-management")} onCreatePlace={() => navigate("places")} onCapture={() => openCapture("quick")} onPrint={() => setPrintQueueOpen(true)} /></DashboardView>}
+        {view === "projects" && <ProjectsView categories={categories} locations={locations} onBack={() => navigate("extra")} onOpenItem={setSelectedItem} />}
+        {view === "compatibility" && <CompatibilityView onBack={() => navigate("extra")} onOpenItem={setSelectedItem} />}
+        {view === "extra" && <ExtraView onProjects={() => navigate("projects")} onCompatibility={() => navigate("compatibility")} offlineOperations={offlineOperations} offlineMode={offlineMode} syncing={syncingOffline} onAnalytics={() => navigate("analytics")} onData={() => navigate("data")} onInventoryManagement={() => navigate("inventory-management")} onSettings={() => navigate("manage")} onSync={() => syncOfflineQueue()} onDiscard={async (id) => { await deleteOfflineOperation(id); setOfflineOperations(await listOfflineOperations()); if (navigator.onLine) await refresh("", { showBusy: false }); }} />}
         {view === "analytics" && <AnalyticsView
           onBack={() => navigate("extra")}
           onInventory={openAnalyticsInventory}
@@ -1247,7 +1203,7 @@ function App() {
           onClose={() => setPrintQueueOpen(false)}
           onNotice={notify}
         />}
-        </Suspense>
+        </Suspense></ErrorBoundary>
       </main>
 
       <nav className="bottom-nav" aria-label="Main navigation">

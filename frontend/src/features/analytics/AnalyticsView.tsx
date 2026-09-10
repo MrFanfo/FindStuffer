@@ -60,7 +60,7 @@ function ActivityTrend({
   const labelIndexes = new Set([0, Math.floor((buckets.length - 1) / 2), buckets.length - 1]);
 
   return <div className="trend-chart-wrap">
-    <svg className="trend-chart interactive-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${metricLabel} activity trend`}>
+    <svg className="trend-chart interactive-chart" viewBox={`0 0 ${width} ${height}`} role="group" aria-label={`${metricLabel} activity trend`}>
       {[0, .25, .5, .75, 1].map((ratio) => {
         const value = Math.round(max * ratio);
         return <g key={ratio}>
@@ -130,7 +130,7 @@ function StockStatusChart({
   let offset = 0;
   return <div className="stock-status-chart">
     <div className="stock-donut">
-      <svg viewBox="0 0 120 120" role="img" aria-label="Stock status">
+      <svg viewBox="0 0 120 120" role="group" aria-label="Stock status">
         <circle className="stock-track" cx="60" cy="60" r="48" />
         {styledSegments.map((entry) => {
           const length = entry.count / total * 301.59;
@@ -158,6 +158,7 @@ export function AnalyticsView({
   onLocation: (id: string) => void;
   onItem: (id: string) => void;
 }) {
+  const [includeImports, setIncludeImports] = useState(false);
   const [days, setDays] = useState(90);
   const [data, setData] = useState<Analytics | null>(null);
   const [error, setError] = useState("");
@@ -169,12 +170,12 @@ export function AnalyticsView({
     let active = true;
     setLoading(true);
     setError("");
-    api.analytics(days)
+    api.analytics(days, includeImports)
       .then((result) => { if (active) setData(result); })
       .catch((reason) => { if (active) setError(friendlyErrorMessage(reason, "Could not load analytics")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [days]);
+  }, [days, includeImports]);
 
   useEffect(() => setSelectedRange(null), [activityMetric, days]);
 
@@ -251,7 +252,7 @@ export function AnalyticsView({
   const ageFilters: InventoryFilter[] = ["added-30", "added-90", "added-365", "added-older"];
 
   return <section className="analytics-page">
-    <header className="subpage-header analytics-title"><button className="icon-button" onClick={onBack} aria-label="Back to Extra"><Icon name="chevron" size={18} /></button><div><p className="eyebrow">EXTRA · ANALYTICS</p><h1>Inventory pulse</h1><p>Tap any signal to inspect the Items behind it.</p></div></header>
+    <header className="subpage-header analytics-title"><button className="icon-button" onClick={onBack} aria-label="Back to More"><Icon name="chevron" size={18} /></button><div><p className="eyebrow">MORE · ANALYTICS</p><h1>Inventory pulse</h1><p>Tap any signal to inspect the Items behind it.</p></div></header>
     <div className="analytics-toolbar"><div className="period-switch" aria-label="Activity period">{[30, 90, 365].map((period) => <button type="button" className={days === period ? "active" : ""} key={period} onClick={() => setDays(period)}>{period === 365 ? "1 year" : `${period} days`}</button>)}</div>{data && <small>Updated {new Date(data.generated_at).toLocaleString()}</small>}</div>
     {loading && <div className="analytics-loading"><span className="activity-spinner" />Calculating analytics…</div>}
     {error && <div className="inline-alert" role="alert">{error}</div>}
@@ -281,7 +282,7 @@ export function AnalyticsView({
           <span><strong>{data.activity_summary.active_days}</strong> active days</span>
           <span><strong>{data.activity_summary.busiest_day_events}</strong> busiest day{data.activity_summary.busiest_day && <small>{analyticsDate(data.activity_summary.busiest_day)}</small>}</span>
         </div>
-        <ActivityTrend buckets={activityBuckets} metricLabel={metricLabel} selected={selectedRange} onSelect={setSelectedRange} />
+        <label className="toolbar-toggle"><input type="checkbox" checked={includeImports} onChange={(event) => setIncludeImports(event.target.checked)} />Include imports in activity</label><p className="muted">Stock and data quality describe the current inventory. Activity counts recorded events{includeImports ? ", including imports" : ", excluding imports"}.</p><details className="chart-data-table"><summary>View activity as a table</summary><table><caption>{metricLabel} by date</caption><thead><tr><th scope="col">Date</th><th scope="col">Count</th></tr></thead><tbody>{data.activity.map((entry) => <tr key={entry.date}><th scope="row">{analyticsDate(entry.date)}</th><td>{valueForDay(entry.date, entry)}</td></tr>)}</tbody></table></details><ActivityTrend buckets={activityBuckets} metricLabel={metricLabel} selected={selectedRange} onSelect={setSelectedRange} />
         <div className="calendar-heading"><strong>Recent rhythm</strong><span>Tap a square to cross-filter the day</span></div>
         <ActivityHeatmap activity={data.activity} valueForDay={valueForDay} selected={selectedRange} onSelect={setSelectedRange} />
         {selectedRange && selectedActivity && <div className="selected-activity"><header><div><span>Selected</span><strong>{analyticsDate(selectedRange.start)}{selectedRange.end !== selectedRange.start ? ` – ${analyticsDate(selectedRange.end)}` : ""}</strong></div><button type="button" onClick={() => setSelectedRange(null)}>Clear</button></header><div>{[

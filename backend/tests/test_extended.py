@@ -94,6 +94,8 @@ def test_export_can_be_merged_into_a_fresh_database(tmp_path: Path) -> None:
             == 1
         )
         repeated = apply_import_merge(target, exported)
-        assert repeated["created"]["items"] == 0
+        assert repeated["replayed"] is True
+        assert repeated["created"] == result["created"]
+        assert target.execute("SELECT count(*) FROM items").fetchone()[0] == 1
     finally:
         target.close()

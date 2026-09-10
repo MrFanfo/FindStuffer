@@ -72,7 +72,7 @@ from .backups import (
 )
 from .barcodes import IMAGE_DECODE_LIMIT_BYTES, decode_image_code, lookup_barcode
 from .config import get_settings
-from .db import database_dependency, migrate, transaction
+from .db import connect, database_dependency, migrate, transaction
 from .documents import (
     apply_document_extraction,
     delete_document,
@@ -99,7 +99,6 @@ from .extended import (
     apply_import_merge,
     check_shopping,
     create_loan,
-    create_project,
     delete_project,
     duplicate_candidates,
     export_inventory,
@@ -113,9 +112,9 @@ from .extended import (
     remove_reservation,
     reserve_item,
     return_loan,
-    set_project_status,
     undo_import_batch,
 )
+from .extension_routes import router as extension_router
 from .homeassistant import (
     request_mqtt_reconfigure,
     run_home_assistant_mqtt,
@@ -260,6 +259,7 @@ from .service_config import (
     test_ai_connection,
 )
 from .system_info import application_system_info
+from .units import inventory_units, save_inventory_units
 from .updater import request_software_update, software_update_status
 
 logger = logging.getLogger(__name__)
@@ -319,6 +319,8 @@ app = FastAPI(
     description="Lightweight home, lab, and grocery inventory API",
     lifespan=lifespan,
 )
+
+app.include_router(extension_router)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 Database = Annotated[Any, Depends(database_dependency)]
@@ -384,9 +386,7 @@ async def protect_api(request: Request, call_next):
             except (binascii.Error, UnicodeDecodeError, ValueError):
                 authenticated = False
         elif not authorization:
-            authenticated = session_token_is_valid(
-                request.cookies.get(SESSION_COOKIE_NAME, "")
-            )
+            authenticated = session_token_is_valid(request.cookies.get(SESSION_COOKIE_NAME, ""))
         if not authenticated:
             return JSONResponse(
                 status_code=401,
@@ -402,9 +402,7 @@ async def protect_api(request: Request, call_next):
                 secure=(
                     settings.secure_cookies
                     or request.url.scheme == "https"
-                    or request.headers.get("x-forwarded-proto", "")
-                    .split(",", 1)[0]
-                    .strip()
+                    or request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
                     == "https"
                 ),
                 samesite="strict",
@@ -457,8 +455,7 @@ async def login(payload: AdminLogin, request: Request, response: Response) -> di
         secure=(
             settings.secure_cookies
             or request.url.scheme == "https"
-            or request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
-            == "https"
+            or request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip() == "https"
         ),
         samesite="strict",
         path="/api/v1",
@@ -499,9 +496,7 @@ async def bootstrap(
     include_zero: bool = False,
     limit: int = Query(default=100, ge=1, le=2000),
 ) -> dict[str, Any]:
-    item_page = list_items_page(
-        database, query=q, include_zero=include_zero, limit=min(limit, 250)
-    )
+    item_page = list_items_page(database, query=q, include_zero=include_zero, limit=min(limit, 250))
     return {
         "auth": {"authenticated": True, "user": local_user()},
         "categories": list_categories(database),
@@ -520,17 +515,61 @@ async def get_dashboard(database: Database) -> dict[str, Any]:
     return dashboard(database)
 
 
+@app.get("/api/v1/categories/consolidation-preview", tags=["categories"])
+async def preview_category_consolidation(database: Database, source: int, target: int):
+    from .category_consolidation import preview
+
+    try:
+        return preview(database, source, target)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/categories/consolidate", tags=["categories"])
+async def consolidate_categories(
+    database: Database, source: int, target: int, token: str = Query(max_length=64)
+):
+    from .category_consolidation import consolidate
+
+    try:
+        return consolidate(database, source, target, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/preferences", tags=["settings"])
+async def home_preferences(database: Database) -> dict[str, Any]:
+    from .home import preferences
+
+    return preferences(database)
+
+
+@app.patch("/api/v1/preferences", tags=["settings"])
+async def update_home_preferences(database: Database, values: dict[str, Any]) -> dict[str, Any]:
+    from .home import save_preferences
+
+    try:
+        return save_preferences(database, values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/attention", tags=["dashboard"])
+async def home_attention(database: Database) -> dict[str, Any]:
+    from .home import attention
+
+    return attention(database)
+
+
 @app.get("/api/v1/analytics", tags=["dashboard"])
 async def get_analytics(
-    database: Database, days: int = Query(default=90, ge=7, le=3650)
+    database: Database, days: int = Query(default=90, ge=7, le=3650), include_imports: bool = False
 ) -> dict[str, Any]:
-    return analytics(database, days)
+    return analytics(database, days, include_imports=include_imports)
 
 
 @app.post("/api/v1/offline/sync", tags=["offline"])
-async def sync_offline_operation(
-    payload: OfflineOperation, database: Database
-) -> dict[str, Any]:
+async def sync_offline_operation(payload: OfflineOperation, database: Database) -> dict[str, Any]:
     try:
         return apply_offline_operation(
             database, payload.operation_id, payload.kind, payload.payload
@@ -703,6 +742,42 @@ async def get_items(
     )
 
 
+@app.get("/api/v1/items/query", tags=["items"])
+async def inventory_query(
+    database: Database,
+    q: str = Query(default="", max_length=300),
+    filter: str = "all",
+    sort: str = "updated",
+    location: str | None = None,
+    category_id: int | None = None,
+    tag: str = Query(default="", max_length=240),
+    compatibility: str = Query(default="", max_length=240),
+    include_zero: bool = False,
+    formula: str | None = Query(default=None, max_length=20000),
+    limit: int = Query(default=100, ge=1, le=250),
+    cursor: str | None = Query(default=None, max_length=2000),
+) -> dict[str, Any]:
+    from .inventory_query import query_inventory
+
+    try:
+        return query_inventory(
+            database,
+            query=q,
+            filter_name=filter,
+            sort=sort,
+            location=location,
+            category_id=category_id,
+            tag=tag,
+            compatibility=compatibility,
+            include_zero=include_zero,
+            formula=json.loads(formula) if formula else None,
+            limit=limit,
+            cursor=cursor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/items/page", tags=["items"])
 async def get_items_page(
     database: Database,
@@ -741,8 +816,12 @@ async def search_items(
     q: str = Query(min_length=1, max_length=300),
     include_zero: bool = False,
     limit: int = Query(default=100, ge=1, le=250),
+    cursor: str | None = Query(default=None, max_length=2000),
 ) -> dict[str, Any]:
-    return human_search(database, q, include_zero=include_zero, limit=limit)
+    try:
+        return human_search(database, q, include_zero=include_zero, limit=limit, cursor=cursor)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/search/aliases", tags=["search"])
@@ -767,9 +846,7 @@ async def remove_search_learning_candidate(
 
 
 @app.post("/api/v1/search/aliases", status_code=201, tags=["search"])
-async def post_search_alias(
-    payload: SearchAliasCreate, database: Database
-) -> dict[str, Any]:
+async def post_search_alias(payload: SearchAliasCreate, database: Database) -> dict[str, Any]:
     try:
         return save_alias(database, payload.model_dump())
     except ValueError as exc:
@@ -986,9 +1063,7 @@ async def remove_photo(public_id: str, database: Database) -> Response:
 
 
 @app.get("/api/v1/items/{public_id}/documents", tags=["documents"])
-async def get_item_documents(
-    public_id: str, database: Database
-) -> list[dict[str, Any]]:
+async def get_item_documents(public_id: str, database: Database) -> list[dict[str, Any]]:
     return list_documents(database, public_id)
 
 
@@ -1004,9 +1079,7 @@ async def post_item_document(
     ] = "other",
     title: Annotated[str, Form(max_length=240)] = "",
     purchase_date: Annotated[str | None, Form(pattern=r"^\d{4}-\d{2}-\d{2}$")] = None,
-    warranty_expires_at: Annotated[
-        str | None, Form(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    ] = None,
+    warranty_expires_at: Annotated[str | None, Form(pattern=r"^\d{4}-\d{2}-\d{2}$")] = None,
 ) -> dict[str, Any]:
     data = await file.read(20 * 1024 * 1024 + 1)
     try:
@@ -1056,16 +1129,12 @@ async def retry_document_extraction(
     public_id: str, background_tasks: BackgroundTasks, database: Database
 ) -> dict[str, Any]:
     document = get_document(database, public_id)
-    background_tasks.add_task(
-        extract_document_text, public_id, get_settings().database_path
-    )
+    background_tasks.add_task(extract_document_text, public_id, get_settings().database_path)
     return {**document, "extraction_status": "pending", "extraction_error": None}
 
 
 @app.post("/api/v1/documents/{public_id}/apply-extraction", tags=["documents"])
-async def apply_extracted_document_fields(
-    public_id: str, database: Database
-) -> dict[str, Any]:
+async def apply_extracted_document_fields(public_id: str, database: Database) -> dict[str, Any]:
     return apply_document_extraction(database, public_id)
 
 
@@ -1363,7 +1432,10 @@ async def already_owned(
 
 @app.post("/api/v1/projects", status_code=201, tags=["projects"])
 async def post_project(payload: ProjectCreate, database: Database) -> dict[str, Any]:
-    return create_project(database, payload.name, payload.description)
+    from .projects import save_project
+
+    with transaction(database):
+        return save_project(database, payload.model_dump())
 
 
 @app.get("/api/v1/projects", tags=["projects"])
@@ -1375,7 +1447,15 @@ async def get_projects(database: Database) -> list[dict[str, Any]]:
 async def patch_project(
     public_id: str, payload: ProjectStatusUpdate, database: Database
 ) -> dict[str, Any]:
-    return set_project_status(database, public_id, payload.status)
+    from .extension_schemas import Project
+    from .projects import project_detail, save_project
+
+    with transaction(database):
+        existing = project_detail(database, public_id)
+        values = {key: existing[key] for key in Project.model_fields}
+        return save_project(
+            database, {**values, **payload.model_dump(exclude_unset=True)}, public_id
+        )
 
 
 @app.delete("/api/v1/projects/{public_id}", status_code=204, tags=["projects"])
@@ -1449,6 +1529,13 @@ async def download_backup() -> FileResponse:
     )
 
 
+@app.get("/api/v1/admin/operations-template", tags=["administration"])
+async def get_operations_template(database: Database) -> dict[str, Any]:
+    from .operations_contract import operations_template
+
+    return operations_template(database)
+
+
 @app.get("/api/v1/admin/backups", tags=["administration"])
 async def get_backups() -> list[dict[str, Any]]:
     return list_backups()
@@ -1488,6 +1575,7 @@ async def upload_backup_restore(
     request: Request,
     background_tasks: BackgroundTasks,
     filename: str = Query(default="findstuff-backup.zip", max_length=240),
+    preview: bool = False,
 ) -> dict[str, Any]:
     settings = get_settings()
     uploads_dir = settings.data_dir / ".restore" / "uploads"
@@ -1503,11 +1591,13 @@ async def upload_backup_restore(
                 destination.write(chunk)
         if size == 0:
             raise ValueError("Backup file is empty")
-        result = stage_backup_restore(temporary_path, filename)
+        result = stage_backup_restore(temporary_path, filename, preview=preview)
     except (ValueError, zipfile.BadZipFile) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         temporary_path.unlink(missing_ok=True)
+    if preview:
+        return result
     background_tasks.add_task(queue_process_restart)
     return {
         **result,
@@ -1518,20 +1608,49 @@ async def upload_backup_restore(
     }
 
 
-@app.post("/api/v1/admin/import-preview", tags=["administration"])
-async def preview_import(payload: dict[str, Any], database: Database) -> dict[str, Any]:
+async def _import_request(request: Request, *, apply: bool) -> dict[str, Any]:
+    from starlette.concurrency import run_in_threadpool
+
+    from .import_protocol import ImportFailure, strict_json
+
     try:
-        return import_preview(payload, database)
-    except ValueError as exc:
+        parsed = strict_json(await request.body())
+        payload = ImportMergeRequest.model_validate(parsed).payload if apply else parsed
+
+        def run():
+            with contextlib.closing(connect()) as database:
+                if apply:
+                    return apply_import_merge(database, payload)
+                return import_preview(payload, database)
+
+        return await run_in_threadpool(run)
+    except ImportFailure as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc), **exc.details}) from exc
+    except (ValueError, KeyError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/items/{public_id}/import-provenance", tags=["items"])
+async def item_import_provenance(public_id: str, database: Database) -> list[dict[str, Any]]:
+    return [
+        dict(row)
+        for row in database.execute(
+            "SELECT p.import_id,p.operation_index,p.action,r.created_at,r.undone_at "
+            "FROM import_provenance p JOIN import_receipts r USING(import_id) "
+            "WHERE p.entity='item' AND p.object_id=? ORDER BY p.id DESC LIMIT 100",
+            (public_id,),
+        )
+    ]
+
+
+@app.post("/api/v1/admin/import-preview", tags=["administration"])
+async def preview_import(request: Request) -> dict[str, Any]:
+    return await _import_request(request, apply=False)
 
 
 @app.post("/api/v1/admin/import", tags=["administration"])
-async def apply_import(request: ImportMergeRequest, database: Database) -> dict[str, Any]:
-    try:
-        return apply_import_merge(database, request.payload)
-    except (ValueError, KeyError, TypeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+async def apply_import(request: Request) -> dict[str, Any]:
+    return await _import_request(request, apply=True)
 
 
 @app.get("/api/v1/admin/imports", tags=["administration"])
@@ -1545,59 +1664,6 @@ async def post_import_undo(public_id: str, database: Database) -> dict[str, Any]
         return undo_import_batch(database, public_id)
     except (ConflictError, InventoryError, NotFoundError, ValueError, KeyError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-DEFAULT_UNITS = [
-    "pcs",
-    "box",
-    "pack",
-    "bag",
-    "tin",
-    "spool",
-    "g",
-    "kg",
-    "ml",
-    "l",
-    "m",
-    "cm",
-    "mm",
-    "roll",
-    "pair",
-    "set",
-]
-
-
-def inventory_units(database: Database) -> list[str]:
-    row = database.execute(
-        "SELECT value_json FROM app_settings WHERE key = 'inventory_units'"
-    ).fetchone()
-    if row is None:
-        return DEFAULT_UNITS
-    try:
-        stored = json.loads(row["value_json"])
-    except json.JSONDecodeError:
-        return DEFAULT_UNITS
-    if not isinstance(stored, list):
-        return DEFAULT_UNITS
-    cleaned = [str(unit).strip() for unit in stored if isinstance(unit, str) and str(unit).strip()]
-    return list(dict.fromkeys([*DEFAULT_UNITS, *cleaned]))[:80]
-
-
-def save_inventory_units(database: Database, units: list[str]) -> list[str]:
-    cleaned = [unit.strip() for unit in units if unit.strip() and len(unit.strip()) <= 24]
-    merged = list(dict.fromkeys([*DEFAULT_UNITS, *cleaned]))[:80]
-    with transaction(database):
-        database.execute(
-            """
-            INSERT INTO app_settings(key, value_json)
-            VALUES ('inventory_units', ?)
-            ON CONFLICT(key) DO UPDATE SET
-                value_json = excluded.value_json,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (json.dumps(merged, separators=(",", ":")),),
-        )
-    return merged
 
 
 INVENTORY_DISPLAY_DEFAULTS = {
@@ -1623,17 +1689,13 @@ def inventory_display_settings(database: Database) -> dict[str, bool]:
     if not isinstance(stored, dict):
         stored = {}
     return {
-        key: bool(stored.get(key, default))
-        for key, default in INVENTORY_DISPLAY_DEFAULTS.items()
+        key: bool(stored.get(key, default)) for key, default in INVENTORY_DISPLAY_DEFAULTS.items()
     }
 
 
-def save_inventory_display_settings(
-    database: Database, values: dict[str, bool]
-) -> dict[str, bool]:
+def save_inventory_display_settings(database: Database, values: dict[str, bool]) -> dict[str, bool]:
     stored = {
-        key: bool(values.get(key, default))
-        for key, default in INVENTORY_DISPLAY_DEFAULTS.items()
+        key: bool(values.get(key, default)) for key, default in INVENTORY_DISPLAY_DEFAULTS.items()
     }
     with transaction(database):
         database.execute(
@@ -1746,9 +1808,7 @@ async def post_off_category_mappings_import(
 
 
 @app.put("/api/v1/settings/ai", tags=["settings"])
-async def put_ai_settings(
-    payload: AISettingsUpdate, database: Database
-) -> dict[str, Any]:
+async def put_ai_settings(payload: AISettingsUpdate, database: Database) -> dict[str, Any]:
     try:
         return save_ai_config(database, payload.model_dump())
     except ValueError as exc:
@@ -1771,9 +1831,7 @@ async def test_ai_settings(database: Database) -> dict[str, Any]:
 
 
 @app.put("/api/v1/settings/mqtt", tags=["settings"])
-async def put_mqtt_settings(
-    payload: MQTTSettingsUpdate, database: Database
-) -> dict[str, Any]:
+async def put_mqtt_settings(payload: MQTTSettingsUpdate, database: Database) -> dict[str, Any]:
     try:
         result = save_mqtt_config(database, payload.model_dump())
     except ValueError as exc:
