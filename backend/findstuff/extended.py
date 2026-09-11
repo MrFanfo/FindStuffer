@@ -147,7 +147,8 @@ def duplicate_candidates(connection: sqlite3.Connection, public_id: str) -> list
         """
         SELECT public_id FROM items
         WHERE id != ? AND archived_at IS NULL AND category_id IS ?
-        AND location_id = ? AND trim(serial_number) = trim(?) COLLATE NOCASE AND (
+        AND location_id = ? AND container_item_id IS ?
+        AND trim(serial_number) = trim(?) COLLATE NOCASE AND (
             lower(trim(name)) = lower(trim(?))
             OR (serial_number != '' AND serial_number = ? COLLATE NOCASE)
             OR (barcode_override != '' AND barcode_override = ?)
@@ -157,6 +158,7 @@ def duplicate_candidates(connection: sqlite3.Connection, public_id: str) -> list
             item["id"],
             item["category_id"],
             item["location_id"],
+            item["container_item_id"],
             item["serial_number"],
             item["name"],
             item["serial_number"],
@@ -414,6 +416,7 @@ def export_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         "category_fields",
         "item_field_values",
         "compatibility_targets",
+        "target_inventory_items",
         "compatibility_names",
         "item_compatibility",
         "project_compatibility",
@@ -421,6 +424,9 @@ def export_inventory(connection: sqlite3.Connection) -> dict[str, Any]:
         "requirement_compatibility",
         "projects",
         "project_reservations",
+        "project_completions",
+        "project_outputs",
+        "project_files",
         "loans",
     ]
     return {
@@ -615,6 +621,15 @@ def _item_public_id_from_match(connection: sqlite3.Connection, match: dict[str, 
             conditions.append("locations.public_id = ?")
             parameters.append(_resolve_location_public_id(connection, match[key]) or "unassigned")
             break
+    if "container_item_id" in match:
+        from .containment import resolve_container
+
+        conditions.append("items.container_item_id IS ?")
+        parameters.append(
+            resolve_container(connection, match["container_item_id"])["id"]
+            if match["container_item_id"] is not None
+            else None
+        )
     rows = connection.execute(
         "SELECT items.public_id, items.name, items.category_id, "
         "items.location_id, items.serial_number "
@@ -920,8 +935,15 @@ def _item_snapshot(connection: sqlite3.Connection, public_id: str) -> dict[str, 
     from .extensions import item_extensions
 
     extras = item_extensions(connection, public_id)
+    from .containment import item_containment
+
     return {
+        "container_item_id": item_containment(connection, row)["container_item_id"],
+        "is_container": bool(row["is_container"]),
         "custom_fields": extras["custom_fields"],
+        "compatibility_targets": [
+            target["public_id"] for target in extras["compatibility_targets"]
+        ],
         "compatibility": [
             {key: entry[key] for key in ("target", "status", "notes", "source_url", "adapter")}
             for entry in extras["compatibility"]
@@ -961,7 +983,12 @@ def _item_identity_description(connection: sqlite3.Connection, row: sqlite3.Row)
     category = (
         category_path(connection, row["category_id"]) if row["category_id"] else "Uncategorised"
     )
-    place = location_path(connection, row["location_id"])
+    from .containment import item_containment
+
+    full = get_item_row(connection, row["public_id"])
+    place = item_containment(connection, full)["containment_path"] or location_path(
+        connection, row["location_id"]
+    )
     return f"{row['name']} [{row['public_id']}] · category: {category} · location: {place}" + (
         f" · serial: {row['serial_number']}" if row["serial_number"] else ""
     )
@@ -970,18 +997,28 @@ def _item_identity_description(connection: sqlite3.Connection, row: sqlite3.Row)
 def _duplicate_item_for_add(
     connection: sqlite3.Connection, values: dict[str, Any]
 ) -> sqlite3.Row | None:
+    from .containment import resolve_container
+
+    container = (
+        resolve_container(connection, values["container_item_id"])
+        if values.get("container_item_id")
+        else None
+    )
     return connection.execute(
         "SELECT items.public_id, items.name, items.category_id, "
         "items.location_id, items.serial_number "
         "FROM items JOIN locations ON locations.id=items.location_id "
         "WHERE items.archived_at IS NULL AND items.category_id IS ? "
         "AND trim(items.name) = ? COLLATE NOCASE AND locations.public_id = ? "
-        "AND trim(items.serial_number) = ? COLLATE NOCASE LIMIT 1",
+        "AND trim(items.serial_number) = ? COLLATE NOCASE AND items.container_item_id IS ? LIMIT 1",
         (
             values.get("category_id"),
             str(values.get("name", "")).strip(),
-            values.get("location_public_id") or "unassigned",
+            container["location_public_id"]
+            if container
+            else values.get("location_public_id") or "unassigned",
             str(values.get("serial_number", "")).strip(),
+            container["id"] if container else None,
         ),
     ).fetchone()
 
@@ -1150,6 +1187,11 @@ def _undo_item_update(connection: sqlite3.Connection, public_id: str, data: dict
             "links",
         )
     }
+    if "container_item_id" in data:
+        changes["container_item_id"] = data["container_item_id"]
+        changes["is_container"] = data.get("is_container", False)
+        if data["container_item_id"]:
+            changes.pop("location_public_id", None)
     if "fullness_percent" in data:
         changes["fullness_percent"] = data["fullness_percent"]
     changes["expected_version"] = int(row["version"])
@@ -1158,6 +1200,12 @@ def _undo_item_update(connection: sqlite3.Connection, public_id: str, data: dict
         from .custom_fields import restore_item_values
 
         restore_item_values(connection, row["id"], data["custom_fields"])
+    if "compatibility_targets" in data:
+        from .compatibility import set_represented_targets
+
+        set_represented_targets(
+            connection, row["id"], data["compatibility_targets"], allow_inactive=True
+        )
     if "compatibility" in data:
         from .compatibility import set_item_compatibility
 
@@ -1292,7 +1340,7 @@ def _normalized_item_values(
             break
     if location_public_id is not None:
         values["location_public_id"] = location_public_id
-    elif include_default_location or location_seen:
+    elif (include_default_location and not values.get("container_item_id")) or location_seen:
         values["location_public_id"] = "unassigned"
 
     category_id = None
@@ -1582,7 +1630,7 @@ def _operations_preview(
             "valid": not errors,
             "dry_run": True,
             "mode": "operations",
-            "atomic": payload.get("schema_version") == 2,
+            "atomic": payload.get("schema_version") in (2, 3),
             "counts": counts,
             "errors": errors,
             "details": details,
@@ -1911,7 +1959,7 @@ def import_preview(
                 + (" It has since been undone." if previous.get("undone") else ""),
             }
     if _is_operations_import(payload):
-        if payload.get("schema_version") == 2 and connection is not None:
+        if payload.get("schema_version") in (2, 3) and connection is not None:
             from .import_protocol import preview_v2
 
             return preview_v2(connection, payload)
@@ -1981,6 +2029,7 @@ def _raw_import_preview(
                         "item_tags",
                         "item_field_values",
                         "compatibility_names",
+                        "target_inventory_items",
                         "item_compatibility",
                         "project_compatibility",
                         "requirement_compatibility",
@@ -2027,7 +2076,7 @@ def _apply_import_merge_untracked(
 ) -> dict[str, Any]:
     if _is_operations_import(payload):
         validate_revision(payload)
-        if payload.get("schema_version") == 2:
+        if payload.get("schema_version") in (2, 3):
             from .import_protocol import apply_v2
 
             return apply_v2(connection, payload)
@@ -2209,6 +2258,38 @@ def _apply_import_merge_untracked(
             result["items"] += 1
             undo_ops.append({"entity": "item", "action": "delete", "public_id": row["public_id"]})
 
+        # Restore canonical containment after every item ID has been remapped.
+        from .containment import apply_placement, validate_parent
+
+        created_ids = {
+            entry["public_id"]
+            for entry in undo_ops
+            if entry.get("entity") == "item" and entry.get("action") == "delete"
+        }
+        pending = [row for row in tables.get("items", []) if row["public_id"] in created_ids]
+        for row in pending:
+            connection.execute(
+                "UPDATE items SET is_container=? WHERE id=?",
+                (bool(row.get("is_container", False)), item_ids[row["id"]]),
+            )
+        remaining = {row["id"]: row for row in pending if row.get("container_item_id") is not None}
+        while remaining:
+            ready = [row for row in remaining.values() if row["container_item_id"] not in remaining]
+            if not ready:
+                raise ValueError("Item containment cycle in export")
+            for row in ready:
+                parent_id = item_ids.get(row["container_item_id"])
+                parent = connection.execute(
+                    "SELECT * FROM items WHERE id=?", (parent_id,)
+                ).fetchone()
+                if parent is None:
+                    raise ValueError(f"Container missing for {row['name']}")
+                validate_parent(connection, parent, item_ids[row["id"]])
+                apply_placement(
+                    connection, item_ids[row["id"]], parent_id, bool(row.get("is_container"))
+                )
+                del remaining[row["id"]]
+
         for row in tables.get("tags", []):
             cursor = connection.execute(
                 "INSERT OR IGNORE INTO tags(name) VALUES (?)", (row["name"],)
@@ -2238,6 +2319,24 @@ def _apply_import_merge_untracked(
 
     with transaction(connection):
         rebuild_search_index(connection)
+    # Undo runs in reverse: erase descendants before containers even for unordered exports.
+    from .containment import item_containment
+
+    item_positions = [
+        index
+        for index, entry in enumerate(undo_ops)
+        if entry.get("entity") == "item" and entry.get("action") == "delete"
+    ]
+    ordered_items = sorted(
+        (undo_ops[index] for index in item_positions),
+        key=lambda entry: len(
+            item_containment(connection, get_item_row(connection, entry["public_id"]))[
+                "container_chain"
+            ]
+        ),
+    )
+    for index, entry in zip(item_positions, ordered_items, strict=True):
+        undo_ops[index] = entry
     response = {"valid": preview["valid"], "mode": "merge", "created": result}
     batch_id = _record_import_batch(
         connection, mode="merge", summary=result, undo_ops=undo_ops, payload=payload
@@ -2252,13 +2351,15 @@ def apply_import_merge(connection: sqlite3.Connection, payload: dict[str, Any]) 
 
     if _is_operations_import(payload):
         validate_envelope(payload)
-        if payload.get("schema_version") == 2:
+        if payload.get("schema_version") in (2, 3):
             return _apply_import_merge_untracked(connection, payload)
         if (
             payload.get("duplicate_policy", "error") != "error"
             or payload.get("ordering", "input") != "input"
         ):
-            raise ValueError("Duplicate policies and dependency ordering require schema_version 2")
+            raise ValueError(
+                "Duplicate policies and dependency ordering require schema_version 2 or 3"
+            )
     with transaction(connection):
         previous = receipt(connection, payload)
         if previous:

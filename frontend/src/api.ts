@@ -67,6 +67,8 @@ export type Category = {
 };
 
 export type CategoryCapabilities = {
+  documents: boolean;
+  related: boolean;
   fullness: boolean;
   expiration: boolean;
   batches: boolean;
@@ -85,6 +87,13 @@ export type CategoryCapabilities = {
 };
 
 export type Item = {
+  project_holds?: Array<{public_id: string; name: string; quantity: string}>;
+  container_item_id?: string | null;
+  is_container?: boolean;
+  direct_location_public_id?: string | null;
+  containment_path?: string;
+  contents_count?: number;
+  container_chain?: Array<{public_id: string; name: string}>;
   custom_fields?: Record<string, unknown>;
   public_id: string;
   version: number;

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .compatibility import STATES, item_compatibility, targets
+from .compatibility import STATES, item_compatibility, represented_targets, targets
 from .custom_fields import category_fields, item_values, serialize_field
 from .extension_schemas import ENTITY_MODELS
 from .extensions import MATCH_KEYS
@@ -10,10 +10,131 @@ from .projects import project_detail
 
 
 def extend_template(connection, template):
+    template["_containment_rules"] = [
+        (
+            "Location means where something physically is; container item means "
+            "what it is inside. Never invent locations for inventory boxes."
+        ),
+        (
+            "Create is_container=true parent items before children; reference "
+            "public IDs preferentially or exact unique earlier batch names."
+        ),
+        (
+            "Item add/modify and move/split destination support "
+            "container_item_id. Assign either direct location or container, "
+            "never both."
+        ),
+        (
+            "Moving a container updates all descendants' effective location, "
+            "without changing any quantity. Search includes each contained item."
+        ),
+        (
+            "Duplicate identity includes the immediate container (or direct "
+            "place), name, category and serial; canonical product names stay "
+            "identical across boxes."
+        ),
+        (
+            "Use match.container_item_id to disambiguate equal names in "
+            "different boxes. Null matches top-level items only."
+        ),
+        (
+            "Container quantity is independent, usually 1. Containers cannot be "
+            "split or merged; move the container or individual contents."
+        ),
+        (
+            "Self-containment, cycles, inactive/non-container parents and more "
+            "than 32 levels are rejected. Empty a container before "
+            "archiving/deleting it."
+        ),
+        (
+            "location_public_id on returned items is the effective location for "
+            "compatibility. direct_location_public_id is null for contained "
+            "items."
+        ),
+    ]
+    template["_project_workflow_rules"] = [
+        (
+            "required_quantity is the BOM amount per build. Project multiplier "
+            "scales only required quantities, not actual allocations, purchases, "
+            "receipts or spending."
+        ),
+        (
+            "optional requirements do not block readiness/progress. Optional "
+            "planned lines are included in budget totals."
+        ),
+        (
+            "Purchased means ordered but not received. Acquired means physically "
+            "received outside inventory. Never double-count it as allocated "
+            "inventory."
+        ),
+        (
+            "estimated_unit_cost_minor is per unit in the project's currency "
+            "minor units; actual_spent_minor is total actually paid, including "
+            "paid orders. UI displays major units."
+        ),
+        (
+            "Budget estimate sums scaled requirements times estimated unit cost. "
+            "Ordered value uses outstanding orders; remaining estimate uses "
+            "to_buy. Unknown prices are explicitly flagged."
+        ),
+        (
+            "Clone API copies BOM, notes, links, file references and build "
+            "count; allocations, reservations, orders, receipts and actual spend "
+            "reset."
+        ),
+        (
+            "Finish API checks required readiness and atomically saves an "
+            "immutable completion snapshot, optionally creating output inventory "
+            "items. Completion releases holds but never automatically consumes "
+            "stock."
+        ),
+        (
+            "Operations modify project.status=completed remains supported and "
+            "captures a snapshot; this manual status change can record "
+            "historical completion without readiness enforcement."
+        ),
+        (
+            "POST /api/v1/projects/{public_id}/actions accepts request_id and "
+            "action clone (name), finish (optional outputs array of ItemCreate), "
+            "or output (completed projects only). Retry the same request_id and "
+            "identical body after network failure."
+        ),
+        (
+            "Project links accept HTTP(S) references. File attachments are "
+            "uploaded separately as PDF/JPEG/PNG/WebP, max 20 MB; JSON imports "
+            "do not carry file bytes."
+        ),
+        (
+            "Snapshots retain final requirements, linked inventory IDs, "
+            "quantities, substitutions/notes, costs and outputs at completion. "
+            "Later changes never rewrite them."
+        ),
+    ]
+    template["_category_field_export"] = {
+        "effective_custom_fields": (
+            "The active fields you can populate for an item in this exact category. "
+            "Ancestors and nearest-child overrides are already resolved. Use key or "
+            "value_field_id. Includes defaults, constraints, required and nullable "
+            "rules."
+        ),
+        "defined_here": (
+            "Definitions owned by this category, including overrides and inactive "
+            "definitions. Inactive fields are not writable."
+        ),
+        "custom_fields": (
+            "Legacy combined view of effective active fields and inactive ancestor "
+            "definitions; prefer effective_custom_fields for new item data."
+        ),
+        "provenance": (
+            "category is the source category ID; source_category_path is its full path; "
+            "inherited indicates that the effective definition comes from an ancestor."
+        ),
+    }
     template["_capabilities"] = {
         "projects": True,
         "category_custom_fields": True,
         "compatibility": True,
+        "physical_target_links": True,
         "manage_custom_field_definitions": True,
         "manage_compatibility_targets": True,
         "category_field_overrides": True,
@@ -44,7 +165,7 @@ def extend_template(connection, template):
             },
         }
         for name, field in properties.items():
-            field["description"] = FIELD_HELP.get(
+            field["description"] = ENTITY_FIELD_HELP.get(entity, {}).get(name) or FIELD_HELP.get(
                 name, field.get("description", name.replace("_", " "))
             )
             nullable = (
@@ -67,12 +188,24 @@ def extend_template(connection, template):
         category["custom_fields"] = category_fields(
             connection, category["id"], include_inactive=True
         )
+        category["effective_custom_fields"] = category_fields(connection, category["id"])
+        category["defined_here"] = [
+            serialize_field(connection, row, category["id"])
+            for row in connection.execute(
+                "SELECT * FROM category_fields WHERE category_id=? ORDER BY sort_order,id",
+                (category["id"],),
+            )
+        ]
     from .inventory import category_path, location_path
 
     for item in template["_available_items"]:
         location_id = connection.execute(
             "SELECT location_id FROM items WHERE id=?", (item["id"],)
         ).fetchone()[0]
+        from .containment import item_containment
+        from .inventory import get_item_row
+
+        item.update(item_containment(connection, get_item_row(connection, item["public_id"])))
         item.update(
             category_path=category_path(connection, item["category_id"])
             if item["category_id"]
@@ -80,6 +213,9 @@ def extend_template(connection, template):
             location_path=location_path(connection, location_id),
             custom_fields=item_values(connection, item["id"]),
             compatibility=item_compatibility(connection, item["id"]),
+            compatibility_targets=[
+                target["public_id"] for target in represented_targets(connection, item["id"])
+            ],
         )
     template["_available_category_fields"] = [
         serialize_field(connection, row)
@@ -90,6 +226,20 @@ def extend_template(connection, template):
         project_detail(connection, row[0])
         for row in connection.execute("SELECT public_id FROM projects ORDER BY name")
     ]
+    template["_field_definitions"]["item"]["compatibility_targets"].update(
+        {
+            "description": (
+                "Replacement list of abstract targets this item physically represents (for "
+                "example your owned Ender 3 printer). Use existing target public IDs, names "
+                "or aliases. This is distinct from compatibility, which says a part works "
+                "with a target. [] unlinks; omitted on modify leaves unchanged; null is "
+                "rejected. Selling/archiving/deleting the item never removes the abstract "
+                "target or other parts' compatibility. Create targets before referencing "
+                "them in the same batch."
+            ),
+            "examples": [["Ender 3 V2"]],
+        }
+    )
     template["_field_definitions"]["item"]["custom_fields"].update(
         {
             "description": (
@@ -381,7 +531,11 @@ FIELD_HELP = {
         "Item public_id, unambiguous name, or exact match object with "
         "category/location qualifiers; null means planned/unlinked."
     ),
-    "required_quantity": "Positive decimal need, at most 3 fractional digits.",
+    "required_quantity": (
+        "Positive decimal BOM quantity per build, at most 3 fractional digits. "
+        "Multiply by project.multiplier for total need; allocations/orders/receipts "
+        "remain actual totals."
+    ),
     "inventory_quantity": (
         "Explicit physical stock allocation, at most 3 fractional digits; "
         "linking alone allocates zero."
@@ -419,4 +573,21 @@ FIELD_HELP = {
         "Existing target public IDs or unambiguous canonical names/aliases."
         " No implicit target creation."
     ),
+}
+
+
+ENTITY_FIELD_HELP = {
+    "category_field": {
+        "description": "Meaning and guidance for this category property; empty string clears.",
+        "type": (
+            "Stored value type for this property. Type changes validate affected existing values."
+        ),
+    },
+    "project": {"description": "Purpose and scope of this project; empty string clears."},
+    "compatibility_target": {
+        "type": (
+            "Optional descriptive target grouping, such as printer or toolhead. This is "
+            "not an inventory category."
+        )
+    },
 }

@@ -136,7 +136,7 @@ export async function loadOfflineSnapshot(): Promise<{ value: Bootstrap; savedAt
   return { value: { ...record.value, items: [...items.values()], items_next_cursor: null, items_has_more: false }, savedAt: record.savedAt, completeAt: record.completeAt || null };
 }
 
-export async function downloadOfflineInventory(progress: (count: number) => void): Promise<number> {
+async function performInventoryDownload(progress: (count: number) => void): Promise<number> {
   const snapshot = await api.bootstrap("", undefined, true);
   const items = new Map(snapshot.items.map((item) => [item.public_id, item]));
   let cursor = snapshot.items_next_cursor;
@@ -155,3 +155,17 @@ window.addEventListener("findstuff:item-removed", (event) => {
   const id = (event as CustomEvent<string>).detail;
   if (typeof id === "string") void transact(ENTITY_STORE, "readwrite", (store) => store.delete(id)).catch(() => undefined);
 });
+
+let inventoryDownload: Promise<number> | null = null;
+const downloadListeners = new Set<(count: number) => void>();
+export function downloadOfflineInventory(progress: (count: number) => void): Promise<number> {
+  downloadListeners.add(progress);
+  if (!inventoryDownload) inventoryDownload = performInventoryDownload((count) => {
+    downloadListeners.forEach((listener) => listener(count));
+    window.dispatchEvent(new CustomEvent('findstuff:cache-progress', { detail: count }));
+  }).finally(() => {
+    inventoryDownload = null;
+    window.dispatchEvent(new Event('findstuff:cache-updated'));
+  });
+  return inventoryDownload.finally(() => downloadListeners.delete(progress));
+}

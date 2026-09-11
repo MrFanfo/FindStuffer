@@ -1,4 +1,4 @@
-"""Shared operation field contract and AI template, derived from API validation models."""
+"Shared operation field contract and AI template, derived from API validation models."
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any, get_args
 
 from .schemas import CategoryCreate, ItemCreate, ItemPatch, LocationCreate, QuantityAdjustment
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 CATEGORY_REFERENCES = ("category_id", "category", "category_path", "category_name")
 LOCATION_REFERENCES = ("location_public_id", "location", "location_path", "location_name")
 CATEGORY_PARENTS = ("parent_id", "parent", "parent_path", "parent_name")
@@ -21,6 +21,7 @@ MATCH_FIELDS = {
         "barcode",
         "name",
         "serial_number",
+        "container_item_id",
         *CATEGORY_REFERENCES,
         *LOCATION_REFERENCES,
     ),
@@ -45,9 +46,9 @@ ALIASES = {
 
 def validate_revision(payload: dict[str, Any]) -> None:
     revision = payload.get("schema_version", 1)
-    if type(revision) is not int or revision not in (1, SCHEMA_VERSION):
+    if type(revision) is not int or revision not in (1, 2, SCHEMA_VERSION):
         raise ValueError(
-            "Unsupported operations schema_version. Export a current template (version 2)."
+            "Unsupported operations schema_version. Export a current template (version 3)."
         )
     if payload.get("format", "findstuff-ops-v1") != "findstuff-ops-v1":
         raise ValueError("Unsupported operations format; expected findstuff-ops-v1")
@@ -142,10 +143,26 @@ def validate_item_values(values: dict[str, Any], *, adding: bool) -> dict[str, A
     return validated
 
 
-DESCRIPTIONS = {
+ITEM_DESCRIPTIONS = {
+    "is_container": (
+        "Boolean physical containment capability. Quantity belongs to the "
+        "container itself and never totals its contents. Move contents out "
+        "before disabling or archiving."
+    ),
+    "container_item_id": (
+        "Containing item's stable public ID (preferred), numeric ID or "
+        "unambiguous exact name. Parent must be an active is_container item. "
+        "Create parents earlier in the same batch. Null detaches to the "
+        "current effective place unless a new location is supplied; omitted "
+        "on modify preserves containment. Do not also assign a direct "
+        "location. Cycles are rejected. Location is inherited recursively; "
+        "container participates in duplicate identity."
+    ),
     "name": "Canonical human-readable name. Keep the same product name across different places.",
     "description": "Concise description of what the item is; empty string clears it.",
-    "notes": "Owner notes and useful specifications without dedicated fields; empty string clears.",
+    "notes": (
+        "Owner notes and useful specifications without dedicated fields; empty string clears."
+    ),
     "category_id": (
         "Category reference. A numeric ID, full path, or unambiguous name; null clears category."
     ),
@@ -192,6 +209,26 @@ DESCRIPTIONS = {
 }
 
 
+ENTITY_DESCRIPTIONS = {
+    "item": ITEM_DESCRIPTIONS,
+    "category": {
+        "name": (
+            "Category label, unique among siblings under the same parent. Reuse the "
+            "existing taxonomy; never use a stock location as a category name."
+        ),
+    },
+    "location": {
+        "name": (
+            "Physical place label, unique among siblings under the same parent. The same"
+            " label may appear under different parents."
+        ),
+        "description": (
+            "Description of this physical place and how to find or use it; empty string clears."
+        ),
+    },
+}
+
+
 def _field_definitions() -> dict[str, dict[str, Any]]:
     definitions = {}
     for entity, model in (
@@ -205,7 +242,7 @@ def _field_definitions() -> dict[str, dict[str, Any]]:
             nullable = any(option.get("type") == "null" for option in rule.get("anyOf", []))
             fields[name] = {
                 **{key: value for key, value in rule.items() if key != "title"},
-                "description": DESCRIPTIONS.get(
+                "description": ENTITY_DESCRIPTIONS[entity].get(
                     name,
                     {
                         "parent_id": (
@@ -421,8 +458,8 @@ def operations_template(connection) -> dict[str, Any]:
             "versions": (
                 "format versions the wire envelope. schema_version versions supported"
                 " semantics and validation. Missing schema_version means legacy 1. "
-                "This server accepts 1 and 2; unknown versions are rejected. Version "
-                "2 applies a valid batch atomically; legacy 1 may report partial "
+                "This server accepts 1, 2 and 3; unknown versions are rejected. Version "
+                "2 and 3 apply a valid batch atomically; legacy 1 may report partial "
                 "success. Always export a fresh template after an upgrade."
             ),
         },
@@ -512,9 +549,10 @@ def operations_template(connection) -> dict[str, Any]:
         "_duplicate_rules": {
             "items": (
                 "An add is a duplicate only when normalized name + category + "
-                "resolved physical location + serial_number match an active record. "
+                "resolved physical location + immediate container (null for direct stock) "
+                "+ serial_number match an active record. "
                 "Separate non-empty serials remain distinct. Same name/category in "
-                "different locations is valid; retain the same canonical name. Shared"
+                "different locations or containers is valid; retain the same canonical name. Shared"
                 " barcode is valid and does not merge stock."
             ),
             "same_location": (

@@ -342,7 +342,7 @@ def test_import_contract_and_structured_project_http(tmp_path: Path, monkeypatch
                     assert response.status_code == 400
                     assert "duplicate" in response.text.lower()
                 template = (await client.get("/api/v1/admin/operations-template")).json()
-                assert template["schema_version"] == 2
+                assert template["schema_version"] == 3
                 assert template["operations"] == []
                 for entity in (
                     "category_field",

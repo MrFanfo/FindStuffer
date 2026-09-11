@@ -311,14 +311,14 @@ def _transfer(connection, operation, policy, undo):
     from . import extended as ex
 
     op, data = operation["op"], operation.get("data", {})
-    allowed = {*LOCATION_REFERENCES, "quantity"}
+    allowed = {*LOCATION_REFERENCES, "container_item_id", "quantity"}
     if set(data) - allowed:
         raise ImportFailure(
             "move/split accepts only a destination and optional quantity",
             "unsupported_field",
             "data",
         )
-    refs = [key for key in LOCATION_REFERENCES if key in data]
+    refs = [key for key in (*LOCATION_REFERENCES, "container_item_id") if key in data]
     if len(refs) != 1:
         raise ImportFailure(
             "move/split requires exactly one destination reference",
@@ -326,8 +326,20 @@ def _transfer(connection, operation, policy, undo):
             "data.location",
         )
     source = _snapshot(connection, "item", operation["match"])
-    target = ex._resolve_location_public_id(connection, data[refs[0]]) or "unassigned"
-    if target == source["location_public_id"]:
+    container = None
+    if refs[0] == "container_item_id":
+        from .containment import resolve_container, validate_parent
+
+        parent = resolve_container(connection, data[refs[0]])
+        source_row = connection.execute(
+            "SELECT id FROM items WHERE public_id=?", (source["public_id"],)
+        ).fetchone()
+        validate_parent(connection, parent, source_row[0])
+        container = parent["public_id"]
+        target = parent["location_public_id"]
+    else:
+        target = ex._resolve_location_public_id(connection, data[refs[0]]) or "unassigned"
+    if target == source["location_public_id"] and container == source.get("container_item_id"):
         raise ImportFailure(
             "Source and destination places are the same", "same_location", "data.location"
         )
@@ -344,8 +356,20 @@ def _transfer(connection, operation, policy, undo):
             "out_of_range",
             "data.quantity",
         )
-    values = {**source, "location_public_id": target}
+    if source.get("is_container") and quantity != total:
+        raise ImportFailure(
+            "Container items cannot be split; move the whole container or its individual contents",
+            "invalid_container_split",
+            "data.quantity",
+        )
+    values = {**source, "location_public_id": target, "container_item_id": container}
     duplicate = ex._duplicate_item_for_add(connection, values)
+    if duplicate and source.get("is_container"):
+        raise ImportFailure(
+            "Move container contents separately instead of merging container rows",
+            "invalid_container_merge",
+            "data",
+        )
     if duplicate and policy == "error":
         raise _collision(connection, duplicate)
     if duplicate and policy == "skip":
@@ -361,7 +385,12 @@ def _transfer(connection, operation, policy, undo):
             "duplicate_policy",
         )
     if quantity == total and not duplicate:
-        result = _primitive(connection, _modify(source["public_id"], location=target), undo)
+        placement = (
+            {"container_item_id": container}
+            if container
+            else {"location": target, "container_item_id": None}
+        )
+        result = _primitive(connection, _modify(source["public_id"], **placement), undo)
         result.update(status="move", moved=True)
         return result
     if duplicate:
@@ -378,6 +407,8 @@ def _transfer(connection, operation, policy, undo):
 
         new_data = {key: value for key, value in values.items() if key in ItemCreate.model_fields}
         new_data.update(quantity=str(quantity), tags=source["tags"])
+        if container:
+            new_data.pop("location_public_id", None)
         destination_result = _primitive(
             connection, {"op": "add", "type": "item", "data": new_data}, undo
         )
@@ -421,7 +452,7 @@ def _merge(connection, operation, undo):
         source = _snapshot(connection, "item", data["source"])
         if source["public_id"] == target["public_id"]:
             raise ImportFailure("Cannot merge an item into itself", "same_item", "data.source")
-        keys = ("category_id", "location_public_id", "unit")
+        keys = ("category_id", "location_public_id", "container_item_id", "unit")
         if any(source[key] != target[key] for key in keys) or any(
             source[key].strip().casefold() != target[key].strip().casefold()
             for key in ("name", "serial_number")
@@ -429,6 +460,12 @@ def _merge(connection, operation, undo):
             raise ImportFailure(
                 "Merge records must have the same name, category, place, serial and unit",
                 "identity_mismatch",
+                "data.source",
+            )
+        if source.get("is_container") or target.get("is_container"):
+            raise ImportFailure(
+                "Container rows cannot be merged; move contents explicitly",
+                "invalid_container_merge",
                 "data.source",
             )
         quantity = Decimal(source["quantity"])
@@ -728,8 +765,8 @@ def apply_v2(connection, payload):
                     seen.add(object_id)
                     connection.execute(
                         (
-                            "INSERT INTO "
-                            "import_provenance(import_id,operation_index,entity,object_id,action,detail_json)"
+                            "INSERT INTO import_provenance("
+                            "import_id,operation_index,entity,object_id,action,detail_json)"
                             " VALUES(?,?,?,?,?,?)"
                         ),
                         (

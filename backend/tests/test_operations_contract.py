@@ -158,14 +158,14 @@ def test_hierarchy_warning_and_repeated_leaf_names(database):
 def test_exported_contract_covers_every_field_and_revision(database):
     template = operations_template(database)
     json.dumps(template)
-    assert template["schema_version"] == 2
+    assert template["schema_version"] == 3
     assert template["operations"] == []
     for entity, fields in DATA_FIELDS.items():
         definitions = template["_field_definitions"][entity]
         assert set(fields) <= definitions.keys()
         assert set(MATCH_FIELDS[entity]) <= definitions.keys()
         assert set(template["_schemas"][entity]["modify"]["allowed_fields"]) == set(fields)
-    for revision in (0, 3, "2", True):
+    for revision in (0, 4, "2", True):
         with pytest.raises(ValueError, match="schema_version"):
             import_preview({**batch(), "schema_version": revision}, database)
 

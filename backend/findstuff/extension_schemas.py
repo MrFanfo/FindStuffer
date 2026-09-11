@@ -54,7 +54,31 @@ class CompatibilityTarget(StrictModel):
         return list(dict.fromkeys(value.strip() for value in values))
 
 
+class ProjectLink(StrictModel):
+    label: str = Field(min_length=1, max_length=240)
+    url: str = Field(min_length=1, max_length=2000, pattern=r"^https?://[^\s]+$")
+
+
 class Project(StrictModel):
+    multiplier: int = Field(
+        default=1,
+        ge=1,
+        le=10000,
+        description=(
+            "Build count. Scales required quantities only; allocations, orders "
+            "and received stock are actual totals."
+        ),
+    )
+    currency: str = Field(
+        default="EUR",
+        pattern=r"^[A-Z]{3}$",
+        description="Currency for all project costs; no conversion is performed.",
+    )
+    links: list[ProjectLink] = Field(
+        default_factory=list,
+        max_length=100,
+        description="Reference links, build guides and design sources.",
+    )
     name: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=4000)
     status: Literal["planned", "active", "completed", "archived"] = "planned"
@@ -63,6 +87,28 @@ class Project(StrictModel):
 
 
 class ProjectRequirement(StrictModel):
+    optional: bool = Field(
+        default=False,
+        description=(
+            "Optional lines do not block project readiness; still included in budget estimates."
+        ),
+    )
+    estimated_unit_cost_minor: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Estimated cost per inventory unit, in project currency minor units. "
+            "Null means unknown."
+        ),
+    )
+    actual_spent_minor: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Total money actually paid for this line, including paid orders. Not "
+            "automatically inferred from received quantity."
+        ),
+    )
     project: str
     name: str = Field(min_length=1, max_length=240)
     item: str | dict[str, Any] | None = None

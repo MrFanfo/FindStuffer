@@ -21,6 +21,7 @@ TABLES = (
     "category_fields",
     "item_field_values",
     "compatibility_targets",
+    "target_inventory_items",
     "compatibility_names",
     "item_compatibility",
     "project_compatibility",
@@ -28,6 +29,9 @@ TABLES = (
     "requirement_compatibility",
     "projects",
     "project_reservations",
+    "project_completions",
+    "project_outputs",
+    "project_files",
 )
 
 
@@ -35,6 +39,7 @@ def merge_extensions(connection, tables, categories, items, undo):
     from .extended import _item_snapshot
 
     target_ids, field_ids, project_ids = {}, {}, {}
+    created_projects = set()
     pending = list(tables.get("compatibility_targets", []))
     while pending:
         progress = False
@@ -159,6 +164,20 @@ def merge_extensions(connection, tables, categories, items, undo):
         values = item_values(connection, item_id)
         values[field["public_id"]] = value
         restore_item_values(connection, item_id, values)
+    for row in tables.get("target_inventory_items", []):
+        if row["item_id"] not in items or row["target_id"] not in target_ids:
+            raise ValueError("Physical target link references a missing item or target")
+        item_id, target_id = items[row["item_id"]], target_ids[row["target_id"]]
+        if connection.execute(
+            "SELECT 1 FROM target_inventory_items WHERE item_id=? AND target_id=?",
+            (item_id, target_id),
+        ).fetchone():
+            continue
+        _remember_item(connection, item_id, touched, undo, _item_snapshot)
+        connection.execute(
+            "INSERT INTO target_inventory_items(item_id,target_id) VALUES(?,?)",
+            (item_id, target_id),
+        )
     for row in tables.get("item_compatibility", []):
         if row["item_id"] not in items or row["target_id"] not in target_ids:
             raise ValueError("Compatibility relation references a missing item or target")
@@ -219,7 +238,10 @@ def merge_extensions(connection, tables, categories, items, undo):
                 "name": row["name"],
                 "description": row.get("description", ""),
                 "notes": row.get("notes", ""),
-                "status": row["status"],
+                "status": "planned" if row["status"] == "completed" else row["status"],
+                "multiplier": row.get("multiplier", 1),
+                "currency": row.get("currency", "EUR"),
+                "links": json.loads(row.get("links_json", "[]")),
                 "compatibility": compatibility,
             },
         )
@@ -228,6 +250,7 @@ def merge_extensions(connection, tables, categories, items, undo):
             (row["public_id"], created["public_id"]),
         )
         project_ids[row["id"]] = resolve_project(connection, row["public_id"])["id"]
+        created_projects.add(row["id"])
         undo.append({"entity": "project", "action": "erase", "public_id": row["public_id"]})
     for row in tables.get("project_requirements", []):
         if connection.execute(
@@ -265,6 +288,9 @@ def merge_extensions(connection, tables, categories, items, undo):
             item=item[0] if item else None,
             category=categories.get(row.get("category_id")),
             reserve=bool(row["reserve"]),
+            optional=bool(row.get("optional", False)),
+            estimated_unit_cost_minor=row.get("estimated_unit_cost_minor"),
+            actual_spent_minor=row.get("actual_spent_minor", 0),
             compatibility=_export_target_refs(
                 connection,
                 tables.get("requirement_compatibility", []),
@@ -290,6 +316,34 @@ def merge_extensions(connection, tables, categories, items, undo):
         undo.append(
             {"entity": "project_requirement", "action": "erase", "public_id": row["public_id"]}
         )
+
+    for row in tables.get("projects", []):
+        if row["id"] in created_projects:
+            connection.execute(
+                "UPDATE projects SET status=? WHERE id=?", (row["status"], project_ids[row["id"]])
+            )
+    for table, columns in (
+        ("project_completions", ("public_id", "snapshot_json", "created_at")),
+        (
+            "project_files",
+            ("public_id", "name", "mime_type", "file_path", "size_bytes", "created_at"),
+        ),
+        ("project_outputs", ("item_public_id", "quantity_milli", "created_at")),
+    ):
+        for row in tables.get(table, []):
+            if row["project_id"] not in project_ids:
+                raise ValueError(f"{table} references a missing project")
+            if row["project_id"] not in created_projects:
+                continue
+            fields = ["project_id", *columns]
+            values = [project_ids[row["project_id"]], *(row[key] for key in columns)]
+            if table == "project_outputs":
+                fields.append("item_id")
+                values.append(items.get(row.get("item_id")))
+            connection.execute(
+                f"INSERT INTO {table}({','.join(fields)}) VALUES({','.join('?' for _ in fields)})",
+                values,
+            )
 
     for row in tables.get("project_reservations", []):
         project_id, item_id = project_ids.get(row["project_id"]), items.get(row["item_id"])

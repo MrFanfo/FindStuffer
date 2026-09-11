@@ -174,9 +174,9 @@ class NotificationSettingsUpdate(StrictModel):
 
 class DocumentPatch(StrictModel):
     title: str | None = Field(default=None, min_length=1, max_length=240)
-    document_type: Literal[
-        "receipt", "invoice", "manual", "certificate", "warranty", "other"
-    ] | None = None
+    document_type: (
+        Literal["receipt", "invoice", "manual", "certificate", "warranty", "other"] | None
+    ) = None
     purchase_date: date | None = None
     warranty_expires_at: date | None = None
 
@@ -265,8 +265,11 @@ class AIScanProposalPatch(StrictModel):
 
 
 class ItemBase(StrictModel):
+    container_item_id: str | int | None = None
+    is_container: bool = False
     custom_fields: dict[str, Any] = Field(default_factory=dict)
     compatibility: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    compatibility_targets: list[str] = Field(default_factory=list, max_length=50)
     name: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=4000)
     notes: str = Field(default="", max_length=8000)
@@ -307,8 +310,11 @@ class ItemCreate(ItemBase):
 
 
 class ItemPatch(StrictModel):
+    container_item_id: str | int | None = None
+    is_container: bool | None = None
     custom_fields: dict[str, Any] | None = None
     compatibility: list[dict[str, Any]] | None = Field(default=None, max_length=100)
+    compatibility_targets: list[str] | None = Field(default=None, max_length=50)
     name: str | None = Field(default=None, min_length=1, max_length=240)
     description: str | None = Field(default=None, max_length=4000)
     notes: str | None = Field(default=None, max_length=8000)

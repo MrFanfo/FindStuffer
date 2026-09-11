@@ -50,6 +50,7 @@ describe("modular inventory components", () => {
   it("renders owned documents and OCR suggestions", async () => {
     const { container } = render(
       <DocumentSection
+        editing
         item={item}
         documents={[document]}
         onReload={vi.fn()}

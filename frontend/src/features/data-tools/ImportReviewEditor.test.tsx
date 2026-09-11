@@ -11,12 +11,15 @@ function Review() {
 
 test('unfinished row edits block apply until saved or discarded', async () => {
   render(<Review />);
+  expect(screen.queryByText('Edit item fields and destination')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Modify' }));
   fireEvent.click(screen.getByText('Edit item fields and destination'));
   fireEvent.change(screen.getByLabelText('Absolute quantity'), { target: { value: '7' } });
   await waitFor(() => expect(screen.getByText('Apply file')).toBeDisabled());
   fireEvent.click(screen.getByText('Save field edits'));
   await waitFor(() => expect(screen.getByText('Apply file')).toBeEnabled());
   expect(screen.getByRole('status').textContent).toContain('"quantity":"7"');
+  fireEvent.click(screen.getByRole('button', { name: 'Modify' }));
   fireEvent.click(screen.getByText('Edit all fields as JSON'));
   fireEvent.change(screen.getByLabelText('Complete operation JSON'), { target: { value: '{invalid' } });
   await waitFor(() => expect(screen.getByText('Apply file')).toBeDisabled());
@@ -24,6 +27,6 @@ test('unfinished row edits block apply until saved or discarded', async () => {
   expect(screen.getByText('Apply file')).toBeDisabled();
   fireEvent.click(screen.getByText('Discard unsaved row edits'));
   await waitFor(() => expect(screen.getByText('Apply file')).toBeEnabled());
-  fireEvent.click(screen.getByText('Reject line'));
+  fireEvent.click(screen.getByRole('button', { name: 'Reject operation 1' }));
   expect(screen.getByRole('status').textContent).toContain('"operations":[]');
 });

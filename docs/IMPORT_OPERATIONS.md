@@ -221,3 +221,56 @@ by stable identities when merged. Existing local metadata is retained and
 missing relationships/values are filled in. Full ZIP backups include the whole
 database, photos and documents. Data can validate a ZIP's integrity and media
 references without restoring it; restore remains an explicit replacement action.
+
+## Compact review and resolved category fields
+
+Preview shows one compact row per operation, with a text status and green, yellow
+or red indicator. Modify expands the complete validation details and editors;
+Reject removes the proposal. Destinations remain visible in the row where space
+allows and in expanded details. Saving a row invalidates the old preview; apply
+requires revalidation of the amended file. Unsaved drafts still block apply.
+
+For each exported category, `effective_custom_fields` is the ready-to-use set of
+active fields after inheritance and nearest-child overrides. `defined_here`
+contains definitions owned by that category, including inactive ones. Definitions
+retain source category IDs, `source_category_path`, `inherited`, stable
+`value_field_id`, defaults and constraints. The legacy `custom_fields` view is
+retained for compatibility; new chatbot instructions should prefer the effective
+array when constructing an item.
+
+Item `compatibility_targets` links a physical machine to reusable abstract targets.
+It does not mean the item is a compatible accessory. Use item `compatibility` for
+“works with” claims. Both appear in the Related UI, along with direct item links.
+A target's `linked_item_ids` is exported reference information, not an editable
+target field. Change ownership links by modifying the physical item instead.
+
+## Schema 3: containment and maker projects
+
+Schema 3 retains atomic, retry-safe execution. Schema 2 remains accepted. The
+exported template is generated from the same field validators and describes the
+new project fields and workflow endpoints in full.
+
+`is_container: true` enables physical contents. Use an item's `container_item_id`
+with a stable public ID (preferred), internal numeric ID or unique exact name.
+Create the container earlier in the same operations array. Supply either a direct
+location or a container; contained items inherit effective location recursively.
+`null` detaches to the current effective place unless another location is supplied;
+omitting the field on modify preserves the assignment. Move/split accept a
+container destination. A full-container move changes every descendant's effective
+location without changing stock. Containers themselves cannot be split or merged.
+
+Duplicate identity includes the immediate container (or direct place), canonical
+name, category and serial. `match.container_item_id` disambiguates identical parts
+in different boxes; null matches top-level items. Never append place names to item
+names. Self-containment, cycles, inactive/noncontainer parents, and nesting beyond
+32 levels are rejected. Empty containers before archiving or deleting them.
+
+The item API returns `location_public_id` as the effective location for existing
+clients; `direct_location_public_id` is null for contained items. `container_chain`
+and `containment_path` explain the physical placement. Location contents omit
+contained items; global search includes them and prioritizes direct name matches.
+
+Project `multiplier`, `currency`, `links`, requirement `optional`,
+`estimated_unit_cost_minor` and `actual_spent_minor` support add/modify and portable
+exports. Required quantity is per build; other quantity and spending fields are
+actual totals. See [maker workflow semantics](PROJECTS_AND_METADATA.md).

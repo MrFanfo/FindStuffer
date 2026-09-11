@@ -158,3 +158,65 @@ aliases and overrides, complete compatibility filtering, same-batch creation,
 invalid references, raw export/undo integrity, strict JSON, HTTP contracts and
 unfinished preview edits. Browser checks additionally exercise the actual
 project, item properties, target and import screens.
+
+## Related targets and physical items
+
+An abstract target is a reusable model or platform, not owned stock. Its identity
+and relationships survive selling, archiving or deleting a physical machine.
+An item can represent one or more targets through `compatibility_targets`, a
+replacement array of existing target public IDs, canonical names or aliases.
+Omission leaves it unchanged; `[]` unlinks; `null` is rejected. Create the targets
+before referencing them in the same operations batch. The item owns its category,
+location and quantity; the target keeps its independent model/family identity.
+
+In an item's **Edit → Related**, “Works with” describes compatibility with a
+target, including incompatible/conditional states, evidence and adapters.
+“This item is a physical instance of” links an owned machine to its target.
+The item's Related section then shows matching parts, their quantities and
+locations, and whether the relationship was inherited. Existing direct item links
+appear in the same section. The Related targets workspace also lists linked
+physical items. These links are included in portable exports, import previews,
+atomic application, undo and full database backups.
+
+Category metadata now includes `related` and `documents` capabilities. Disabling
+one hides its section and editors without deleting stored information. Empty
+sections are hidden in item view; Edit exposes supported optional fields.
+
+Project cards show **Need / Have / Ordered / Still buy**. Have combines physical
+inventory available to the requirement with received stock outside inventory.
+Orders remain unowned until received. Stock breakdown exposes reservations and
+allocations; these presentation labels do not change quantity accounting.
+
+## Maker workflows (1.10.0)
+
+A requirement's `required_quantity` is the per-build BOM quantity. Its returned
+`scaled_required_quantity` multiplies that by the project's integer `multiplier`
+(1–10,000). Allocations, reservations, outstanding orders and received quantities
+are actual totals and are never multiplied. Optional requirements do not block
+readiness/progress; cancelled requirements are excluded. Optional planned parts
+are still included in budgets.
+
+Projects have `currency` (three uppercase letters), `links` (HTTP(S) label/URL
+pairs), notes, and PDF/JPEG/PNG/WebP attachments up to 20 MB. Requirement
+`estimated_unit_cost_minor` is nullable, per unit; `actual_spent_minor` is the total
+actually paid, including paid outstanding orders. Estimates sum scaled BOM costs;
+ordered value uses outstanding purchases; remaining estimated cost uses `to_buy`.
+These are overlapping perspectives and should not be added together. Unknown
+prices are reported rather than presented as complete estimates. Changing currency
+relabels values; it does not convert them.
+
+`POST /api/v1/projects/{public_id}/actions` accepts `request_id` plus:
+
+- `action: clone`, `name`: copy the BOM, build count, notes, links and file references;
+  reset allocations/reservations, orders, receipts and actual spend.
+- `action: finish`, optional `outputs`: require all nonoptional lines to be covered,
+  create the supplied ItemCreate records atomically and preserve a completion
+  snapshot. Holds are released; stock is not consumed automatically.
+- `action: output`, `outputs`: create more output items for an already completed
+  project. Each output has its own stable inventory identity.
+
+Retry the same request ID and unchanged body after a network failure. A deliberate
+new action requires a new ID. Completion snapshots preserve final BOM quantities,
+linked inventory/substitutions, notes, costs and outputs and are not rewritten by
+later edits. Existing `modify project.status=completed` operations remain available
+for recording historical completion without enforcing stock readiness.

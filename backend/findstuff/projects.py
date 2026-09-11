@@ -39,9 +39,9 @@ def save_project(connection, data, public_id=None):
     if existing:
         connection.execute(
             (
-                'UPDATE projects SET '
-                'name=?,description=?,status=?,notes=?,updated_at=CURRENT_TIMESTAMP'
-                ' WHERE id=?'
+                "UPDATE projects SET "
+                "name=?,description=?,status=?,notes=?,updated_at=CURRENT_TIMESTAMP"
+                " WHERE id=?"
             ),
             (*fields, existing["id"]),
         )
@@ -52,26 +52,47 @@ def save_project(connection, data, public_id=None):
             "INSERT INTO projects(public_id,name,description,status,notes) VALUES(?,?,?,?,?)",
             (public_id, *fields),
         ).lastrowid
+    connection.execute(
+        "UPDATE projects SET multiplier=?,currency=?,links_json=? WHERE id=?",
+        (values["multiplier"], values["currency"], json.dumps(values["links"]), project_id),
+    )
     set_target_links(
         connection, "project_compatibility", "project_id", project_id, values["compatibility"]
     )
-    return project_detail(connection, public_id)
+    result = project_detail(connection, public_id)
+    if values["status"] == "completed" and (not existing or existing["status"] != "completed"):
+        snapshot_completion(connection, result)
+        result = project_detail(connection, public_id)
+    return result
+
+
+def snapshot_completion(connection, detail):
+    from .inventory import get_item
+    snapshot = {key: value for key, value in detail.items() if key != "completions"}
+    snapshot["linked_inventory"] = {
+        row["item"]: get_item(connection, row["item"])
+        for row in detail["requirements"] if row["item"]
+    }
+    connection.execute(
+        "INSERT INTO project_completions(public_id,project_id,snapshot_json) VALUES(?,?,?)",
+        (new_public_id("cmp"), detail["id"], json.dumps(snapshot, default=str)),
+    )
 
 
 def other_holds(connection, item_id, project_id):
     legacy = connection.execute(
         (
-            'SELECT COALESCE(sum(r.quantity_milli),0) FROM project_reservations'
-            ' r JOIN projects p ON p.id=r.project_id WHERE r.item_id=? AND '
+            "SELECT COALESCE(sum(r.quantity_milli),0) FROM project_reservations"
+            " r JOIN projects p ON p.id=r.project_id WHERE r.item_id=? AND "
             "r.project_id!=? AND p.status IN ('planned','active')"
         ),
         (item_id, project_id),
     ).fetchone()[0]
     planned = connection.execute(
         (
-            'SELECT COALESCE(sum(r.allocated_milli),0) FROM '
-            'project_requirements r JOIN projects p ON p.id=r.project_id WHERE '
-            'r.item_id=? AND r.project_id!=? AND r.reserve=1 AND '
+            "SELECT COALESCE(sum(r.allocated_milli),0) FROM "
+            "project_requirements r JOIN projects p ON p.id=r.project_id WHERE "
+            "r.item_id=? AND r.project_id!=? AND r.reserve=1 AND "
             "r.status!='cancelled' AND p.status IN ('planned','active')"
         ),
         (item_id, project_id),
@@ -82,7 +103,7 @@ def other_holds(connection, item_id, project_id):
 def requirement_detail(connection, row):
     item = connection.execute("SELECT * FROM items WHERE id=?", (row["item_id"],)).fetchone()
     project = connection.execute(
-        "SELECT public_id FROM projects WHERE id=?", (row["project_id"],)
+        "SELECT public_id,multiplier FROM projects WHERE id=?", (row["project_id"],)
     ).fetchone()
     references = target_links(connection, "requirement_compatibility", "requirement_id", row["id"])
     if not references:
@@ -91,7 +112,7 @@ def requirement_detail(connection, row):
         )
     earlier = connection.execute(
         (
-            'SELECT COALESCE(sum(allocated_milli),0) FROM project_requirements '
+            "SELECT COALESCE(sum(allocated_milli),0) FROM project_requirements "
             "WHERE project_id=? AND item_id=? AND id<? AND status!='cancelled'"
         ),
         (row["project_id"], row["item_id"], row["id"]),
@@ -101,7 +122,8 @@ def requirement_detail(connection, row):
         row["allocated_milli"],
         max(0, physical - earlier - other_holds(connection, row["item_id"], row["project_id"])),
     )
-    missing = max(0, row["required_milli"] - available - row["acquired_milli"])
+    required = row["required_milli"] * project["multiplier"]
+    missing = max(0, required - available - row["acquired_milli"])
     compatibility = (
         [
             {"target": reference, **effective_compatibility(connection, item["id"], reference)}
@@ -119,6 +141,10 @@ def requirement_detail(connection, row):
         warnings.append("Linked stock is no longer sufficient for the planned allocation")
     if any(entry["status"] != "compatible" for entry in compatibility):
         warnings.append("Check compatibility: one or more requirements are unknown or conditional")
+    photo = connection.execute(
+        "SELECT public_id FROM photos WHERE item_id=? ORDER BY sort_order,id LIMIT 1",
+        (row["item_id"],),
+    ).fetchone()
     return {
         "public_id": row["public_id"],
         "project": project[0],
@@ -128,6 +154,11 @@ def requirement_detail(connection, row):
         "item_name": item["name"] if item else None,
         "unit": row["unit"],
         "required_quantity": from_milli(row["required_milli"]),
+        "scaled_required_quantity": from_milli(required),
+        "optional": bool(row["optional"]),
+        "estimated_unit_cost_minor": row["estimated_unit_cost_minor"],
+        "actual_spent_minor": row["actual_spent_minor"],
+        "item_photo_url": f"/api/v1/photos/{photo[0]}/content" if photo else None,
         "inventory_quantity": from_milli(row["allocated_milli"]),
         "inventory_quantity_available": from_milli(available),
         "purchased_quantity": from_milli(row["purchased_milli"]),
@@ -192,8 +223,8 @@ def save_requirement(connection, data, public_id=None):
     if item and values["status"] != "cancelled":
         other = connection.execute(
             (
-                'SELECT COALESCE(sum(allocated_milli),0) FROM project_requirements '
-                'WHERE item_id=? AND project_id=? AND public_id!=? AND '
+                "SELECT COALESCE(sum(allocated_milli),0) FROM project_requirements "
+                "WHERE item_id=? AND project_id=? AND public_id!=? AND "
                 "status!='cancelled'"
             ),
             (item["id"], project["id"], public_id or ""),
@@ -215,8 +246,8 @@ def save_requirement(connection, data, public_id=None):
             )
     duplicate = connection.execute(
         (
-            'SELECT public_id FROM project_requirements WHERE project_id=? AND '
-            'name=? COLLATE NOCASE AND category_id IS ? AND public_id!=?'
+            "SELECT public_id FROM project_requirements WHERE project_id=? AND "
+            "name=? COLLATE NOCASE AND category_id IS ? AND public_id!=?"
         ),
         (project["id"], values["name"], category_id, public_id or ""),
     ).fetchone()
@@ -241,10 +272,10 @@ def save_requirement(connection, data, public_id=None):
     if existing:
         connection.execute(
             (
-                'UPDATE project_requirements SET project_id=?,name=?,category_id=?,'
-                'item_id=?,required_milli=?,allocated_milli=?,purchased_milli=?,acq'
-                'uired_milli=?,unit=?,reserve=?,notes=?,status=?,version=version+1,'
-                'updated_at=CURRENT_TIMESTAMP WHERE id=?'
+                "UPDATE project_requirements SET project_id=?,name=?,category_id=?,"
+                "item_id=?,required_milli=?,allocated_milli=?,purchased_milli=?,acq"
+                "uired_milli=?,unit=?,reserve=?,notes=?,status=?,version=version+1,"
+                "updated_at=CURRENT_TIMESTAMP WHERE id=?"
             ),
             (*fields, existing["id"]),
         )
@@ -253,13 +284,26 @@ def save_requirement(connection, data, public_id=None):
         public_id = new_public_id("req")
         requirement_id = connection.execute(
             (
-                'INSERT INTO project_requirements(public_id,project_id,name,categor'
-                'y_id,item_id,required_milli,allocated_milli,purchased_milli,acquir'
-                'ed_milli,unit,reserve,notes,status) '
-                'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                "INSERT INTO project_requirements(public_id,project_id,name,categor"
+                "y_id,item_id,required_milli,allocated_milli,purchased_milli,acquir"
+                "ed_milli,unit,reserve,notes,status) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
             ),
             (public_id, *fields),
         ).lastrowid
+    connection.execute(
+        (
+            "UPDATE project_requirements SET "
+            "optional=?,estimated_unit_cost_minor=?,actual_spent_minor=? WHERE "
+            "id=?"
+        ),
+        (
+            values["optional"],
+            values["estimated_unit_cost_minor"],
+            values["actual_spent_minor"],
+            requirement_id,
+        ),
+    )
     set_target_links(
         connection,
         "requirement_compatibility",
@@ -281,15 +325,50 @@ def project_detail(connection, public_id):
             "SELECT * FROM project_requirements WHERE project_id=? ORDER BY id", (project["id"],)
         )
     ]
-    active = [row for row in requirements if row["status"] != "cancelled"]
+    active = [row for row in requirements if row["status"] != "cancelled" and not row["optional"]]
     totals = {}
     for row in active:
         total = totals.setdefault(row["unit"], {"required": Decimal(0), "covered": Decimal(0)})
-        total["required"] += Decimal(row["required_quantity"])
-        total["covered"] += Decimal(row["required_quantity"]) - Decimal(row["missing_quantity"])
+        total["required"] += Decimal(row["scaled_required_quantity"])
+        total["covered"] += Decimal(row["scaled_required_quantity"]) - Decimal(
+            row["missing_quantity"]
+        )
     return {
         **dict(project),
         "requirements": requirements,
+        "links": json.loads(project["links_json"]),
+        "ready": all(row["satisfied"] for row in active),
+        "budget": project_budget(requirements),
+        "files": [
+            dict(row)
+            for row in connection.execute(
+                (
+                    "SELECT public_id,name,mime_type,size_bytes FROM project_files WHERE "
+                    "project_id=? ORDER BY id"
+                ),
+                (project["id"],),
+            )
+        ],
+        "outputs": [
+            dict(row)
+            for row in connection.execute(
+                (
+                    "SELECT item_public_id,quantity_milli FROM project_outputs WHERE "
+                    "project_id=? ORDER BY id"
+                ),
+                (project["id"],),
+            )
+        ],
+        "completions": [
+            {
+                "public_id": row["public_id"],
+                "created_at": row["created_at"],
+                "snapshot": json.loads(row["snapshot_json"]),
+            }
+            for row in connection.execute(
+                "SELECT * FROM project_completions WHERE project_id=? ORDER BY id", (project["id"],)
+            )
+        ],
         "compatibility": target_links(
             connection, "project_compatibility", "project_id", project["id"]
         ),
@@ -300,7 +379,9 @@ def project_detail(connection, public_id):
             "percent": float(
                 round(
                     sum(
-                        1 - Decimal(row["missing_quantity"]) / Decimal(row["required_quantity"])
+                        1
+                        - Decimal(row["missing_quantity"])
+                        / Decimal(row["scaled_required_quantity"])
                         for row in active
                     )
                     / len(active)
@@ -333,8 +414,8 @@ def inventory_candidates(connection, project_public_id, requirement_id=None, que
     candidates = []
     for row in connection.execute(
         (
-            'SELECT id,public_id,name FROM items WHERE archived_at IS NULL AND '
-            'name LIKE ? ORDER BY name COLLATE NOCASE,id'
+            "SELECT id,public_id,name FROM items WHERE archived_at IS NULL AND "
+            "name LIKE ? ORDER BY name COLLATE NOCASE,id"
         ),
         (f"%{query}%",),
     ):
@@ -422,3 +503,20 @@ def acquired_to_inventory(connection, public_id, payload):
             (import_id, digest, json.dumps(result, default=str)),
         )
         return result
+
+
+def project_budget(requirements):
+    active = [row for row in requirements if row["status"] != "cancelled"]
+
+    def cost(row, field):
+        return int(
+            (Decimal(row[field]) * (row["estimated_unit_cost_minor"] or 0)).quantize(Decimal("1"))
+        )
+
+    return {
+        "estimated_total_minor": sum(cost(row, "scaled_required_quantity") for row in active),
+        "actual_spent_minor": sum(row["actual_spent_minor"] for row in active),
+        "ordered_value_minor": sum(cost(row, "purchased_quantity") for row in active),
+        "remaining_estimated_minor": sum(cost(row, "to_buy_quantity") for row in active),
+        "unpriced_lines": sum(row["estimated_unit_cost_minor"] is None for row in active),
+    }

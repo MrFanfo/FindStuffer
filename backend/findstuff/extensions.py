@@ -145,7 +145,10 @@ def item_extensions(connection, public_id):
         ).fetchone()
         if field:
             definitions.append({**serialize_field(connection, field), "retained": True})
+    from .compatibility import represented_targets
+
     return {
+        "compatibility_targets": represented_targets(connection, row["id"]),
         "custom_fields": stored,
         "field_definitions": definitions,
         "compatibility": item_compatibility(connection, row["id"]),

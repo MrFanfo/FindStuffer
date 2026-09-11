@@ -1,3 +1,5 @@
+import { CategoryConsolidation } from "./CategoryExplorer";
+import { CategoryFieldsPanel } from "./CategoryFieldsPanel";
 import {
   type FormEvent,
   useCallback,
@@ -72,6 +74,7 @@ export function CategoryDetailView({ categoryId, categories, busy, onOpenItem, o
   onBack: () => void;
 }) {
   const [contents, setContents] = useState<CategoryContents | null>(null);
+  const [showFields, setShowFields] = useState(false);
   const [quickPhotos, setQuickPhotos] = useState(false);
   const [showCreateChild, setShowCreateChild] = useState(false);
   const [childName, setChildName] = useState("");
@@ -101,6 +104,9 @@ export function CategoryDetailView({ categoryId, categories, busy, onOpenItem, o
       {showCreateChild && <form className="inline-detail-create" onSubmit={createChildCategory}><label>New child category<input required autoFocus value={childName} onChange={(event) => setChildName(event.target.value)} placeholder={`Inside ${contents.category.name}`} /></label><div className="button-row"><button type="button" onClick={() => { setShowCreateChild(false); setChildName(""); }}>Cancel</button><button className="secondary" disabled={busy || !childName.trim()}>Create category</button></div></form>}
       <div className="location-overview"><div><span>Direct items</span><strong>{contents.category.item_count}</strong></div><div><span>Including children</span><strong>{contents.category.total_item_count}</strong></div><div><span>Default location</span><strong>{contents.category.default_location?.name || "Inherited"}</strong></div></div>
       {contents.children.length > 0 && <section className="detail-section"><div className="section-heading"><div><h2>Child categories</h2><span>{contents.children.length} below this level</span></div></div><div className="child-location-grid">{contents.children.map((child) => <button key={child.id} onClick={() => onOpenCategory(child.id)}><Icon name="tag" size={18} /><strong>{child.name}</strong><small>{child.total_item_count} item{child.total_item_count === 1 ? "" : "s"}</small></button>)}</div></section>}
+      <button className="secondary" onClick={() => setShowFields(true)}>Custom fields</button>
+      {showFields && <CategoryFieldsPanel category={categoryId} name={contents.category.path} onClose={() => setShowFields(false)} />}
+      <CategoryConsolidation key={categoryId} categories={categories} categoryId={categoryId} />
       <DetailItemsBrowser items={contents.items} groupMode="location" emptyText="Items assigned to this category or its children will appear here." onOpenItem={onOpenItem} busy={busy} />
       {quickPhotos && <QuickPhotoSession title={contents.category.name} items={missingPhotoItems} onDone={async () => { setQuickPhotos(false); await load(); }} onClose={() => setQuickPhotos(false)} />}
     </section>

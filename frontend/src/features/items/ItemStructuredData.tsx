@@ -1,25 +1,54 @@
-import { CustomFieldInput } from "../../components/CategoryValueInputs";
-import { useEffect, useState } from 'react';
-import { api, type Item } from '../../api';
+import { type ReactNode, useEffect, useState } from 'react';
+import type { Item } from '../../api';
 import { extensions, type CompatibilityRelation, type CompatibilityTarget, type ItemExtensions } from '../../extensionApi';
+import { TargetChoices } from '../planning/TargetChoices';
+import { TargetParts } from './TargetParts';
 
-export function ItemStructuredData({ item, onChanged }: { item: Item; onChanged: (item: Item) => Promise<void> }) {
-  const [data, setData] = useState<ItemExtensions | null>(null); const [targets, setTargets] = useState<CompatibilityTarget[]>([]);
-  const [draft, setDraft] = useState<Record<string, unknown>>({}); const [relations, setRelations] = useState<CompatibilityRelation[]>([]);
-  const [editing, setEditing] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [retry, setRetry] = useState(0);
+export type RelatedDraft = { compatibility: CompatibilityRelation[]; compatibility_targets: string[] };
+
+export function ItemStructuredData({ item, editing = false, relatedEnabled = true, children, onDraftChange }: {
+  item: Item; editing?: boolean; relatedEnabled?: boolean; children?: ReactNode;
+  onDraftChange?: (draft: RelatedDraft) => void;
+}) {
+  const [data, setData] = useState<ItemExtensions | null>(null);
+  const [targets, setTargets] = useState<CompatibilityTarget[]>([]);
+  const [relations, setRelations] = useState<CompatibilityRelation[]>([]);
+  const [represented, setRepresented] = useState<string[]>([]);
+  const [error, setError] = useState(''); const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
-    void Promise.allSettled([extensions.item(item.public_id), extensions.targets()]).then(([details, choices]) => {
+    void extensions.item(item.public_id).then((details) => {
       if (!active) return;
-      if (details.status === 'fulfilled') { setData(details.value); setRelations(details.value.compatibility); setDraft({}); }
-      if (choices.status === 'fulfilled') setTargets(choices.value);
-      setError([details, choices].flatMap((result, index) => result.status === 'rejected' ? [index === 0 ? 'Could not load item properties.' : 'Could not load compatibility choices.'] : []).join(' '));
-    });
+      setData(details); setRelations(details.compatibility);
+      setRepresented((details.compatibility_targets || []).map((target) => target.public_id)); setError('');
+    }).catch(() => { if (active) setError('Item properties and related data could not load.'); });
     return () => { active = false; };
   }, [item.public_id, item.version, retry]);
-  async function save() { setBusy(true); setError(''); try { const compatibility = relations.map((relation) => Object.fromEntries(['target', 'status', 'notes', 'source_url', 'adapter'].map((key) => [key, relation[key as keyof CompatibilityRelation] || '']))); const next = await api.updateItem(item, { custom_fields: draft, compatibility }); await onChanged(next); setEditing(false); setRetry(retry + 1); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save structured details'); } finally { setBusy(false); } }
-  return <section className="detail-section structured-item-data"><div className="section-heading"><h2>Properties and compatibility</h2><button onClick={() => { if (editing) { setDraft({}); setRelations(data?.compatibility || []); } setEditing(!editing); }}>{editing ? 'Cancel edits' : 'Edit properties'}</button></div>{error && <p role="alert">{error} <button onClick={() => setRetry(retry + 1)}>Retry</button></p>}{data && <><div className="custom-item-fields">{data.field_definitions.map((field) => { const value = Object.hasOwn(draft, field.value_field_id) ? draft[field.value_field_id] : Object.hasOwn(data.custom_fields, field.value_field_id) ? data.custom_fields[field.value_field_id] : field.default; return <div className="custom-field-value" key={field.public_id}><label>{field.label}{field.unit ? ` (${field.unit})` : ''}{field.required ? ' *' : ''}{editing && field.active && !field.retained ? <CustomFieldInput field={field} value={value} onChange={(next) => setDraft({ ...draft, [field.value_field_id]: next })} /> : <strong>{value === null || value === undefined ? 'Not set' : String(value)}</strong>}</label><small>{field.retained ? 'Retained from a previous category' : !field.active ? 'Inactive; value retained' : field.inherited ? `Inherited from ${field.source_category_path}` : field.overrides ? 'Branch override' : field.description}</small></div>; })}{!data.field_definitions.length && <p>No category custom fields defined.</p>}</div>{Boolean(data.projects?.length) && <><h3>Used in projects</h3>{data.projects?.map((project) => <p key={project.requirement_public_id}><a href={`?view=projects&project=${encodeURIComponent(project.public_id)}`}>{project.name}</a> · {project.requirement_name} · {project.status}</p>)}</>}<h3>Works with</h3>{relations.map((relation, index) => <div className="item-compatibility-row" key={`${index}-${relation.target}`}>
-      {editing ? <><label>Target<select value={relation.target} onChange={(event) => setRelations(relations.map((row, i) => i === index ? { ...row, target: event.target.value } : row))}><option value="">Choose target</option>{targets.map((target) => <option key={target.public_id} value={target.public_id}>{target.name}{!target.active ? ' (inactive)' : ''}</option>)}</select></label><label>Relationship<select value={relation.status} onChange={(event) => setRelations(relations.map((row, i) => i === index ? { ...row, status: event.target.value } : row))}>{['compatible', 'incompatible', 'requires_adapter', 'partial', 'unknown'].map((status) => <option key={status}>{status}</option>)}</select></label>{(['notes', 'source_url', 'adapter'] as const).map((key) => <label key={key}>{key.replaceAll('_', ' ')}<input value={relation[key]} onChange={(event) => setRelations(relations.map((row, i) => i === index ? { ...row, [key]: event.target.value } : row))} /></label>)}<button onClick={() => setRelations(relations.filter((_, i) => i !== index))}>Remove relationship</button></> : <><a href={`?view=compatibility&target=${encodeURIComponent(relation.target)}`}>{relation.target_name || targets.find((target) => target.public_id === relation.target)?.name || relation.target}</a><strong>{relation.status.replaceAll('_', ' ')}</strong>{relation.notes && <p>{relation.notes}</p>}{relation.adapter && <p>Adapter: {relation.adapter}</p>}{relation.source_url && <a href={relation.source_url} target="_blank" rel="noreferrer">Source</a>}</>}
-    </div>)}{!relations.length && <p>Compatibility is not specified. Category membership does not imply compatibility.</p>}{editing && <><button onClick={() => setRelations([...relations, { target: '', status: 'unknown', notes: '', source_url: '', adapter: '' }])}>Add compatibility relationship</button><button className="primary" disabled={busy} onClick={() => void save()}>Save properties and compatibility</button></>}</>}
-  </section>;
+  useEffect(() => {
+    if (!editing || !relatedEnabled) return;
+    let active = true;
+    void extensions.targets().then((choices) => { if (active) setTargets(choices); }).catch(() => { if (active) setError('Related target choices could not load.'); });
+    return () => { active = false; };
+  }, [editing, relatedEnabled, retry]);
+  function change(nextRelations: CompatibilityRelation[], nextTargets = represented) {
+    setRelations(nextRelations); setRepresented(nextTargets);
+    onDraftChange?.({ compatibility: nextRelations.map(({ target, status, notes, source_url, adapter }) => ({ target, status, notes, source_url, adapter })), compatibility_targets: nextTargets });
+  }
+  const properties = data?.field_definitions.flatMap((field) => {
+    const value = Object.hasOwn(data.custom_fields, field.value_field_id) ? data.custom_fields[field.value_field_id] : field.default;
+    return value === null || value === undefined || value === '' ? [] : [{ field, value }];
+  }) || [];
+  const showRelated = relatedEnabled && (editing || relations.length > 0 || represented.length > 0 || children || Boolean(data?.projects?.length));
+  return <>
+    {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(retry + 1)}>Retry related details</button></p>}
+    {!editing && properties.length > 0 && <section className="detail-section structured-item-data"><h2>Properties</h2><dl className="custom-item-fields">{properties.map(({ field, value }) => <div className="custom-field-value" key={field.public_id}><dt>{field.label}{field.unit ? ` (${field.unit})` : ''}</dt><dd>{typeof value === 'boolean' ? value ? 'Yes' : 'No' : String(value)}</dd>{field.inherited && <small>Inherited from {field.source_category_path}</small>}</div>)}</dl></section>}
+    {showRelated && <section className="detail-section related-section"><h2>Related</h2>
+      {(editing || relations.length > 0) && <><h3>Works with</h3>{relations.map((relation, index) => <div className="item-compatibility-row" key={`${index}-${relation.target}`}>
+        {editing ? <><label>Target<select value={relation.target} onChange={(event) => change(relations.map((row, i) => i === index ? { ...row, target: event.target.value } : row))}><option value="">Choose target</option>{targets.map((target) => <option key={target.public_id} value={target.public_id}>{target.name}{!target.active ? ' (inactive)' : ''}</option>)}</select></label><label>Relationship<select value={relation.status} onChange={(event) => change(relations.map((row, i) => i === index ? { ...row, status: event.target.value } : row))}>{['compatible', 'incompatible', 'requires_adapter', 'partial', 'unknown'].map((status) => <option key={status} value={status}>{status.replaceAll('_', ' ')}</option>)}</select></label>{(['notes', 'source_url', 'adapter'] as const).map((key) => <label key={key}>{key.replaceAll('_', ' ')}<input value={relation[key]} onChange={(event) => change(relations.map((row, i) => i === index ? { ...row, [key]: event.target.value } : row))} /></label>)}<button type="button" onClick={() => change(relations.filter((_, i) => i !== index))}>Remove relationship</button></> : <><a href={`?view=compatibility&target=${encodeURIComponent(relation.target)}`}>{relation.target_name || relation.target}</a><strong>{relation.status.replaceAll('_', ' ')}</strong>{relation.notes && <p>{relation.notes}</p>}{relation.adapter && <p>Adapter: {relation.adapter}</p>}{relation.source_url && <a href={relation.source_url} target="_blank" rel="noreferrer">Evidence</a>}</>}
+      </div>)}{editing && <button type="button" onClick={() => change([...relations, { target: '', status: 'compatible', notes: '', source_url: '', adapter: '' }])}>Add relationship</button>}</>}
+      {editing ? <><TargetChoices label="This item is a physical instance of" targets={targets} values={represented} onChange={(next) => change(relations, next)} /><p className="muted">For example, link your printer to its model target. Its compatible parts appear here. The target and its relationships survive selling or deleting this item.</p><a href="?view=compatibility" target="_blank" rel="noreferrer">Manage related targets</a></> : data?.compatibility_targets?.map((target) => <TargetParts key={target.public_id} target={target} excludeItem={item.public_id} />)}
+      {children}
+      {!editing && Boolean(data?.projects?.length) && <><h3>Used in projects</h3>{data?.projects?.map((project) => <p key={project.requirement_public_id}><a href={`?view=projects&project=${encodeURIComponent(project.public_id)}`}>{project.name}</a> · {project.requirement_name}</p>)}</>}
+    </section>}
+  </>;
 }

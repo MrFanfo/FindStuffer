@@ -1,5 +1,5 @@
+import { AutoOfflineInventory } from './features/shell/AutoOfflineInventory';
 import { restoreInventoryPage, rememberInventoryPage } from "./features/inventory/inventoryHistory";
-import { rememberItem } from "./features/dashboard/recentItems";
 import { HomeExtras } from "./features/dashboard/HomeExtras";
 import { useNavigationHistory } from "./features/shell/useNavigationHistory";
 import { applyCapture } from "./features/capture/durableSave";
@@ -572,7 +572,6 @@ function App() {
     void saveOfflineSnapshot(snapshot).catch(() => undefined);
   }, [auth, categories, dashboard, items, locationTypes, locations, units]);
 
-  useEffect(() => { if (selectedItem) rememberItem(selectedItem); }, [selectedItem]);
 
   useNavigationHistory({ view, item: selectedItem?.public_id || null,
     location: view === "location" ? selectedLocationId : null,
@@ -970,6 +969,7 @@ function App() {
   return (
     <div className="app-shell">
       {busy && <div className="activity-banner" role="status" aria-live="polite"><span className="activity-spinner" aria-hidden="true" /><strong>{activityMessage || "Saving changes…"}</strong></div>}
+      <AutoOfflineInventory enabled={!offlineMode} />
       {(offlineMode || offlineOperations.length > 0) && <div className={`offline-sync-banner ${offlineMode ? "offline" : ""}`} role="status"><span><Icon name={offlineMode ? "more" : "check"} size={17} /><strong>{offlineMode ? "Offline capture" : `${offlineOperations.length} saved change${offlineOperations.length === 1 ? "" : "s"}`}</strong><small>{offlineMode ? `${offlineOperations.length} waiting to sync` : offlineOperations.some((operation) => operation.error) ? "Some changes need attention" : "Ready to synchronize"}</small></span><button type="button" disabled={offlineMode || syncingOffline} onClick={() => void syncOfflineQueue()}>{syncingOffline ? "Syncing…" : "Sync now"}</button></div>}
 
       {notice && <div className={`toast ${retryNotice?.message === notice ? "has-action" : ""}`} role="status"><span className="toast-check"><Icon name="spark" size={16} /></span><p>{notice}</p>{retryNotice?.message === notice && <button className="toast-action" onClick={() => { const pendingAction = retryNotice; setRetryNotice(null); notify(`${pendingAction.label} in progress…`); void pendingAction.action().catch((error) => notify(friendlyErrorMessage(error, `${pendingAction.label} failed`))); }}>{retryNotice.label}</button>}<button onClick={() => { setNotice(""); setRetryNotice(null); }} aria-label="Dismiss message"><Icon name="close" size={16} /></button></div>}

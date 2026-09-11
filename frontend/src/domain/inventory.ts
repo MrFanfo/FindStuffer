@@ -1,6 +1,8 @@
 import type { Category, CategoryCapabilities, Item } from "../api";
 
 const OPEN_CAPABILITIES: CategoryCapabilities = {
+  documents: true,
+  related: true,
   fullness: true,
   expiration: true,
   batches: true,

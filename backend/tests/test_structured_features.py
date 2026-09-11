@@ -384,3 +384,141 @@ def test_target_spelling_collisions_and_database_wide_compatibility_filter(datab
     result = query_inventory(database, query="parts for Voron 2.4")
     assert result["total"] == 1
     assert result["items"][0]["name"] == "Nozzle"
+
+
+@pytest.mark.parametrize(
+    "first,second",
+    [
+        ({"name": "Ender 3"}, {"name": "Ender3"}),
+        ({"name": "Printer", "aliases": ["Ender 3"]}, {"name": "Ender-3"}),
+        ({"name": "Ender 3"}, {"name": "Other printer", "aliases": ["ender3"]}),
+        ({"name": "Printer", "aliases": ["Ender 3"]}, {"name": "Other", "aliases": ["ENDER-3"]}),
+    ],
+)
+def test_same_batch_target_names_and_aliases_collide_atomically(database, first, second):
+    payload = batch(op("compatibility_target", first), op("compatibility_target", second))
+    preview = import_preview(payload, database)
+    assert not preview["valid"]
+    assert preview["validation_errors"][0]["operation_index"] == 2
+    assert "Ender" in str(preview["errors"]) or "ender" in str(preview["errors"])
+    assert database.execute("SELECT count(*) FROM compatibility_targets").fetchone()[0] == 0
+    with pytest.raises(ValueError):
+        apply_import_merge(database, payload)
+    assert database.execute("SELECT count(*) FROM compatibility_targets").fetchone()[0] == 0
+
+
+def test_template_effective_fields_are_resolved_and_descriptions_are_scoped(database):
+    from findstuff.operations_contract import operations_template
+
+    setup_features(database)
+    apply_import_merge(
+        database,
+        batch(
+            op("category", {"name": "Hardened", "parent": "Hardware > Nozzles"}),
+            op(
+                "category_field",
+                {
+                    "category": "Hardware > Nozzles > Hardened",
+                    "overrides": "diameter",
+                    "key": "diameter",
+                    "label": "Hardened diameter",
+                    "type": "decimal",
+                    "unit": "mm",
+                    "default": 0.6,
+                },
+            ),
+        ),
+    )
+    template = operations_template(database)
+    categories = {entry["name"]: entry for entry in template["_available_categories"]}
+    parent = categories["Nozzles"]["effective_custom_fields"][0]
+    child = categories["Hardened"]["effective_custom_fields"][0]
+    assert parent["inherited"] and parent["source_category_path"] == "Hardware"
+    assert not child["inherited"] and child["label"] == "Hardened diameter"
+    assert child["value_field_id"] == parent["value_field_id"]
+    assert str(child["default"]) == "0.6"
+    assert len(categories["Hardened"]["defined_here"]) == 1
+    assert not categories["Nozzles"]["defined_here"]
+    definitions = template["_field_definitions"]
+    assert "product name" in definitions["item"]["name"]["description"]
+    assert "product name" not in definitions["category"]["name"]["description"]
+    assert "product name" not in definitions["location"]["name"]["description"]
+    assert "physical place" in definitions["location"]["description"]["description"]
+    assert "compatibility_targets" in definitions["item"]
+
+
+def test_physical_target_links_survive_sale_and_roundtrip_and_undo(database, tmp_path):
+    from findstuff.compatibility import represented_targets
+    from findstuff.extended import export_inventory
+
+    setup_features(database)
+    result = apply_import_merge(
+        database, batch(op("item", {"name": "My printer", "compatibility_targets": ["Voron 2.4"]}))
+    )
+    machine = database.execute("SELECT * FROM items WHERE name='My printer'").fetchone()
+    target = represented_targets(database, machine["id"])[0]
+    assert target["name"] == "Voron 2.4"
+    assert machine["public_id"] in target["linked_item_ids"]
+    exported = export_inventory(database)
+    assert len(exported["tables"]["target_inventory_items"]) == 1
+    path = tmp_path / "linked.sqlite3"
+    migrate(path)
+    other = connect(path)
+    try:
+        preview = import_preview(exported, other)
+        assert preview["valid"], preview["errors"]
+        imported = apply_import_merge(other, exported)
+        assert other.execute("SELECT count(*) FROM target_inventory_items").fetchone()[0] == 1
+        undo_import_batch(other, imported["import_public_id"])
+        assert other.execute("SELECT count(*) FROM target_inventory_items").fetchone()[0] == 0
+    finally:
+        other.close()
+    # Sale/archive does not deactivate the model or its parts relationships.
+    database.execute("UPDATE items SET archived_at=CURRENT_TIMESTAMP WHERE id=?", (machine["id"],))
+    assert resolve_target(database, "Voron 2.4")["active"]
+    part = database.execute("SELECT id FROM items WHERE name='Nozzle'").fetchone()[0]
+    assert effective_compatibility(database, part, "Voron 2.4")["status"] == "compatible"
+    database.commit()
+    undo_import_batch(database, result["import_public_id"])
+    assert database.execute("SELECT count(*) FROM target_inventory_items").fetchone()[0] == 0
+    assert resolve_target(database, "Voron 2.4")["active"]
+
+
+def test_physical_target_modify_preview_and_undo_preserve_abstract_identity(database):
+    import asyncio
+
+    from findstuff.extension_routes import target_detail
+    from findstuff.extensions import item_extensions
+
+    setup_features(database)
+    apply_import_merge(database, batch(op("item", {"name": "Owned printer"})))
+    machine = database.execute("SELECT * FROM items WHERE name='Owned printer'").fetchone()
+    payload = batch(
+        op(
+            "item",
+            {"compatibility_targets": ["Voron 2.4"]},
+            "modify",
+            {"public_id": machine["public_id"]},
+        )
+    )
+    preview = import_preview(payload, database)
+    assert preview["valid"], preview["errors"]
+    assert not item_extensions(database, machine["public_id"])["compatibility_targets"]
+    applied = apply_import_merge(database, payload)
+    detail = asyncio.run(target_detail("Voron 2.4", database, 0))
+    assert detail["linked_items"][0]["public_id"] == machine["public_id"]
+    assert detail["items"][0]["effective_compatibility"]["inherited"]
+    undo_import_batch(database, applied["import_public_id"])
+    assert not item_extensions(database, machine["public_id"])["compatibility_targets"]
+    assert resolve_target(database, "Voron 2.4")["active"]
+    # Explicit null is not an unlink and cannot partially mutate the item.
+    bad = batch(
+        op(
+            "item",
+            {"name": "Changed", "compatibility_targets": None},
+            "modify",
+            {"public_id": machine["public_id"]},
+        )
+    )
+    assert not import_preview(bad, database)["valid"]
+    assert get_item_row(database, machine["public_id"])["name"] == "Owned printer"

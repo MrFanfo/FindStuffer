@@ -49,6 +49,14 @@ def serialize_target(connection, row):
                 "updated_at",
             )
         },
+        "linked_item_ids": [
+            entry[0]
+            for entry in connection.execute(
+                "SELECT i.public_id FROM target_inventory_items r JOIN items i ON i.id=r.item_id "
+                "WHERE r.target_id=? ORDER BY i.name,i.id",
+                (row["id"],),
+            )
+        ],
         "active": bool(row["active"]),
         "parent": parent[0] if parent else None,
         "aliases": [
@@ -320,3 +328,34 @@ def compatible_item_ids(connection, reference):
             target_ids,
         )
     ]
+
+
+def represented_targets(connection, item_id):
+    return [
+        serialize_target(connection, row)
+        for row in connection.execute(
+            "SELECT t.* FROM compatibility_targets t JOIN target_inventory_items r "
+            "ON r.target_id=t.id WHERE r.item_id=? ORDER BY t.name",
+            (item_id,),
+        )
+    ]
+
+
+def set_represented_targets(connection, item_id, references, *, allow_inactive=False):
+    if not isinstance(references, list) or len(references) > 50:
+        raise ValueError("compatibility_targets must be an array of at most 50 target references")
+    ids = set()
+    for reference in references:
+        target = resolve_target(connection, reference)
+        existing = connection.execute(
+            "SELECT 1 FROM target_inventory_items WHERE item_id=? AND target_id=?",
+            (item_id, target["id"]),
+        ).fetchone()
+        if not target["active"] and not existing and not allow_inactive:
+            raise ValueError(f"Compatibility target is inactive: {target['name']}")
+        ids.add(target["id"])
+    connection.execute("DELETE FROM target_inventory_items WHERE item_id=?", (item_id,))
+    connection.executemany(
+        "INSERT INTO target_inventory_items(item_id,target_id) VALUES(?,?)",
+        [(item_id, target_id) for target_id in ids],
+    )

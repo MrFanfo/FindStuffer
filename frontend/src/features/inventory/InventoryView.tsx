@@ -312,7 +312,7 @@ export function InventoryView({
   const filteredEntries = useMemo(() => indexedItems.filter((entry) => {
     const { item } = entry;
     if (!offline) return true;
-    if (searchTerm && ![item.name, item.brand, item.model, item.location_path, item.category_path, ...item.tags].join(" ").toLowerCase().includes(searchTerm)) return false;
+    if (searchTerm && ![item.name, item.brand, item.model, item.location_path, item.containment_path, item.category_path, ...item.tags].join(" ").toLowerCase().includes(searchTerm)) return false;
     if (!includeZero && filter !== "low" && filter !== "zero" && entry.quantity <= 0) return false;
     if (filter === "low" && !entry.lowStock) return false;
     if (filter === "expiring" && !entry.expiring) return false;
@@ -549,7 +549,7 @@ export function InventoryView({
               {display.show_photo && <div className={`item-icon ${item.primary_photo_url ? "item-photo" : ""}`} aria-hidden="true">{item.primary_photo_url ? <img src={item.primary_photo_url} alt="" loading="lazy" /> : <Icon name="box" size={21} />}</div>}
               <div className="item-copy">
                 <div className="item-name-line"><h3>{item.name}</h3>{isLowStock(item) && <span className="status-badge warning">Low</span>}{expirationState(item) && <span className={`status-badge ${expirationState(item)}`}>{expirationState(item) === "expired" ? "Expired" : expirationCopy(item)}</span>}</div>
-                {display.show_location && <p className="location-line"><Icon name="pin" size={13} />{item.location_path}</p>}
+                {display.show_location && <p className="location-line"><Icon name="pin" size={13} />{item.containment_path || item.location_path}</p>}
                 {display.show_category && categoryLabel(item) && <p className="item-category">{categoryLabel(item)}</p>}
                 {((display.show_brand && item.brand) || (display.show_model && item.model)) && <p className="muted">{[display.show_brand ? item.brand : "", display.show_model ? item.model : ""].filter(Boolean).join(" · ")}</p>}
               </div>

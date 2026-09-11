@@ -273,3 +273,59 @@ test("inventory has no serious accessibility violations", async ({ page }) => {
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });
+
+test("empty item sections stay hidden and editors respect category capabilities", async ({ page }) => {
+  await page.route(`**/api/v1/items/${item.public_id}/detail`, (route) => route.fulfill({ json: { item, history: [], photos: [], documents: [], lots: [], maintenance: [], reservations: [], related: [], enrichment: { product: null, candidates: [], jobs: [] } } }));
+  await page.getByRole("button", { name: /Phillips driver Workshop/ }).click();
+  await page.getByRole("tab", { name: "Details" }).click();
+  for (const name of ["Documents & warranties", "Links", "Properties", "Related", "Maintenance", "Expiration batches"]) {
+    await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
+  }
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Documents & warranties" })).toBeVisible();
+  await expect(page.getByLabel("Links", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Related", exact: true })).toBeVisible();
+  await expect(page.getByLabel(/This item is a physical instance/)).toBeVisible();
+});
+
+const compactCategory = {
+  id: 42, parent_id: null, name: "PTFE Tubes and Pneumatic Fittings", slug: "ptfe", path: "PTFE Tubes and Pneumatic Fittings", depth: 0, sort_order: 0, item_count: 1, total_item_count: 1, default_location: null,
+  capabilities: { fullness: false, expiration: false, batches: false, maintenance: false, reservation: false, enrichment: false, photos: false, identity: true, specs: false, price: false, links: false, shopping_list: false, documents: false, related: false, override: true, inherited_from: null, inherited_label: "custom" },
+};
+async function categoryBootstrap(page: Page) {
+  await page.route("**/api/v1/bootstrap?**", (route) => route.fulfill({ json: {
+    auth: { authenticated: true, user: { public_id: "local", username: "admin", is_admin: true } }, categories: [compactCategory], dashboard, items: [{ ...item, category_id: 42 }], items_next_cursor: null, items_has_more: false, location_types: [], locations: [location], units: ["pcs"],
+  } }));
+}
+
+test("mobile category labels retain most of the row and actions stay inline", async ({ page }, testInfo) => {
+  await categoryBootstrap(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?view=categories");
+  await expect(page.locator('.category-node')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hide empty branches' })).toBeVisible();
+  await page.getByRole('button', { name: 'Hide empty branches' }).click();
+  await expect(page.getByRole('button', { name: 'Show all branches' })).toBeVisible();
+  await page.getByRole('button', { name: 'Show all branches' }).click();
+  const treeLabel = await page.locator('.category-open').boundingBox();
+  expect(treeLabel!.width).toBeGreaterThan(200);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => document.documentElement.dataset.theme = theme, theme);
+    const scan = await new AxeBuilder({ page }).analyze();
+    expect(scan.violations).toEqual([]);
+  }
+  await page.screenshot({ path: testInfo.outputPath('compact-categories.png'), fullPage: true });
+});
+
+test("disabled category sections are absent from item edit", async ({ page }) => {
+  await categoryBootstrap(page);
+  await page.route(`**/api/v1/items/${item.public_id}`, (route) => route.fulfill({ json: { ...item, category_id: 42 } }));
+  await page.goto(`/?view=inventory&item=${item.public_id}`);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  for (const name of ['Documents & warranties', 'Related', 'Maintenance', 'Expiration batches']) {
+    await expect(page.getByRole('heading', { name, exact: true })).toHaveCount(0);
+  }
+  await expect(page.getByLabel('Links', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Name', { exact: true })).toBeVisible();
+});

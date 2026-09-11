@@ -231,11 +231,22 @@ def query_inventory(
         SOURCE + f"SELECT count(*) FROM records i WHERE {where}", values
     ).fetchone()[0]
     sort_expression, direction = SORTS[sort]
+    rank_expression = (
+        "CASE WHEN instr(lower(i.name), (SELECT needle FROM search_input))>0 THEN 0 ELSE 1 END"
+    )
+    ranked_source = SOURCE.replace(
+        "WITH RECURSIVE", "WITH RECURSIVE search_input(needle) AS (VALUES (?)),", 1
+    )
     if cursor:
         try:
             data = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
-            version, cursor_scope, value, item_id = data
-            if version != 1 or cursor_scope != scope or not isinstance(item_id, int):
+            version, cursor_scope, value, item_id, rank = data
+            if (
+                version != 2
+                or rank not in (0, 1)
+                or cursor_scope != scope
+                or not isinstance(item_id, int)
+            ):
                 raise ValueError
             if not isinstance(value, (str, int, float)):
                 raise ValueError
@@ -243,20 +254,24 @@ def query_inventory(
             raise ValueError("Invalid inventory cursor or changed filters") from exc
         comparison = "<" if direction == "DESC" else ">"
         where += (
-            f" AND ({sort_expression} {comparison} ? OR "
-            f"({sort_expression} = ? AND i.id {comparison} ?))"
+            f" AND ({rank_expression} > ? OR ({rank_expression} = ? AND "
+            f"({sort_expression} {comparison} ? OR "
+            f"({sort_expression} = ? AND i.id {comparison} ?))))"
         )
-        values.extend((value, value, item_id))
+        values.extend((rank, rank, value, value, item_id))
     rows = connection.execute(
-        SOURCE + f"SELECT i.*, {sort_expression} AS cursor_value FROM records i WHERE {where} "
-        f"ORDER BY {sort_expression} {direction}, i.id {direction} LIMIT ?",
-        [*values, limit + 1],
+        ranked_source + f"SELECT i.*, {sort_expression} AS cursor_value, "
+        f"{rank_expression} AS match_rank FROM records i WHERE {where} "
+        f"ORDER BY match_rank ASC, {sort_expression} {direction}, i.id {direction} LIMIT ?",
+        [query.strip().lower(), *values, limit + 1],
     ).fetchall()
     has_more = len(rows) > limit
     rows = rows[:limit]
     next_cursor = None
     if has_more:
-        payload = json.dumps([1, scope, rows[-1]["cursor_value"], rows[-1]["id"]]).encode()
+        payload = json.dumps(
+            [2, scope, rows[-1]["cursor_value"], rows[-1]["id"], rows[-1]["match_rank"]]
+        ).encode()
         next_cursor = base64.urlsafe_b64encode(payload).decode().rstrip("=")
     return {
         "available_tags": [

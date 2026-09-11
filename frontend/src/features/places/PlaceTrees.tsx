@@ -1,4 +1,4 @@
-import { CategoryExplorer } from "./CategoryExplorer";
+import { CategoryFieldsPanel } from "./CategoryFieldsPanel";
 import { type CSSProperties, type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   flattenLocations,
@@ -19,7 +19,7 @@ const CATEGORY_DATA_FIELD_LABELS: Record<keyof Omit<CategoryCapabilities, "overr
   expiration: "Expiration", batches: "Batches", maintenance: "Maintenance",
   reservation: "Reservations", enrichment: "Enrichment", photos: "Photos",
   identity: "Identity", specs: "Specs", price: "Prices", links: "Links",
-  shopping_list: "Shopping list",
+  shopping_list: "Shopping list", documents: "Documents and warranties", related: "Related items and compatibility",
 };
 function buildCategoryTree(categories: Category[]): CategoryNode[] {
   const nodes = new Map<number, CategoryNode>(categories.map((category) => [category.id, { ...category, children: [] }]));
@@ -190,7 +190,9 @@ export function CategoriesView({ categories, locations, busy, onOpen, onCreate, 
   const [editParent, setEditParent] = useState("");
   const [editDefaultLocation, setEditDefaultLocation] = useState("");
   const [capabilityOverrides, setCapabilityOverrides] = useState<ApplicationSettings["category_data"]["overrides"]>({});
-  const tree = useMemo(() => buildCategoryTree(categories), [categories]);
+  const [hideEmpty, setHideEmpty] = useState(false);
+  const [fieldCategory, setFieldCategory] = useState<Category | null>(null);
+  const tree = useMemo(() => buildCategoryTree(hideEmpty ? categories.filter((entry) => entry.total_item_count > 0) : categories), [categories, hideEmpty]);
   const flatLocations = useMemo(() => flattenLocations(locations), [locations]);
   const editingCategory = categories.find((entry) => entry.id === editingId) || null;
   const editParentOptions = useMemo(() => {
@@ -261,9 +263,11 @@ export function CategoriesView({ categories, locations, busy, onOpen, onCreate, 
     });
   }
   return (
-    <section className="locations-page"><CategoryExplorer categories={categories} onOpen={onOpen} onEdit={startEdit} />
+    <section className="locations-page"><header className="page-heading"><h1>Categories</h1><button className="secondary" aria-pressed={hideEmpty} onClick={() => setHideEmpty(!hideEmpty)}>{hideEmpty ? 'Show all branches' : 'Hide empty branches'}</button></header>
+      {editingCategory && <button className="secondary" onClick={() => setFieldCategory(editingCategory)}>Custom fields</button>}
+      {fieldCategory && <CategoryFieldsPanel category={fieldCategory.id} name={fieldCategory.path} onClose={() => setFieldCategory(null)} />}
       {editingCategory ? <CategoryEditPanel category={editingCategory} locations={flatLocations} editName={editName} editParent={editParent} editParentOptions={editParentOptions} editDefaultLocation={editDefaultLocation} overrides={capabilityOverrides} busy={busy} onEditName={setEditName} onEditParent={setEditParent} onEditDefaultLocation={setEditDefaultLocation} onCapability={setCapability} onResetCapabilities={resetCapabilities} onCancel={() => setEditingId(null)} onSubmit={saveEdit} /> : <details className="create-panel"><summary><span className="summary-icon"><Icon name="plus" /></span><span><strong>Create a category</strong><small>Nest it under any existing category</small></span><Icon name="chevron" /></summary><form className="form-card" onSubmit={submit}><label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Resistors, batteries, printer parts" /></label><label>Inside<select value={parent} onChange={(event) => setParent(event.target.value)}><option value="">Top level</option>{categories.map((entry) => <option key={entry.id} value={entry.id}>{categoryOptionLabel(entry)}</option>)}</select></label><button className="primary wide button-with-icon" disabled={busy || !name.trim()}><Icon name="plus" size={17} />Create category</button></form></details>}
-      <details><summary>Browse and manage the full hierarchy</summary><div className="category-tree">{tree.length ? tree.map((category) => <CategoryBranch key={category.id} category={category} expanded={expanded} busy={busy} onToggle={toggle} onOpen={onOpen} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} />) : <EmptyState icon="tag" title="No categories yet" text="Create your first category." />}</div></details>
+      <div className="category-tree">{tree.length ? tree.map((category) => <CategoryBranch key={category.id} category={category} expanded={expanded} busy={busy} onToggle={toggle} onOpen={onOpen} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} />) : <EmptyState icon="tag" title="No categories yet" text="Create your first category." />}</div>
     </section>
   );
 }
@@ -317,5 +321,5 @@ function CategoryBranch({ category, expanded, busy, depth = 0, onToggle, onOpen,
 }) {
   const isOpen = expanded.has(category.id);
   const canDelete = category.children.length === 0 && category.item_count === 0;
-  return <div className="category-branch" style={{ "--depth": depth } as CSSProperties}><div className="category-node"><span className="hierarchy-rail" aria-hidden="true" />{category.children.length > 0 ? <button type="button" className={`tree-toggle ${isOpen ? "open" : ""}`} onClick={() => onToggle(category.id)} aria-label={`${isOpen ? "Collapse" : "Expand"} ${category.name}`} aria-expanded={isOpen}><Icon name="chevron" size={16} /></button> : <span className="tree-toggle-spacer" />}<button type="button" className="category-open" onClick={() => onOpen(category.id)}><span className="location-kind"><Icon name="tag" size={17} /></span><span><strong>{category.name}</strong><small>Level {depth + 1} · {category.total_item_count} item{category.total_item_count === 1 ? "" : "s"} · {category.children.length} child{category.children.length === 1 ? "" : "ren"}</small><em>{categoryOptionLabel(category)}</em></span></button><div className="category-actions"><button type="button" onClick={() => onEdit(category)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={busy || !canDelete} title={canDelete ? "Delete category" : "Move children and items first"} onClick={() => onDelete(category)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" disabled={busy} onClick={() => onDeleteTree(category)}><Icon name="close" size={14} /><span>Subtree</span></button></div></div>{isOpen && category.children.map((child) => <CategoryBranch key={child.id} category={child} expanded={expanded} busy={busy} depth={depth + 1} onToggle={onToggle} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} onDeleteTree={onDeleteTree} />)}</div>;
+  return <div className="category-branch" style={{ "--depth": depth } as CSSProperties}><div className="category-node"><span className="hierarchy-rail" aria-hidden="true" />{category.children.length > 0 ? <button type="button" className={`tree-toggle ${isOpen ? "open" : ""}`} onClick={() => onToggle(category.id)} aria-label={`${isOpen ? "Collapse" : "Expand"} ${category.name}`} aria-expanded={isOpen}><Icon name="chevron" size={16} /></button> : <span className="tree-toggle-spacer" />}<button type="button" className="category-open" onClick={() => onOpen(category.id)}><span className="location-kind"><Icon name="tag" size={17} /></span><span><strong>{category.name}</strong><small>Level {depth + 1} · {category.total_item_count} item{category.total_item_count === 1 ? "" : "s"} · {category.children.length} child{category.children.length === 1 ? "" : "ren"}</small><em>{categoryOptionLabel(category)}</em></span></button><details className="category-row-menu"><summary aria-label={`Actions for ${category.name}`} title="Category actions"><Icon name="more" size={18} /></summary><div><button type="button" aria-label={`Edit ${category.name}`} onClick={() => onEdit(category)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={busy || !canDelete} aria-label={`Delete ${category.name}`} title={canDelete ? "Delete category" : "Move children and items first"} onClick={() => onDelete(category)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" aria-label={`Delete ${category.name} subtree`} disabled={busy} onClick={() => onDeleteTree(category)}><Icon name="close" size={14} /><span>Subtree</span></button></div></details></div>{isOpen && category.children.map((child) => <CategoryBranch key={child.id} category={child} expanded={expanded} busy={busy} depth={depth + 1} onToggle={onToggle} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} onDeleteTree={onDeleteTree} />)}</div>;
 }

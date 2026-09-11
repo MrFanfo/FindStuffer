@@ -461,6 +461,8 @@ def serialize_item(
     item_location_path: str | None = None,
     item_category_path: str | None = None,
     primary_photo_url: str | None = None,
+    containment: dict | None = None,
+    project_holds: list | None = None,
 ) -> dict[str, Any]:
     if tags is None:
         tags = [
@@ -480,7 +482,10 @@ def serialize_item(
         links = []
     if not isinstance(links, list):
         links = []
+    from .containment import item_containment
+
     return {
+        **(containment if containment is not None else item_containment(connection, row)),
         "public_id": row["public_id"],
         "version": row["version"],
         "name": row["name"],
@@ -524,6 +529,9 @@ def serialize_item(
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "primary_photo_url": primary_photo_url,
+        "project_holds": project_holds
+        if project_holds is not None
+        else batch_project_holds(connection, [row["id"]]).get(row["id"], []),
     }
 
 
@@ -550,6 +558,10 @@ def serialize_item_rows(
     paths_by_category = category_paths(
         connection, {row["category_id"] for row in rows if row["category_id"] is not None}
     )
+    from .containment import batch_containment
+
+    containment_by_item = batch_containment(connection, rows, paths_by_location)
+    holds_by_item = batch_project_holds(connection, item_ids)
     primary_photos = {
         row["item_id"]: row["public_id"]
         for row in connection.execute(
@@ -570,6 +582,8 @@ def serialize_item_rows(
             connection,
             row,
             tags=tags_by_item[row["id"]],
+            containment=containment_by_item[row["id"]],
+            project_holds=holds_by_item.get(row["id"], []),
             item_location_path=paths_by_location[row["location_id"]],
             item_category_path=paths_by_category.get(row["category_id"])
             if row["category_id"] is not None
@@ -883,7 +897,10 @@ def reindex_item(connection: sqlite3.Connection, item_id: int) -> None:
     connection.execute("DELETE FROM item_fts WHERE item_id = ?", (item_id,))
     if row is None or row["archived_at"] is not None:
         return
+    from .containment import item_containment
+
     category_text = category_path(connection, row["category_id"]) if row["category_id"] else ""
+    containment_text = item_containment(connection, row)["containment_path"]
     connection.execute(
         """
         INSERT INTO item_fts(
@@ -898,7 +915,7 @@ def reindex_item(connection: sqlite3.Connection, item_id: int) -> None:
             row["notes"],
             category_text,
             row["tag_names"],
-            location_path(connection, row["location_id"]),
+            containment_text or location_path(connection, row["location_id"]),
             row["brand"],
             row["model"],
             row["serial_number"],
@@ -1439,6 +1456,8 @@ def move_item(
 
 def archive_item(connection: sqlite3.Connection, public_id: str) -> None:
     row = get_item_row(connection, public_id)
+    if connection.execute("SELECT 1 FROM items WHERE container_item_id=?", (row["id"],)).fetchone():
+        raise ConflictError("Move contents out before archiving or deleting a container")
     if row["archived_at"] is not None:
         return
     before = serialize_item(connection, row)
@@ -1457,6 +1476,8 @@ def archive_item(connection: sqlite3.Connection, public_id: str) -> None:
 
 def hard_delete_item(connection: sqlite3.Connection, public_id: str) -> None:
     row = get_item_row(connection, public_id)
+    if connection.execute("SELECT 1 FROM items WHERE container_item_id=?", (row["id"],)).fetchone():
+        raise ConflictError("Move contents out before archiving or deleting a container")
     photo_paths = [
         photo["file_path"]
         for photo in connection.execute(
@@ -1643,6 +1664,8 @@ CATEGORY_DATA_FIELDS = (
     "price",
     "links",
     "shopping_list",
+    "documents",
+    "related",
 )
 
 
@@ -1678,6 +1701,8 @@ def _category_capability_defaults(category: dict[str, Any]) -> dict[str, bool]:
         "price": True,
         "links": True,
         "shopping_list": food_like,
+        "documents": True,
+        "related": True,
     }
 
 
@@ -2264,7 +2289,7 @@ def location_contents(
     placeholders = ", ".join("?" for _ in location_ids)
     item_rows = connection.execute(
         f"{ITEM_SELECT} WHERE items.archived_at IS NULL "
-        f"AND items.location_id IN ({placeholders}) "
+        f"AND items.location_id IN ({placeholders}) AND items.container_item_id IS NULL "
         "ORDER BY items.location_id = ? DESC, items.name COLLATE NOCASE",
         (*location_ids, location["id"]),
     ).fetchall()
@@ -3010,30 +3035,38 @@ def expiring_items(connection: sqlite3.Connection, days: int = 14) -> list[dict[
 
 
 def create_item(connection, values, *, source="manual"):
-    from .compatibility import set_item_compatibility
+    from .compatibility import set_item_compatibility, set_represented_targets
+    from .containment import apply_placement, placement
     from .custom_fields import set_item_values
 
     values = dict(values)
     fields = values.pop("custom_fields", {})
     compatibility = values.pop("compatibility", [])
+    represented = values.pop("compatibility_targets", [])
     with transaction(connection):
+        parent, container_flag = placement(connection, values)
         item = _create_item(connection, values, source=source)
         row = get_item_row(connection, item["public_id"])
         set_item_values(connection, row["id"], row["category_id"], fields, enforce_required=True)
         set_item_compatibility(connection, row["id"], compatibility)
+        set_represented_targets(connection, row["id"], represented)
+        apply_placement(connection, row["id"], parent, container_flag)
         return get_item(connection, item["public_id"])
 
 
 def update_item(connection, public_id, changes, *, source="manual"):
-    from .compatibility import set_item_compatibility
+    from .compatibility import set_item_compatibility, set_represented_targets
+    from .containment import apply_placement, placement
     from .custom_fields import set_item_values
 
     changes = dict(changes)
     marker = object()
     fields = changes.pop("custom_fields", marker)
     compatibility = changes.pop("compatibility", marker)
+    represented = changes.pop("compatibility_targets", marker)
     with transaction(connection):
         row = get_item_row(connection, public_id)
+        parent, container_flag = placement(connection, changes, row)
         if (
             fields is not marker
             or "category_id" in changes
@@ -3048,11 +3081,20 @@ def update_item(connection, public_id, changes, *, source="manual"):
             )
         if compatibility is not marker:
             set_item_compatibility(connection, row["id"], compatibility)
-        if len(changes) == 1 and (fields is not marker or compatibility is not marker):
+        if represented is not marker:
+            set_represented_targets(connection, row["id"], represented)
+        if len(changes) == 1 and (
+            fields is not marker
+            or compatibility is not marker
+            or represented is not marker
+            or parent != row["container_item_id"]
+            or container_flag != bool(row["is_container"])
+        ):
             changes["notes"] = row[
                 "notes"
             ]  # Metadata-only writes still advance optimistic version.
         _update_item(connection, public_id, changes, source=source)
+        apply_placement(connection, row["id"], parent, container_flag)
         return get_item(connection, public_id)
 
 
@@ -3063,3 +3105,27 @@ def update_category(connection, category_id, changes):
         result = _update_category(connection, category_id, changes)
         validate_field_tree(connection)
         return result
+
+
+def batch_project_holds(connection, item_ids):
+    identifiers = json.dumps(item_ids)
+    result = {}
+    for hold in connection.execute(
+        "SELECT r.item_id,p.public_id,p.name,sum(r.quantity) AS quantity FROM ("
+        "SELECT item_id,project_id,quantity_milli AS quantity FROM project_reservations "
+        "WHERE item_id IN (SELECT value FROM json_each(?)) "
+        "UNION ALL SELECT item_id,project_id,allocated_milli FROM project_requirements "
+        "WHERE item_id IN (SELECT value FROM json_each(?)) "
+        "AND reserve=1 AND status!='cancelled') r JOIN projects p ON p.id=r.project_id "
+        "WHERE p.status IN ('planned','active') GROUP BY r.item_id,p.id "
+        "HAVING sum(r.quantity)>0",
+        (identifiers, identifiers),
+    ):
+        result.setdefault(hold["item_id"], []).append(
+            {
+                "public_id": hold["public_id"],
+                "name": hold["name"],
+                "quantity": from_milli(hold["quantity"]),
+            }
+        )
+    return result

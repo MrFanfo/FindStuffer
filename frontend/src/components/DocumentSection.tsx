@@ -3,6 +3,7 @@ import { FormEvent, useRef, useState } from "react";
 import { api, Item, ItemDocument } from "../api";
 
 type Props = {
+  editing?: boolean;
   item: Item;
   documents: ItemDocument[];
   onReload: () => Promise<void>;
@@ -26,6 +27,7 @@ function fileSize(value: number): string {
 
 export function DocumentSection({
   item,
+  editing = false,
   documents,
   onReload,
   onItemChanged,
@@ -183,7 +185,7 @@ export function DocumentSection({
         })}
       </div>
 
-      <form className="document-upload-form" onSubmit={upload}>
+      {editing && <form className="document-upload-form" onSubmit={upload}>
         <label>
           File
           <input
@@ -247,7 +249,7 @@ export function DocumentSection({
         <button className="secondary" disabled={busy || !file || !title.trim()}>
           {busy ? "Saving…" : "Attach document"}
         </button>
-      </form>
+      </form>}
     </section>
   );
 }
