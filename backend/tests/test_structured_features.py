@@ -397,6 +397,10 @@ def test_targets_carry_an_optional_category_that_survives_edits(database):
 
     grouped = save_target(database, {"name": "Voron 0.2", "category": "Hardware"})
     assert grouped["category"] == hardware["id"]
+    # The readable path travels with the ID so the AI template and exports do not
+    # have to resolve the grouping themselves.
+    assert grouped["category_path"] == "Hardware"
+    assert plain["category_path"] is None
 
     listed = {row["name"]: row["category"] for row in targets(database)}
     assert listed["Voron 0.2"] == hardware["id"]

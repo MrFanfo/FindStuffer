@@ -153,3 +153,58 @@ def test_schema_three_failure_rolls_back_container_batch(database):
     with pytest.raises(ValueError, match="Missing"):
         apply_import_merge(database, payload)
     assert database.execute("SELECT count(*) FROM items").fetchone()[0] == 0
+
+
+def test_documented_container_example_imports_and_round_trips(tmp_path):
+    """The template's fill_a_container example must work exactly as printed."""
+    from findstuff.db import connect, migrate
+    from findstuff.extended import apply_import_merge
+    from findstuff.inventory import get_item
+    from findstuff.operations_contract import operations_template
+
+    path = tmp_path / "containers.sqlite3"
+    migrate(path)
+    database = connect(path)
+
+    template = operations_template(database)
+    example = template["_examples"]["fill_a_container"]
+    assert isinstance(example, list) and len(example) == 2
+
+    # Examples reference exported places; create the one they name, then run the
+    # container operations exactly as the template prints them.
+    apply_import_merge(
+        database,
+        {
+            "format": "findstuff-ops-v1",
+            "schema_version": 2,
+            "operations": [
+                {"op": "add", "type": "location", "data": {"name": "Workshop"}},
+                {
+                    "op": "add",
+                    "type": "location",
+                    "data": {"name": "Shelf B", "parent": "Workshop"},
+                },
+            ],
+        },
+    )
+    apply_import_merge(
+        database,
+        {"format": "findstuff-ops-v1", "schema_version": 2, "operations": example},
+    )
+
+    rows = {row["name"]: row for row in database.execute("SELECT * FROM items")}
+    box, part = rows["Toolbox A"], rows["PTFE Push-Fit Pneumatic Fittings"]
+    assert box["is_container"] == 1
+    assert part["container_item_id"] == box["id"]
+
+    # The contained item inherits the container's place rather than owning one.
+    contained = get_item(database, part["public_id"])
+    assert contained["location_path"] == box_location(database, box)
+    assert contained["direct_location_public_id"] is None
+    database.close()
+
+
+def box_location(database, box):
+    from findstuff.inventory import get_item
+
+    return get_item(database, box["public_id"])["location_path"]

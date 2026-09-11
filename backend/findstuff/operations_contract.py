@@ -816,6 +816,41 @@ def examples():
                 "unit": "pcs",
             },
         ),
+        "fill_a_container": [
+            operation(
+                "add",
+                "item",
+                {
+                    "name": "Toolbox A",
+                    "location": "Workshop > Shelf B",
+                    "quantity": "1",
+                    "unit": "pcs",
+                    "is_container": True,
+                },
+            ),
+            operation(
+                "add",
+                "item",
+                {
+                    "name": "PTFE Push-Fit Pneumatic Fittings",
+                    "container_item_id": "Toolbox A",
+                    "quantity": "14",
+                    "unit": "pcs",
+                },
+            ),
+        ],
+        "move_item_into_existing_container": operation(
+            "modify", "item", {"container_item_id": "itm_REPLACE_WITH_EXPORTED_ID"}, exact
+        ),
+        "take_item_out_of_its_container": operation(
+            "modify",
+            "item",
+            {"container_item_id": None, "location": "Workshop > Shelf B"},
+            exact,
+        ),
+        "move_container_with_everything_inside": operation(
+            "modify", "item", {"location": "Garage > Rack 2"}, exact
+        ),
         "set_quantity": operation("modify", "item", {"quantity": "0"}, exact),
         "increment_stock": operation("modify", "item", {"quantity_delta": "2.5"}, exact),
         "move_whole_record": operation("modify", "item", {"location": "Workshop > Shelf B"}, exact),

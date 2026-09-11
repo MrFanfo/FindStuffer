@@ -381,3 +381,20 @@ test("projects open a detail page and return to the list", async ({ page }) => {
   await page.getByRole("button", { name: /^Projects$/ }).click();
   await expect(page.locator(".project-card")).toHaveCount(1);
 });
+
+test("target editor picks a category from the hierarchy", async ({ page }) => {
+  await planningBootstrap(page);
+  await page.goto("/?view=compatibility");
+  await page.getByRole("button", { name: "Create target" }).click();
+  const dialog = page.getByRole("dialog", { name: "Compatibility target editor" });
+  await expect(dialog).toBeVisible();
+  // The category control is the same hierarchy picker item edit uses, not a select.
+  await expect(dialog.locator(".picker-field select")).toHaveCount(0);
+  await dialog.getByRole("button", { name: /No category/ }).click();
+  const picker = page.getByRole("dialog", { name: "Choose category" });
+  await expect(picker).toBeVisible();
+  await picker.getByRole("button", { name: /Use (this )?category/ }).first().click();
+  await expect(page.getByRole("dialog", { name: "Choose category" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /PTFE Tubes and Pneumatic Fittings/ })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Clear category" })).toBeVisible();
+});

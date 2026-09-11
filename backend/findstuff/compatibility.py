@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .extension_schemas import CompatibilityTarget
-from .inventory import ConflictError, NotFoundError, new_public_id
+from .inventory import ConflictError, NotFoundError, category_path, new_public_id
 from .network_security import validate_http_url
 
 STATES = ("compatible", "incompatible", "requires_adapter", "partial", "unknown")
@@ -60,6 +60,11 @@ def serialize_target(connection, row):
         "active": bool(row["active"]),
         "parent": parent[0] if parent else None,
         "category": row["category_id"],
+        # Readable alongside the ID so exports and the AI template do not have to
+        # resolve the grouping against the category list.
+        "category_path": category_path(connection, row["category_id"])
+        if row["category_id"]
+        else None,
         "aliases": [
             alias[0]
             for alias in connection.execute(

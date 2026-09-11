@@ -245,6 +245,10 @@ def augment_template(template):
                 example = {"fullness": True}
             elif name == "source":
                 example = {"public_id": "itm_REPLACE_WITH_EXPORTED_ID"}
+            elif name == "container_item_id":
+                # A generic "Example" reads as a name; show both accepted forms.
+                example = "itm_REPLACE_WITH_EXPORTED_ID"
+                field.setdefault("examples", [example, "Toolbox A", None])
             field.setdefault("examples", [example])
     item["move"]["quantity"] = {
         "type": ["number", "string"],
