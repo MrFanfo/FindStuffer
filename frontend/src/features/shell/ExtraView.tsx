@@ -28,7 +28,7 @@ export function ExtraView({
   onDiscard: (id: string) => Promise<void>;
 }) {
   return <section className="extra-page">
-    <div className="page-heading"><div><p className="eyebrow">MORE</p><h1>Tools and settings</h1><p>Explore insights, protect your data, manage inventory life, and configure your installation from focused workspaces.</p></div></div>
+    <div className="page-heading"><div><h1 className="eyebrow">MORE</h1></div></div>
     <div className="extra-tool-grid">
       <button type="button" className="extra-tool-card" onClick={onProjects}><span><Icon name="box" size={24} /></span><div><strong>Projects</strong><small>Plan required parts, link stock, and track purchases and missing quantities.</small></div><Icon name="chevron" size={18} /></button>
       <button type="button" className="extra-tool-card" onClick={onCompatibility}><span><Icon name="tag" size={24} /></span><div><strong>Related targets</strong><small>Machines, platforms and families your items work with.</small></div><Icon name="chevron" size={18} /></button>

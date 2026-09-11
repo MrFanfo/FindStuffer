@@ -170,10 +170,20 @@ function LocationBranch({ node, locationTypes, editParentOptions, editingId, edi
   return <div className="location-branch" style={{ "--depth": depth } as CSSProperties}><div className="location-node"><span className="hierarchy-rail" aria-hidden="true" />{node.children.length > 0 ? <button type="button" className={`tree-toggle ${isOpen ? "open" : ""}`} onClick={() => onToggle(node.public_id)} aria-label={`${isOpen ? "Collapse" : "Expand"} ${node.name}`} aria-expanded={isOpen}><Icon name="chevron" size={16} /></button> : <span className="tree-toggle-spacer" />}<button type="button" className="location-open" onClick={() => onOpen(node.public_id)}><span className="location-kind"><Icon name={node.kind === "box" || node.kind === "container" ? "box" : "pin"} size={18} /></span><span><strong>{node.name}</strong><small>Level {depth + 1} · {node.kind} · {itemText} · {placeText}</small><em>{node.path}</em></span></button><details className="category-row-menu location-row-menu"><summary aria-label={`Actions for ${node.name}`} title="Place actions"><Icon name="more" size={18} /></summary><div onClick={(event) => { if ((event.target as HTMLElement).closest("button:not(:disabled)")) event.currentTarget.closest("details")?.removeAttribute("open"); }}><button type="button" disabled={isSystem || busy} onClick={() => onEdit(node)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={isSystem || busy || node.children.length > 0} title={node.children.length > 0 ? "Move or delete child locations first" : "Delete location"} onClick={() => onDelete(node)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" disabled={isSystem || busy} onClick={() => onDeleteTree(node)}><Icon name="close" size={14} /><span>Subtree</span></button><button type="button" className="qr-link" disabled={isSystem} onClick={() => onQueuePrint(node)} aria-label={`Print QR for ${node.name}`}><Icon name="qr" size={18} /><span>Print QR</span></button></div></details></div>{isEditing && <form className="location-edit-form" onSubmit={onSaveEdit}><label>Name<input required value={editName} onChange={(event) => onEditName(event.target.value)} /></label><label>Type<select value={editKind} onChange={(event) => onEditKind(event.target.value)}>{locationTypes.map((entry) => <option key={entry.name} value={entry.name}>{entry.name}</option>)}</select></label><label>Inside<select value={editParent} onChange={(event) => onEditParent(event.target.value)}><option value="">Top level</option>{editParentOptions.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label><div className="button-row"><button type="button" onClick={onCancelEdit}>Cancel</button><button className="secondary" disabled={!editName.trim() || busy}>Save location</button></div></form>}{isOpen && node.children.map((child) => <LocationBranch key={child.public_id} node={child} locationTypes={locationTypes} editParentOptions={editParentOptions} editingId={editingId} editName={editName} editKind={editKind} editParent={editParent} expanded={expanded} busy={busy} depth={depth + 1} onToggle={onToggle} onOpen={onOpen} onQueuePrint={onQueuePrint} onEdit={onEdit} onDelete={onDelete} onDeleteTree={onDeleteTree} onSaveEdit={onSaveEdit} onCancelEdit={onCancelEdit} onEditName={onEditName} onEditKind={onEditKind} onEditParent={onEditParent} />)}</div>;
 }
 
-export function CategoriesView({ categories, locations, busy, onOpen, onCreate, onUpdate, onDelete, onDeleteTree, onSaveCapabilities, onSetDefaultLocation }: {
+export function BranchToggle({ hideEmpty, onChange }: { hideEmpty: boolean; onChange: (value: boolean) => void }) {
+  // Short visible label, full phrase as the accessible name and tooltip.
+  const label = hideEmpty ? "Show all branches" : "Hide empty branches";
+  return <button type="button" className={`branch-toggle ${hideEmpty ? "active" : ""}`} aria-pressed={hideEmpty} aria-label={label} title={label} onClick={() => onChange(!hideEmpty)}><Icon name="box" size={15} />{hideEmpty ? "Show all" : "Hide empty"}</button>;
+}
+
+export function CategoriesView({ categories, locations, busy, hideEmpty: controlledHideEmpty, onHideEmptyChange, onOpen, onCreate, onUpdate, onDelete, onDeleteTree, onSaveCapabilities, onSetDefaultLocation }: {
   categories: Category[];
   locations: LocationNode[];
   busy: boolean;
+  // Places owns the toggle so it can sit beside the Places/Categories tabs;
+  // the standalone Categories route keeps its own copy in a compact header.
+  hideEmpty?: boolean;
+  onHideEmptyChange?: (value: boolean) => void;
   onOpen: (categoryId: number) => void;
   onCreate: (name: string, parentId: number | null) => Promise<void>;
   onUpdate: (categoryId: number, body: { name: string; parent_id: number | null }) => Promise<void>;
@@ -190,7 +200,9 @@ export function CategoriesView({ categories, locations, busy, onOpen, onCreate, 
   const [editParent, setEditParent] = useState("");
   const [editDefaultLocation, setEditDefaultLocation] = useState("");
   const [capabilityOverrides, setCapabilityOverrides] = useState<ApplicationSettings["category_data"]["overrides"]>({});
-  const [hideEmpty, setHideEmpty] = useState(false);
+  const [ownHideEmpty, setOwnHideEmpty] = useState(false);
+  const hideEmpty = controlledHideEmpty ?? ownHideEmpty;
+  const setHideEmpty = onHideEmptyChange ?? setOwnHideEmpty;
   const [fieldCategory, setFieldCategory] = useState<Category | null>(null);
   const tree = useMemo(() => buildCategoryTree(hideEmpty ? categories.filter((entry) => entry.total_item_count > 0) : categories), [categories, hideEmpty]);
   const flatLocations = useMemo(() => flattenLocations(locations), [locations]);
@@ -263,7 +275,7 @@ export function CategoriesView({ categories, locations, busy, onOpen, onCreate, 
     });
   }
   return (
-    <section className="locations-page"><header className="page-heading"><h1>Categories</h1><button className="secondary" aria-pressed={hideEmpty} onClick={() => setHideEmpty(!hideEmpty)}>{hideEmpty ? 'Show all branches' : 'Hide empty branches'}</button></header>
+    <section className="locations-page"><h1 className="sr-only">Categories</h1>{!onHideEmptyChange && <header className="page-heading categories-heading"><BranchToggle hideEmpty={hideEmpty} onChange={setHideEmpty} /></header>}
       {editingCategory && <button className="secondary" onClick={() => setFieldCategory(editingCategory)}>Custom fields</button>}
       {fieldCategory && <CategoryFieldsPanel category={fieldCategory.id} name={fieldCategory.path} onClose={() => setFieldCategory(null)} />}
       {editingCategory ? <CategoryEditPanel category={editingCategory} locations={flatLocations} editName={editName} editParent={editParent} editParentOptions={editParentOptions} editDefaultLocation={editDefaultLocation} overrides={capabilityOverrides} busy={busy} onEditName={setEditName} onEditParent={setEditParent} onEditDefaultLocation={setEditDefaultLocation} onCapability={setCapability} onResetCapabilities={resetCapabilities} onCancel={() => setEditingId(null)} onSubmit={saveEdit} /> : <details className="create-panel"><summary><span className="summary-icon"><Icon name="plus" /></span><span><strong>Create a category</strong><small>Nest it under any existing category</small></span><Icon name="chevron" /></summary><form className="form-card" onSubmit={submit}><label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Resistors, batteries, printer parts" /></label><label>Inside<select value={parent} onChange={(event) => setParent(event.target.value)}><option value="">Top level</option>{categories.map((entry) => <option key={entry.id} value={entry.id}>{categoryOptionLabel(entry)}</option>)}</select></label><button className="primary wide button-with-icon" disabled={busy || !name.trim()}><Icon name="plus" size={17} />Create category</button></form></details>}

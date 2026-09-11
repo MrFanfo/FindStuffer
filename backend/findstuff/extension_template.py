@@ -240,6 +240,17 @@ def extend_template(connection, template):
             "examples": [["Ender 3 V2"]],
         }
     )
+    template["_field_definitions"]["compatibility_target"]["category"].update(
+        {
+            "description": (
+                "Optional inventory category used only to group targets on the "
+                "Compatibility list. Accepts a category ID, path or name. It never "
+                "changes which items match the target. Null or omitted on add leaves "
+                "the target uncategorised; null on modify clears the grouping."
+            ),
+            "examples": ["Hardware > Printers", 42, None],
+        }
+    )
     template["_field_definitions"]["item"]["custom_fields"].update(
         {
             "description": (

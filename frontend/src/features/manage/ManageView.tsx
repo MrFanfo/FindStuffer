@@ -407,7 +407,7 @@ export function ManageView({ items, dashboard, locations, locationTypes, units, 
   return (
     <section className="workspace-page manage-page settings-workspace">
       {loadErrors.map((section) => <p className="error-banner" role="alert" key={section}>{section} could not load. <button onClick={() => void load()}>Retry</button></p>)}
-      <header className="workspace-header"><button className="text-button workspace-back" onClick={onBack}><Icon name="chevron" size={16} />More</button><p className="eyebrow">SETTINGS</p><h1>Make Findstuff yours</h1><p>Choose how inventory looks, adjust app behavior, connect services, and inspect this installation.</p></header>
+      <header className="workspace-header"><button className="text-button workspace-back" onClick={onBack}><Icon name="chevron" size={16} />More</button><h1 className="eyebrow">SETTINGS</h1></header>
       <label className="search settings-search"><input type="search" aria-label="Search settings" placeholder="Find a setting" value={settingsQuery} onChange={(event) => setSettingsQuery(event.target.value)} /></label>
       <nav className="settings-groups" aria-label="Settings groups">{[["all", "All settings"], ["appearance", "Appearance"], ["inventory", "Inventory defaults"], ["integrations", "Integrations"], ["system", "System"]].map(([value, label]) => <button key={value} aria-pressed={settingsGroup === value} onClick={() => setSettingsGroup(value)}>{label}</button>)}</nav>
 

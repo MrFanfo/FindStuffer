@@ -2168,8 +2168,8 @@ button:active:not(:disabled) { transform: scale(.98); }
 .requirement-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .requirement-actions button { min-height: 38px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); }
 .planning-dialog { width: min(760px, 100%); max-height: calc(100dvh - 30px); overflow-y: auto; padding: 24px; border-radius: 22px 22px 0 0; background: var(--card); color: var(--ink); }
-.planning-dialog label, .planning-layout label, .category-fields-panel label { display: grid; gap: 6px; }
-.planning-dialog input, .planning-dialog select, .planning-dialog textarea, .planning-layout input, .planning-layout select, .planning-layout textarea, .category-fields-panel input, .category-fields-panel select, .category-fields-panel textarea { min-width: 0; max-width: 100%; }
+.planning-dialog label, .planning-layout label, .planning-page label, .category-fields-panel label { display: grid; gap: 6px; }
+.planning-dialog input, .planning-dialog select, .planning-dialog textarea, .planning-layout input, .planning-layout select, .planning-layout textarea, .planning-page input, .planning-page select, .planning-page textarea, .category-fields-panel input, .category-fields-panel select, .category-fields-panel textarea { min-width: 0; max-width: 100%; }
 .planning-dialog select[multiple], .planning-layout select[multiple] { min-height: 110px; }
 .stock-candidates, .compatibility-items, .field-definition-list { display: grid; gap: 10px; margin: 14px 0; }
 .stock-candidates > button, .compatibility-items > button { display: grid; gap: 6px; padding: 14px; text-align: left; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
@@ -2206,7 +2206,7 @@ button:active:not(:disabled) { transform: scale(.98); }
 :is(.projects-page, .compatibility-page) .workspace-header { padding-top: 18px; }
 .project-detail > p, .requirement-card .muted { white-space: normal; overflow: visible; text-overflow: clip; }
 :is(.category-fields-panel, .import-review-editor) pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.planning-layout summary { cursor: pointer; padding: 10px 0; }
+.planning-layout summary, .planning-page summary { cursor: pointer; padding: 10px 0; }
 .project-detail > .primary { margin-top: 8px; }
 .category-value-inputs { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 12px; min-width: 0; }
 .category-value-inputs legend { padding: 0 6px; font-weight: 650; }
@@ -2380,7 +2380,7 @@ input[type="file"] { max-width: 100%; min-width: 0; }
 .projects-page .requirement-card { display: block; margin: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 .projects-page .requirement-card:last-child { border-bottom: 0; }
 .requirement-disclosure { display: block; }
-.planning-layout .requirement-summary { display: grid; grid-template-columns: minmax(120px, 1fr) 260px 120px 15px; gap: 10px; padding: 9px 12px; list-style: none; }
+.planning-layout .requirement-summary, .planning-page .requirement-summary { display: grid; grid-template-columns: minmax(120px, 1fr) 260px 120px 15px; gap: 10px; padding: 9px 12px; list-style: none; }
 .requirement-summary::-webkit-details-marker { display: none; }
 .requirement-summary:hover { background: var(--card-alt); }
 .requirement-disclosure[open] > summary > .icon { transform: rotate(90deg); }
@@ -2444,7 +2444,7 @@ input[type="file"] { max-width: 100%; min-width: 0; }
 .compatibility-placeholder h2 { margin: 12px 0 0; font-size: 1rem; color: var(--ink); }
 .compatibility-placeholder p { margin: 6px 0 0; font-size: .82rem; }
 @media (max-width: 1000px) {
-  .planning-layout .requirement-summary { grid-template-columns: minmax(0, 1fr) auto 15px; gap: 6px 10px; }
+  .planning-layout .requirement-summary, .planning-page .requirement-summary { grid-template-columns: minmax(0, 1fr) auto 15px; gap: 6px 10px; }
   .requirement-summary > .requirement-name { grid-column: 1; grid-row: 1; }
   .requirement-summary > .planning-status { grid-column: 2; grid-row: 1; }
   .requirement-summary > .icon { grid-column: 3; grid-row: 1 / 3; }
@@ -2478,3 +2478,44 @@ input[type="file"] { max-width: 100%; min-width: 0; }
 .projects-page .project-choice span { font-size: .72rem; }
 .project-tools > summary { padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; }
 .project-tools[open] > summary { margin-bottom: 8px; }
+
+/* Compact category-branch toggle beside the Places/Categories tabs. */
+.branch-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--ink-soft); font-size: .76rem; font-weight: 650; white-space: nowrap; }
+.branch-toggle:hover { background: var(--card-alt); }
+.branch-toggle.active { color: var(--accent-dark); background: var(--accent-soft); border-color: var(--accent); }
+.categories-heading { margin: 10px 2px 12px; justify-content: flex-end; }
+
+/* Section headers reduced to their small-caps label. */
+h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65rem; font-weight: 800; letter-spacing: .16em; line-height: 1.4; }
+
+/* Target and project browsers: grouped, full-width cards that open a page. */
+.target-browser, .project-browser { display: grid; gap: 14px; }
+.target-browser-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.target-search { flex: 1; min-width: 200px; }
+.target-browser-controls .primary { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; }
+.target-browser-count { margin: 0; color: var(--muted); font-size: .74rem; }
+.target-group { display: grid; gap: 8px; }
+.target-group > header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 5px; border-bottom: 1px solid var(--line); }
+.target-group > header h2 { margin: 0; font-family: inherit; font-size: .85rem; font-weight: 700; letter-spacing: 0; overflow-wrap: anywhere; }
+.target-group > header span { color: var(--muted); font-size: .74rem; }
+.target-group-list, .project-browser-list { display: grid; gap: 7px; }
+.target-card, .project-card { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; text-align: left; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); }
+.target-card:hover, .project-card:hover { border-color: var(--accent); background: var(--card-alt); }
+.target-card-main, .project-card-main { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.target-card-main strong, .project-card-main strong { overflow-wrap: anywhere; }
+.target-card-main small, .project-card-main small { color: var(--muted); font-size: .76rem; overflow-wrap: anywhere; }
+.target-card > .icon, .project-card > .icon { flex: none; color: var(--muted); }
+.project-card-progress { display: grid; justify-items: end; gap: 5px; flex: none; width: 128px; }
+.project-card-progress progress { width: 100%; height: 6px; border: 0; border-radius: 9px; overflow: hidden; background: var(--sage-soft); }
+.project-card-progress progress::-webkit-progress-bar { background: var(--sage-soft); }
+.project-card-progress progress::-webkit-progress-value { background: var(--accent); border-radius: 9px; }
+.project-card-progress progress::-moz-progress-bar { background: var(--accent); border-radius: 9px; }
+.project-card-progress small { color: var(--muted); font-size: .72rem; }
+.project-create { padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.target-detail-page .compatibility-detail, .project-detail-page .project-detail { display: grid; gap: 14px; }
+
+@media (max-width: 700px) {
+  .target-browser-controls { flex-direction: column; align-items: stretch; }
+  .project-card { flex-wrap: wrap; }
+  .project-card-progress { width: 100%; justify-items: start; }
+}

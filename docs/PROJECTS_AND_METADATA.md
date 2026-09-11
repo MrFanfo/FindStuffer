@@ -99,6 +99,12 @@ rejects spellings that differ from another target only in whitespace or hyphens.
 Names are never silently rewritten. Manufacturer prefixes and semantic variants
 require a deliberate alias, rather than guessing that two products are identical.
 
+A target can also carry an optional inventory category. The Compatibility list
+groups targets under it, with uncategorised targets collected last. The category
+is presentation only: it never affects which items match a target, which
+relationships are inherited, or how candidates rank. Selecting a target opens its
+own page with the inventory, physical items and projects attached to it.
+
 Explicit item relationships support compatible, incompatible, requires_adapter,
 partial and unknown, with notes, an HTTP(S) source URL and adapter description.
 A nearest explicit target relationship overrides ancestor/family relationships,

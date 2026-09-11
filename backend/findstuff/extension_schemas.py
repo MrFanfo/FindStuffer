@@ -44,6 +44,7 @@ class CompatibilityTarget(StrictModel):
     type: str = Field(default="", max_length=80)
     aliases: list[str] = Field(default_factory=list, max_length=50)
     parent: str | None = None
+    category: Reference | None = None
     active: bool = True
 
     @field_validator("aliases")

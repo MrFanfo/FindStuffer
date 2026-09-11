@@ -252,7 +252,7 @@ export function AnalyticsView({
   const ageFilters: InventoryFilter[] = ["added-30", "added-90", "added-365", "added-older"];
 
   return <section className="analytics-page">
-    <header className="subpage-header analytics-title"><button className="icon-button" onClick={onBack} aria-label="Back to More"><Icon name="chevron" size={18} /></button><div><p className="eyebrow">MORE · ANALYTICS</p><h1>Inventory pulse</h1><p>Tap any signal to inspect the Items behind it.</p></div></header>
+    <header className="subpage-header analytics-title"><button className="icon-button" onClick={onBack} aria-label="Back to More"><Icon name="chevron" size={18} /></button><div><h1 className="eyebrow">ANALYTICS</h1></div></header>
     <div className="analytics-toolbar"><div className="period-switch" aria-label="Activity period">{[30, 90, 365].map((period) => <button type="button" className={days === period ? "active" : ""} key={period} onClick={() => setDays(period)}>{period === 365 ? "1 year" : `${period} days`}</button>)}</div>{data && <small>Updated {new Date(data.generated_at).toLocaleString()}</small>}</div>
     {loading && <div className="analytics-loading"><span className="activity-spinner" />Calculating analytics…</div>}
     {error && <div className="inline-alert" role="alert">{error}</div>}

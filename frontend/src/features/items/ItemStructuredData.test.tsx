@@ -6,7 +6,7 @@ import { ItemStructuredData } from './ItemStructuredData';
 
 vi.mock('../../extensionApi', () => ({ extensions: { item: vi.fn(), targets: vi.fn(), target: vi.fn() } }));
 const item = { public_id: 'machine', version: 1 } as Item;
-const target: CompatibilityTarget = { public_id: 'target', name: 'Ender 3', manufacturer: 'Creality', model: '', type: 'printer', aliases: [], parent: null, active: true, linked_item_ids: ['machine'] };
+const target: CompatibilityTarget = { public_id: 'target', name: 'Ender 3', manufacturer: 'Creality', model: '', type: 'printer', aliases: [], parent: null, category: null, active: true, linked_item_ids: ['machine'] };
 const empty: ItemExtensions = { custom_fields: {}, field_definitions: [], compatibility: [], compatibility_targets: [], projects: [] };
 afterEach(cleanup);
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(extensions.item).mockResolvedValue(empty); vi.mocked(extensions.targets).mockResolvedValue([target]); });

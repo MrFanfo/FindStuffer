@@ -4,7 +4,8 @@ import { HomeExtras } from "./features/dashboard/HomeExtras";
 import { useNavigationHistory } from "./features/shell/useNavigationHistory";
 import { applyCapture } from "./features/capture/durableSave";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazyView } from "./features/shell/lazyView";
 import {
   api,
   flattenLocations,
@@ -52,25 +53,27 @@ import {
   setOfflineOperationError,
 } from "./offline";
 
-const ProjectsView = lazy(() => import("./features/planning/ProjectsView").then((module) => ({ default: module.ProjectsView })));
-const CompatibilityView = lazy(() => import("./features/planning/CompatibilityView").then((module) => ({ default: module.CompatibilityView })));
-const AnalyticsView = lazy(() => import("./features/analytics/AnalyticsView").then((module) => ({ default: module.AnalyticsView })));
-const DataView = lazy(() => import("./features/data-tools/DataView").then((module) => ({ default: module.DataView })));
-const ItemDetail = lazy(() => import("./features/items/ItemDetail").then((module) => ({ default: module.ItemDetail })));
-const InventoryManagementView = lazy(() => import("./features/manage/InventoryManagementView").then((module) => ({ default: module.InventoryManagementView })));
-const ManageView = lazy(() => import("./features/manage/ManageView").then((module) => ({ default: module.ManageView })));
-const AIScanInboxView = lazy(() => import("./features/manage/AIScanInboxView").then((module) => ({ default: module.AIScanInboxView })));
-const DefaultRulesView = lazy(() => import("./features/manage/DefaultRulesView").then((module) => ({ default: module.DefaultRulesView })));
-const OffCategoryMappingsView = lazy(() => import("./features/manage/OffCategoryMappingsView").then((module) => ({ default: module.OffCategoryMappingsView })));
-const CategoriesView = lazy(() => import("./features/places/PlaceTrees").then((module) => ({ default: module.CategoriesView })));
-const CategoryDetailView = lazy(() => import("./features/places/PlacesView").then((module) => ({ default: module.CategoryDetailView })));
-const LocationDetailView = lazy(() => import("./features/places/PlacesView").then((module) => ({ default: module.LocationDetailView })));
-const LocationsView = lazy(() => import("./features/places/PlaceTrees").then((module) => ({ default: module.LocationsView })));
-const PlacesView = lazy(() => import("./features/places/PlacesView").then((module) => ({ default: module.PlacesView })));
-const ScanView = lazy(() => import("./features/capture/ScanView").then((module) => ({ default: module.ScanView })));
-const PrintQueueDialog = lazy(() => import("./features/printing/PrintQueueDialog").then((module) => ({ default: module.PrintQueueDialog })));
+const ProjectsView = lazyView(() => import("./features/planning/ProjectsView").then((module) => module.ProjectsView));
+const CompatibilityView = lazyView(() => import("./features/planning/CompatibilityView").then((module) => module.CompatibilityView));
+const TargetDetailView = lazyView(() => import("./features/planning/TargetDetailView").then((module) => module.TargetDetailView));
+const ProjectDetailView = lazyView(() => import("./features/planning/ProjectDetailView").then((module) => module.ProjectDetailView));
+const AnalyticsView = lazyView(() => import("./features/analytics/AnalyticsView").then((module) => module.AnalyticsView));
+const DataView = lazyView(() => import("./features/data-tools/DataView").then((module) => module.DataView));
+const ItemDetail = lazyView(() => import("./features/items/ItemDetail").then((module) => module.ItemDetail));
+const InventoryManagementView = lazyView(() => import("./features/manage/InventoryManagementView").then((module) => module.InventoryManagementView));
+const ManageView = lazyView(() => import("./features/manage/ManageView").then((module) => module.ManageView));
+const AIScanInboxView = lazyView(() => import("./features/manage/AIScanInboxView").then((module) => module.AIScanInboxView));
+const DefaultRulesView = lazyView(() => import("./features/manage/DefaultRulesView").then((module) => module.DefaultRulesView));
+const OffCategoryMappingsView = lazyView(() => import("./features/manage/OffCategoryMappingsView").then((module) => module.OffCategoryMappingsView));
+const CategoriesView = lazyView(() => import("./features/places/PlaceTrees").then((module) => module.CategoriesView));
+const CategoryDetailView = lazyView(() => import("./features/places/PlacesView").then((module) => module.CategoryDetailView));
+const LocationDetailView = lazyView(() => import("./features/places/PlacesView").then((module) => module.LocationDetailView));
+const LocationsView = lazyView(() => import("./features/places/PlaceTrees").then((module) => module.LocationsView));
+const PlacesView = lazyView(() => import("./features/places/PlacesView").then((module) => module.PlacesView));
+const ScanView = lazyView(() => import("./features/capture/ScanView").then((module) => module.ScanView));
+const PrintQueueDialog = lazyView(() => import("./features/printing/PrintQueueDialog").then((module) => module.PrintQueueDialog));
 
-type View = "projects" | "compatibility" | "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "data" | "inventory-management" | "manage";
+type View = "projects" | "project" | "compatibility" | "target" | "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "data" | "inventory-management" | "manage";
 type InventorySearchOptions = { showBusy?: boolean };
 type AdjustmentQueue = {
   confirmed: Item;
@@ -147,7 +150,9 @@ function viewFromParameter(value: string | null): View | null {
     home: "dashboard",
     inventory: "inventory",
     projects: "projects",
+    project: "project",
     compatibility: "compatibility",
+    target: "target",
     locations: "locations",
     location: "location",
     "ai-inbox": "ai-inbox",
@@ -219,6 +224,8 @@ function App() {
   const [addLocation, setAddLocation] = useState("unassigned");
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(() => new URLSearchParams(location.search).get("target"));
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => new URLSearchParams(location.search).get("project"));
   const [captureMode, setCaptureMode] = useState<CaptureMode>("scan");
   const [placesSection, setPlacesSection] = useState<PlacesSection>("locations");
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
@@ -272,6 +279,17 @@ function App() {
   const navigate = useCallback((nextView: View) => {
     setView(nextView);
   }, []);
+  // Planning detail pages keep their own query parameter so a refresh, a shared
+  // link or the browser Back button all resolve to the same record.
+  const openPlanningDetail = useCallback((key: "target" | "project", publicId: string) => {
+    const params = new URLSearchParams(location.search);
+    params.set(key, publicId);
+    history.replaceState(history.state, "", `?${params}`);
+    if (key === "target") setSelectedTargetId(publicId); else setSelectedProjectId(publicId);
+    setView(key);
+  }, []);
+  const openTarget = useCallback((publicId: string) => openPlanningDetail("target", publicId), [openPlanningDetail]);
+  const openProject = useCallback((publicId: string) => openPlanningDetail("project", publicId), [openPlanningDetail]);
   const openCapture = useCallback((mode: CaptureMode = "scan", locationId?: string) => {
     setCaptureMode(mode);
     if (locationId) setAddLocation(locationId);
@@ -582,6 +600,7 @@ function App() {
     if (route.location && route.mode === "add") { setAddLocation(route.location); setCaptureMode("quick"); setView("capture"); }
     if (["scan", "quick", "putaway", "consume", "assistant"].includes(route.mode)) setCaptureMode(route.mode as CaptureMode);
     const params = new URLSearchParams(window.location.search);
+    setSelectedTargetId(params.get("target")); setSelectedProjectId(params.get("project"));
     setQuery(params.get("q") || ""); setInventoryIncludeZero(params.get("zero") === "1");
     setInventoryFilter((params.get("filter") || "all") as InventoryFilter);
     setInventoryCategoryId(params.has("category_id") ? Number(params.get("category_id")) : null);
@@ -963,7 +982,7 @@ function App() {
       ? "capture"
       : view === "default-rules" || view === "off-category-mappings" || view === "ai-inbox"
         ? "extra"
-        : view === "projects" || view === "compatibility" || view === "manage" || view === "analytics" || view === "data" || view === "inventory-management"
+        : view === "projects" || view === "project" || view === "compatibility" || view === "target" || view === "manage" || view === "analytics" || view === "data" || view === "inventory-management"
           ? "extra"
           : view;
   return (
@@ -1141,8 +1160,10 @@ function App() {
         {view === "default-rules" && <DefaultRulesView locations={locations} categories={categories} busy={busy} onBack={() => navigate("manage")} onChanged={() => refresh(undefined, { showBusy: false })} notify={notify} />}
         {view === "ai-inbox" && <AIScanInboxView categories={categories} locations={locations} units={units} busy={busy} onBack={() => navigate("manage")} onInventoryChanged={() => refresh()} notify={notify} />}
         {view === "dashboard" && <DashboardView dashboard={dashboard} detailsCount={dashboard?.needs_details_count ?? items.filter(itemNeedsDetails).length} connectionIssue={connectionIssue} onRetry={() => void refresh("", { showBusy: true })} onCapture={openCapture} onGlobalSearch={() => setGlobalSearchOpen(true)} onInventory={(filter) => { setInventoryFilter(filter); setInventoryCategoryId(null); navigate("inventory"); }} onNotice={setNotice} ><HomeExtras locations={locations} empty={dashboard?.item_count === 0} onItem={setSelectedItem} onPlace={(id) => { setSelectedLocationId(id); navigate("location"); }} onInbox={() => navigate("ai-inbox")} onManage={() => navigate("inventory-management")} onCreatePlace={() => navigate("places")} onCapture={() => openCapture("quick")} onPrint={() => setPrintQueueOpen(true)} /></DashboardView>}
-        {view === "projects" && <ProjectsView categories={categories} locations={locations} onBack={() => navigate("extra")} onOpenItem={setSelectedItem} />}
-        {view === "compatibility" && <CompatibilityView onBack={() => navigate("extra")} onOpenItem={setSelectedItem} />}
+        {view === "projects" && <ProjectsView onBack={() => navigate("extra")} onOpenProject={openProject} />}
+        {view === "compatibility" && <CompatibilityView categories={categories} onBack={() => navigate("extra")} onOpenTarget={openTarget} />}
+        {view === "target" && selectedTargetId && <TargetDetailView targetId={selectedTargetId} categories={categories} onBack={() => navigate("compatibility")} onOpenItem={setSelectedItem} onOpenTarget={openTarget} onOpenProject={openProject} />}
+        {view === "project" && selectedProjectId && <ProjectDetailView projectId={selectedProjectId} categories={categories} locations={locations} onBack={() => navigate("projects")} onOpenItem={setSelectedItem} />}
         {view === "extra" && <ExtraView onProjects={() => navigate("projects")} onCompatibility={() => navigate("compatibility")} offlineOperations={offlineOperations} offlineMode={offlineMode} syncing={syncingOffline} onAnalytics={() => navigate("analytics")} onData={() => navigate("data")} onInventoryManagement={() => navigate("inventory-management")} onSettings={() => navigate("manage")} onSync={() => syncOfflineQueue()} onDiscard={async (id) => { await deleteOfflineOperation(id); setOfflineOperations(await listOfflineOperations()); if (navigator.onLine) await refresh("", { showBusy: false }); }} />}
         {view === "analytics" && <AnalyticsView
           onBack={() => navigate("extra")}

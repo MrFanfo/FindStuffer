@@ -386,6 +386,39 @@ def test_target_spelling_collisions_and_database_wide_compatibility_filter(datab
     assert result["items"][0]["name"] == "Nozzle"
 
 
+def test_targets_carry_an_optional_category_that_survives_edits(database):
+    from findstuff.compatibility import save_target, targets
+
+    setup_features(database)
+    hardware = next(row for row in list_categories(database) if row["name"] == "Hardware")
+
+    plain = save_target(database, {"name": "Unsorted rig"})
+    assert plain["category"] is None
+
+    grouped = save_target(database, {"name": "Voron 0.2", "category": "Hardware"})
+    assert grouped["category"] == hardware["id"]
+
+    listed = {row["name"]: row["category"] for row in targets(database)}
+    assert listed["Voron 0.2"] == hardware["id"]
+    assert listed["Voron family"] is None
+
+    moved = save_target(
+        database, {"name": "Voron 0.2", "category": hardware["id"]}, grouped["public_id"]
+    )
+    assert moved["category"] == hardware["id"]
+
+    cleared = save_target(database, {"name": "Voron 0.2"}, grouped["public_id"])
+    assert cleared["category"] is None
+
+
+def test_target_category_rejects_an_unknown_category(database):
+    from findstuff.compatibility import save_target
+
+    setup_features(database)
+    with pytest.raises(ValueError, match="Category not found"):
+        save_target(database, {"name": "Ghost rig", "category": "No such category"})
+
+
 @pytest.mark.parametrize(
     "first,second",
     [

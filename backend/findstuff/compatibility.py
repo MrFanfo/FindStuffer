@@ -59,6 +59,7 @@ def serialize_target(connection, row):
         ],
         "active": bool(row["active"]),
         "parent": parent[0] if parent else None,
+        "category": row["category_id"],
         "aliases": [
             alias[0]
             for alias in connection.execute(
@@ -123,19 +124,23 @@ def save_target(connection, data, public_id=None):
                 f"Compatibility spelling duplicates existing target name/alias: {known['name']}. "
                 "Reuse that target or explicitly add an alias to it."
             )
+    from .extended import _resolve_category_id
+
     fields = (
         value["name"],
         value["manufacturer"],
         value["model"],
         value["type"],
         parent["id"] if parent else None,
+        _resolve_category_id(connection, value["category"]),
         value["active"],
     )
     if existing:
         connection.execute(
             (
                 "UPDATE compatibility_targets SET name=?,manufacturer=?,model=?,typ"
-                "e=?,parent_id=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?"
+                "e=?,parent_id=?,category_id=?,active=?,updated_at=CURRENT_TIMESTAMP"
+                " WHERE id=?"
             ),
             (*fields, existing["id"]),
         )
@@ -146,7 +151,7 @@ def save_target(connection, data, public_id=None):
         cursor = connection.execute(
             (
                 "INSERT INTO compatibility_targets(public_id,name,manufacturer,mode"
-                "l,type,parent_id,active) VALUES(?,?,?,?,?,?,?)"
+                "l,type,parent_id,category_id,active) VALUES(?,?,?,?,?,?,?,?)"
             ),
             (public_id, *fields),
         )

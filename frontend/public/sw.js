@@ -16,6 +16,18 @@ self.addEventListener('fetch', (event) => {
   if (event.request.mode === 'navigate') {
     event.respondWith(fetch(event.request).catch(async () => (await caches.open(CACHE)).match('/') ));
   } else {
-    event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)).catch(() => new Response('Asset unavailable. Reconnect and reload Findstuff.', { status: 503, headers: { 'Content-Type': 'text/plain' } })));
+    event.respondWith(caches.match(event.request).then(async (cached) => {
+      if (cached) return cached;
+      // A page from a newer build asks for hashed chunks this shell never
+      // listed. Keep what we fetch so the view opens offline next time, and let
+      // a real failure reject: a synthesized error response would reach a
+      // dynamic import as an unparsable module and break the screen for good.
+      const response = await fetch(event.request);
+      if (response.ok && response.type === 'basic') {
+        const copy = response.clone();
+        void caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+      }
+      return response;
+    }));
   }
 });

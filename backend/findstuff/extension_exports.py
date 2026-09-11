@@ -63,8 +63,11 @@ def merge_extensions(connection, tables, categories, items, undo):
                 values = {
                     key: row.get(key, "") for key in ("name", "manufacturer", "model", "type")
                 }
+                if row.get("category_id") is not None and row["category_id"] not in categories:
+                    raise ValueError("Compatibility target references a missing category")
                 values.update(
                     parent=parent[0] if parent else None,
+                    category=categories.get(row.get("category_id")),
                     active=bool(row.get("active", 1)),
                     aliases=[
                         entry["name"]

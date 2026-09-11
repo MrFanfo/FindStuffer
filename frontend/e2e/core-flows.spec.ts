@@ -329,3 +329,55 @@ test("disabled category sections are absent from item edit", async ({ page }) =>
   await expect(page.getByLabel('Links', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Name', { exact: true })).toBeVisible();
 });
+
+const printerTarget = {
+  public_id: "compat_ender", name: "Ender 3", manufacturer: "Creality", model: "V2", type: "printer",
+  aliases: [], parent: null, category: 42, active: true, linked_item_ids: [],
+};
+const looseTarget = {
+  public_id: "compat_loose", name: "Unsorted rig", manufacturer: "", model: "", type: "",
+  aliases: [], parent: null, category: null, active: true, linked_item_ids: [],
+};
+const plannedProject = {
+  public_id: "prj_toolhead", name: "Toolhead upgrade", description: "Swap the hotend", notes: "", status: "planned",
+  multiplier: 1, currency: "EUR", ready: false, compatibility: [], links: [], files: [], outputs: [], completions: [],
+  requirements: [], budget: { estimated_total_minor: 0, actual_spent_minor: 0, ordered_value_minor: 0, remaining_estimated_minor: 0, unpriced_lines: 0 },
+  progress: { percent: 0, completed_lines: 0, total_lines: 0, missing_lines: 0, quantities_by_unit: {} },
+};
+
+async function planningBootstrap(page: Page) {
+  await categoryBootstrap(page);
+  await page.route("**/api/v1/compatibility-targets", (route) => route.fulfill({ json: [printerTarget, looseTarget] }));
+  await page.route("**/api/v1/compatibility-targets/compat_ender**", (route) => route.fulfill({ json: {
+    target: printerTarget, linked_items: [], total: 0, items: [], projects: [{ public_id: "prj_toolhead", name: "Toolhead upgrade" }], next_offset: null,
+  } }));
+  await page.route("**/api/v1/projects", (route) => route.fulfill({ json: [plannedProject] }));
+}
+
+test("compatibility targets group by category and open their own page", async ({ page }) => {
+  await planningBootstrap(page);
+  await page.goto("/?view=compatibility");
+  // Grouped by the assigned category, with uncategorised collected separately.
+  await expect(page.getByRole("region", { name: "PTFE Tubes and Pneumatic Fittings" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Uncategorised" })).toBeVisible();
+  await page.getByRole("button", { name: /Ender 3/ }).click();
+  // The detail replaces the list rather than expanding beneath it.
+  await expect(page).toHaveURL(/view=target/);
+  await expect(page.getByRole("heading", { level: 1, name: "Ender 3" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Compatibility$/ })).toBeVisible();
+  await expect(page.locator(".target-group")).toHaveCount(0);
+  const scan = await new AxeBuilder({ page }).analyze();
+  expect(scan.violations).toEqual([]);
+});
+
+test("projects open a detail page and return to the list", async ({ page }) => {
+  await planningBootstrap(page);
+  await page.goto("/?view=projects");
+  await expect(page.locator(".project-card")).toHaveCount(1);
+  await page.getByRole("button", { name: /Toolhead upgrade/ }).click();
+  await expect(page).toHaveURL(/view=project/);
+  await expect(page.getByRole("heading", { level: 1, name: "Toolhead upgrade" })).toBeVisible();
+  await expect(page.locator(".project-card")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Projects$/ }).click();
+  await expect(page.locator(".project-card")).toHaveCount(1);
+});

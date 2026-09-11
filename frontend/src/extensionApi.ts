@@ -1,6 +1,6 @@
 import { api, request, type Item } from './api';
 
-export type CompatibilityTarget = { linked_item_ids: string[]; public_id: string; name: string; manufacturer: string; model: string; type: string; aliases: string[]; parent: string | null; active: boolean };
+export type CompatibilityTarget = { linked_item_ids: string[]; public_id: string; name: string; manufacturer: string; model: string; type: string; aliases: string[]; parent: string | null; category: number | null; active: boolean };
 export type CompatibilityRelation = { target: string; target_name?: string; status: string; notes: string; source_url: string; adapter: string; active?: boolean };
 export type CompatibilityResult = { target?: string; status: string; inherited: boolean; source_name?: string; notes?: string; source_url?: string; adapter?: string };
 export type CategoryField = { public_id: string; value_field_id: string; category: number; key: string; label: string; description: string; type: string; required: boolean; nullable: boolean; default: unknown; allowed_values: string[]; constraints: Record<string, unknown>; unit: string; sort_order: number; active: boolean; inherited: boolean; retained?: boolean; overrides: string | null; source_category_path: string; affected_items: number };
