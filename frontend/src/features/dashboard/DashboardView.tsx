@@ -30,7 +30,7 @@ export function DashboardView({
   onInventory: (filter: InventoryFilter) => void;
   onNotice: (message: string) => void;
 }) {
-  const { preferences, save, error: preferenceError, reload } = usePreferences();
+  const { preferences, error: preferenceError, reload } = usePreferences();
   const [shoppingError, setShoppingError] = useState("");
   const [shopping, setShopping] = useState<ShoppingEntry[]>([]);
   const [newEntry, setNewEntry] = useState("");
@@ -65,7 +65,6 @@ export function DashboardView({
         <button onClick={() => onCapture("scan")}><span><Icon name="scan" /></span><strong>Scan code</strong><small>Barcode or QR</small></button>
       </div>
       {children}
-      <label className="shopping-visibility"><input type="checkbox" checked={preferences.show_shopping} onChange={(event) => void save({ show_shopping: event.target.checked })} />Show shopping list on Home</label>
       {preferenceError && <p role="alert">{preferenceError} <button onClick={() => void reload()}>Retry</button></p>}
       {preferences.show_shopping && <div className="dashboard-columns">
         <section className="shopping-panel">{shoppingError && <p className="error-banner" role="alert">{shoppingError} <button onClick={() => void loadShopping()}>Retry</button></p>}<div className="section-heading"><div><h2>Shopping list</h2><span>{shopping.filter((entry) => !entry.checked).length} remaining</span></div><button className="text-button" onClick={() => onInventory("low")}>Review low stock</button></div><form className="search shopping-add" onSubmit={(event) => { event.preventDefault(); if (newEntry.trim()) void shoppingAction(() => api.addShopping(newEntry), "Shopping item added").then((ok) => { if (ok) setNewEntry(""); }); }}><input value={newEntry} onChange={(event) => setNewEntry(event.target.value)} placeholder="Add something to buy" aria-label="Shopping item" /><button className="icon-button primary" aria-label="Add shopping item"><Icon name="plus" /></button></form><div className="shopping-list">{shopping.length === 0 && !shoppingError && <div className="empty-inline"><span>Your list is clear</span></div>}{shopping.map((entry) => <label className={`shopping-entry ${entry.checked ? "checked" : ""}`} key={entry.public_id}><input type="checkbox" checked={entry.checked} onChange={(event) => void shoppingAction(() => api.checkShopping(entry, event.target.checked))} /><span>{entry.name}</span><small>{entry.quantity} {entry.unit}</small></label>)}</div></section>

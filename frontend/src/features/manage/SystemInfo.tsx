@@ -27,13 +27,15 @@ export function SystemInfo({
   diskFreePercent,
   setupHealth,
   onRefresh,
+  hidden,
 }: {
   system: SystemInfoData | undefined;
   diskFreePercent: number;
   setupHealth: SetupHealthEntry[];
   onRefresh: () => void;
+  hidden?: boolean;
 }) {
-  return <details className="app-info-section"><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>App info</strong><small>{setupHealth.some((entry) => entry.status === "Needs attention") ? `${setupHealth.filter((entry) => entry.status === "Needs attention").length} need attention` : system ? `Everything ready · version ${system.app.version}` : "Health, storage, resources, and version"}</small></span><Icon name="chevron" /></summary><div className="manage-panel app-info-panel">
+  return <details className="app-info-section" hidden={hidden}><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>App info</strong><small>{setupHealth.some((entry) => entry.status === "Needs attention") ? `${setupHealth.filter((entry) => entry.status === "Needs attention").length} need attention` : system ? `Everything ready · version ${system.app.version}` : "Health, storage, resources, and version"}</small></span><Icon name="chevron" /></summary><div className="manage-panel app-info-panel">
     <section className="app-info-health"><div className="section-heading"><div><h2>Setup health</h2><span>Connection, protection, Backups, integrations, and updates</span></div></div><div className="setup-health-grid">{setupHealth.map((entry) => <article key={entry.label}><span>{entry.label}</span><b className={`health-status ${entry.status.toLowerCase().replace(" ", "-")}`}>{entry.status}</b><small>{entry.detail}</small></article>)}</div></section>
     {system ? <>
       <div className="section-heading app-info-metrics-heading"><div><h2>Storage & resources</h2><span>Current usage on this FindStuffer machine</span></div></div>

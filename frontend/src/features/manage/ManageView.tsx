@@ -17,6 +17,7 @@ import {
 } from "../../api";
 import { Icon } from "../../components/Icon";
 import { SearchAliasManager } from "../../components/SearchAliasManager";
+import { usePreferences } from "../shell/usePreferences";
 import { formatBytes, SystemInfo } from "./SystemInfo";
 import { activityLabel } from "../../domain/inventory";
 
@@ -45,6 +46,7 @@ export function ManageView({ items, dashboard, locations, locationTypes, units, 
   onInbox: () => void;
   onUnitsChanged: (units: string[]) => void;
 }) {
+  const { preferences, save: savePreferences, error: preferenceError, reload: reloadPreferences } = usePreferences();
   const [settingsQuery, setSettingsQuery] = useSettingsState("");
   const [settingsGroup, setSettingsGroup] = useSettingsState("all");
   const visibleSetting = (label: string, group: string) => (settingsGroup === "all" || settingsGroup === group) && (label + " " + (label === "Integrations" ? "AI MQTT Home Assistant endpoint model API" : label === "Security" ? "password sign out session" : label === "Appearance" ? "theme dark light device" : "")).toLowerCase().includes(settingsQuery.toLowerCase());
@@ -415,6 +417,8 @@ export function ManageView({ items, dashboard, locations, locationTypes, units, 
 
       <details hidden={!visibleSetting("Appearance", "appearance")}><summary><span className="summary-icon"><Icon name="settings" /></span><span><strong>Appearance</strong><small>{theme === "system" ? "Follows this device" : `${theme[0].toUpperCase()}${theme.slice(1)} theme`}</small></span><Icon name="chevron" /></summary><div className="manage-panel"><div className="theme-options" role="radiogroup" aria-label="Color theme">{(["light", "dark", "system"] as ThemePreference[]).map((option) => <button type="button" role="radio" aria-checked={theme === option} className={theme === option ? "active" : ""} key={option} onClick={() => onThemeChange(option)}><span className={`theme-preview ${option}`} aria-hidden="true" /><strong>{option === "system" ? "Device" : option[0].toUpperCase() + option.slice(1)}</strong><small>{option === "system" ? "Match system setting" : `${option} colors`}</small></button>)}</div></div></details>
 
+      <details hidden={!visibleSetting("Home shopping list", "appearance")}><summary><span className="summary-icon"><Icon name="home" /></span><span><strong>Home</strong><small>Shopping list visibility</small></span><Icon name="chevron" /></summary><div className="manage-panel"><label className="display-option"><span><strong>Show shopping list on Home</strong></span><input type="checkbox" checked={preferences.show_shopping} onChange={(event) => void savePreferences({ show_shopping: event.target.checked })} /></label>{preferenceError && <p role="alert">{preferenceError} <button onClick={() => void reloadPreferences()}>Retry</button></p>}</div></details>
+
       <details hidden={!visibleSetting("Inventory cards", "appearance")}><summary><span className="summary-icon"><Icon name="box" /></span><span><strong>Inventory cards</strong><small>Choose the details shown in every Item row</small></span><Icon name="chevron" /></summary><div className="manage-panel inventory-display-settings"><p className="panel-copy">Names always remain visible and wrap on small screens. Brand is hidden by default to leave more room.</p><div>{settings && ([
         ["show_photo", "Photo", "Item image or placeholder"],
         ["show_location", "Place", "Where the Item is stored"],
@@ -506,7 +510,7 @@ export function ManageView({ items, dashboard, locations, locationTypes, units, 
         {enrichmentFile !== null && <button className="primary wide" onClick={() => void perform(async () => { const result = await api.importEnrichmentResponse(enrichmentFile); setEnrichmentFile(null); await load(); return result; }, "Enrichment response imported")}>Validate and import suggestions</button>}
         <div className="suggestion-list">{suggestions.length === 0 && <div className="empty-inline"><span>No pending suggestions</span></div>}{suggestions.map((suggestion) => <article className="suggestion-row" key={suggestion.public_id}><div><strong>{suggestion.item_name}</strong><small>{suggestion.path} · {Math.round(suggestion.confidence * 100)}% confidence</small><code>{typeof suggestion.value === "object" ? JSON.stringify(suggestion.value) : String(suggestion.value)}</code>{suggestion.sources[0]?.url && <a href={suggestion.sources[0].url} target="_blank" rel="noreferrer">{suggestion.sources[0].label || "Source"}</a>}{suggestion.uncertainty && <em>{suggestion.uncertainty}</em>}</div><div><button className="primary" onClick={() => void perform(async () => { await api.acceptSuggestion(suggestion.public_id); await onInventoryChanged(); }, "Suggestion accepted")}>Accept</button><button onClick={() => void perform(() => api.rejectSuggestion(suggestion.public_id), "Suggestion rejected")}>Reject</button></div></article>)}</div>
       </div></details>
-      <div hidden={!visibleSetting("System storage health version database", "system")}><SystemInfo system={system} diskFreePercent={diskFreePercent} setupHealth={setupHealth} onRefresh={() => void load()} /></div>
+      <SystemInfo hidden={!visibleSetting("App info System storage health version database", "system")} system={system} diskFreePercent={diskFreePercent} setupHealth={setupHealth} onRefresh={() => void load()} />
     </section>
   );
 }
