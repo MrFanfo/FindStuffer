@@ -7,6 +7,8 @@ export default defineConfig({
   plugins: [react(), offlineShell()],
   server: {
     port: 5173,
+    // Reaching the dev server through a VS Code tunnel rewrites the Host header.
+    allowedHosts: [".devtunnels.ms"],
     proxy: {
       "/api": "http://127.0.0.1:8000",
     },

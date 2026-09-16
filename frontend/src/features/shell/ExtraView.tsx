@@ -28,13 +28,13 @@ export function ExtraView({
   onDiscard: (id: string) => Promise<void>;
 }) {
   return <section className="extra-page">
-    <div className="page-heading"><div><h1 className="eyebrow">MORE</h1></div></div>
+    <div className="page-heading"><div><h1 className="eyebrow">TOOLS</h1></div></div>
     <div className="extra-tool-grid">
       <button type="button" className="extra-tool-card" onClick={onProjects}><span><Icon name="box" size={24} /></span><div><strong>Projects</strong><small>Plan required parts, link stock, and track purchases and missing quantities.</small></div><Icon name="chevron" size={18} /></button>
-      <button type="button" className="extra-tool-card" onClick={onCompatibility}><span><Icon name="tag" size={24} /></span><div><strong>Related targets</strong><small>Machines, platforms and families your items work with.</small></div><Icon name="chevron" size={18} /></button>
+      <button type="button" className="extra-tool-card" onClick={onCompatibility}><span><Icon name="tag" size={24} /></span><div><strong>Machines &amp; models</strong><small>The machines and platforms your parts belong to.</small></div><Icon name="chevron" size={18} /></button>
       <button type="button" className="extra-tool-card featured" onClick={onAnalytics}><span><Icon name="spark" size={24} /></span><div><strong>Analytics</strong><small>Inventory health, value, activity, Places, Categories, and consumption.</small></div><Icon name="chevron" size={18} /></button>
       <button type="button" className="extra-tool-card data" onClick={onData}><span><Icon name="qr" size={24} /></span><div><strong>Data</strong><small>Full backups, portable exports, safe restore, previewed imports, and undo history.</small></div><Icon name="chevron" size={18} /></button>
-      <button type="button" className="extra-tool-card inventory-management" onClick={onInventoryManagement}><span><Icon name="box" size={24} /></span><div><strong>Inventory management</strong><small>Lost and archived items, projects, reservations, and borrowed or lent records.</small></div><Icon name="chevron" size={18} /></button>
+      <button type="button" className="extra-tool-card inventory-management" onClick={onInventoryManagement}><span><Icon name="box" size={24} /></span><div><strong>Archive &amp; loans</strong><small>Lost and archived items, projects, reservations, and borrowed or lent records.</small></div><Icon name="chevron" size={18} /></button>
       <button type="button" className="extra-tool-card" onClick={onSettings}><span><Icon name="settings" size={24} /></span><div><strong>Settings</strong><small>Appearance, security, notifications, integrations, customization, and system information.</small></div><Icon name="chevron" size={18} /></button>
     </div>
     <OfflineDownload offline={offlineMode} />

@@ -27,6 +27,7 @@ import { LoginView } from "./features/auth/LoginView";
 import { DashboardView } from "./features/dashboard/DashboardView";
 import { ExtraView } from "./features/shell/ExtraView";
 import { GlobalSearch } from "./features/search/GlobalSearch";
+import { rememberRecentItem } from "./features/search/recents";
 import type { ThemePreference } from "./features/manage/ManageView";
 import type { PlacesSection } from "./features/places/PlacesView";
 import { makeOfflineItem } from "./features/capture/offlineItem";
@@ -174,7 +175,7 @@ const nav: Array<{ id: View; label: string; icon: IconName }> = [
   { id: "inventory", label: "Inventory", icon: "search" },
   { id: "capture", label: "Capture", icon: "scan" },
   { id: "places", label: "Places", icon: "pin" },
-  { id: "extra", label: "More", icon: "more" },
+  { id: "extra", label: "Tools", icon: "more" },
 ];
 
 function App() {
@@ -234,7 +235,7 @@ function App() {
   const [printQueueOpen, setPrintQueueOpen] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(() => {
     const saved = localStorage.getItem(THEME_KEY);
-    return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+    return saved === "light" || saved === "dark" || saved === "system" ? saved : "light";
   });
   const itemsRef = useRef<Item[]>([]);
   const refreshTimer = useRef<number | null>(null);
@@ -246,6 +247,7 @@ function App() {
   const adjustmentQueue = useRef<Map<string, AdjustmentQueue>>(new Map());
 
   useEffect(() => { itemsRef.current = items; }, [items]);
+  useEffect(() => { if (selectedItem) rememberRecentItem(selectedItem.public_id); }, [selectedItem]);
   useEffect(() => { savePrintQueue(printQueue); }, [printQueue]);
   useEffect(() => { savePrintSettings(printSettings); }, [printSettings]);
   useEffect(() => {
@@ -1078,9 +1080,11 @@ function App() {
             categories={categories}
             locationTypes={locationTypes}
             selectedLocationId={selectedLocationId}
+            selectedCategoryId={selectedCategoryId}
             busy={busy}
             printQueueCount={printQueue.length}
             onSelectLocation={setSelectedLocationId}
+            onSelectCategory={setSelectedCategoryId}
             onOpenPrintQueue={() => setPrintQueueOpen(true)}
             onQueuePrint={addLocationToPrintQueue}
             onOpenItem={setSelectedItem}
@@ -1090,7 +1094,7 @@ function App() {
             onDeleteLocation={(id) => run(() => api.deleteLocation(id), "Place deleted", "all")}
             onDeleteLocationTree={(id) => run(() => api.deleteLocationTree(id), "Place group deleted", "all")}
             onCreateType={(name) => run(() => api.createLocationType(name), "Place type added", "all")}
-            onOpenCategory={(id) => { setSelectedCategoryId(id); navigate("category"); }}
+            onInventoryCategory={(id) => { setInventoryCategoryId(id); setInventoryFilter("all"); navigate("inventory"); }}
             onCreateCategory={(name, parentId) => run(() => api.createCategory(name, parentId), "Category created", "all")}
             onUpdateCategory={(id, body) => run(() => api.updateCategory(id, body), "Category updated", "all")}
             onDeleteCategory={(id) => run(() => api.deleteCategory(id), "Category deleted", "all")}
@@ -1228,6 +1232,8 @@ function App() {
       </main>
 
       <nav className="bottom-nav" aria-label="Main navigation">
+        {/* Only shown once the nav becomes a side rail on wide screens. */}
+        <p className="rail-brand" aria-hidden="true"><span className="brand-mark">F</span><span>Findstuff</span></p>
         {nav.map((entry) => (
           <button
             type="button"

@@ -5,9 +5,9 @@ import { flattenLocations, type Category, type ImportPreviewDetail, type Locatio
 type JsonObject = Record<string, unknown>;
 const object = (value: unknown): JsonObject => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
 
-export function ImportReviewEditor({ payload, details, categories, locations, onChange, onDraftChange, busy }: {
+export function ImportReviewEditor({ payload, details, categories, locations, onChange, onDraftChange, busy, validating = false }: {
   payload: unknown; details: ImportPreviewDetail[]; categories: Category[]; locations: LocationNode[];
-  onChange: (payload: unknown) => void; onDraftChange: (dirty: boolean) => void; busy: boolean;
+  onChange: (payload: unknown) => void; onDraftChange: (dirty: boolean) => void; busy: boolean; validating?: boolean;
 }) {
   const document = object(payload);
   const operations = Array.isArray(document.operations) ? document.operations : null;
@@ -26,13 +26,13 @@ export function ImportReviewEditor({ payload, details, categories, locations, on
   return <section className="import-review-editor"><h2>Review each proposal</h2><p>Edit any field, change destinations, or reject a line. Review changes again before applying. References to rejected categories or places must be fixed too.</p><datalist id="import-category-paths">{categories.map((entry) => <option key={entry.id} value={entry.path} />)}</datalist><datalist id="import-place-paths">{flattenLocations(locations).map((entry) => <option key={entry.public_id} value={entry.path} />)}</datalist>
     {operations && <details className="import-batch-options"><summary>Batch options</summary><div className="form-card compact-form"><label>Batch ID<input value={String(document.import_id || '')} placeholder="Automatic content hash when omitted" disabled={busy} onChange={(event) => { const next = { ...document, import_id: event.target.value }; if (!event.target.value) delete (next as JsonObject).import_id; onChange(next); }} /></label><label>Exact duplicate policy<select value={String(document.duplicate_policy || 'error')} disabled={busy} onChange={(event) => onChange({ ...document, schema_version: Math.max(2, Number(document.schema_version) || 2), duplicate_policy: event.target.value })}><option value="error">Error — require a decision</option><option value="skip">Skip existing stock</option><option value="merge_quantity">Merge quantity — add stock</option><option value="replace">Replace supplied fields</option></select></label><label>Operation ordering<select value={String(document.ordering || 'input')} disabled={busy} onChange={(event) => onChange({ ...document, schema_version: Math.max(2, Number(document.schema_version) || 2), ordering: event.target.value })}><option value="input">Keep file order</option><option value="dependencies">Resolve dependencies first</option></select></label><p>This preview is atomic: every operation succeeds or the whole batch rolls back. Retrying the same batch ID or unchanged file is safe. After applying, use a new batch ID for a deliberately repeated stock increment.</p></div></details>}
     {hasDraft && <p role="alert">Save or discard your row edits before reviewing or applying the file.</p>}
-    {rows.slice(0, limit).map(({ value, index, table }) => <ProposalRow key={`${table}-${index}-${JSON.stringify(value)}`} draftKey={`${table}-${index}`} onDraftChange={draftChanged} value={value} index={index} table={table} detail={details.find((detail) => operations ? detail.index === index + 1 : detail.table === table && detail.row_index === index)} busy={busy} onChange={(next) => change(index, table, next)} onReject={() => change(index, table, null, true)} />)}
+    {rows.slice(0, limit).map(({ value, index, table }) => <ProposalRow key={`${table}-${index}-${JSON.stringify(value)}`} draftKey={`${table}-${index}`} onDraftChange={draftChanged} value={value} index={index} table={table} detail={details.find((detail) => operations ? detail.index === index + 1 : detail.table === table && detail.row_index === index)} busy={busy} validating={validating} onChange={(next) => change(index, table, next)} onReject={() => change(index, table, null, true)} />)}
     {rows.length > limit && <button disabled={busy} onClick={() => setLimit(limit + 30)}>Show next {Math.min(30, rows.length - limit)} proposals</button>}
     <p className="muted">{rows.length} proposals in this file. Applying uses the entire reviewed file, including rows beyond this display.</p>
   </section>;
 }
 
-function ProposalRow({ value, index, table, detail, busy, onChange, onReject, draftKey, onDraftChange }: { draftKey: string; onDraftChange: (key: string, dirty: boolean) => void; value: unknown; index: number; table: string; detail?: ImportPreviewDetail; busy: boolean; onChange: (value: unknown) => void; onReject: () => void }) {
+function ProposalRow({ value, index, table, detail, busy, validating, onChange, onReject, draftKey, onDraftChange }: { draftKey: string; onDraftChange: (key: string, dirty: boolean) => void; value: unknown; index: number; table: string; detail?: ImportPreviewDetail; busy: boolean; validating: boolean; onChange: (value: unknown) => void; onReject: () => void }) {
   const entry = object(value);
   const data = table ? entry : object(entry.data);
   const [json, setJson] = useState(JSON.stringify(value, null, 2));
@@ -60,8 +60,8 @@ function ProposalRow({ value, index, table, detail, busy, onChange, onReject, dr
   const before = detail?.before;
   const failed = detail?.validation_status === 'failed' || detail?.status === 'error';
   const warning = detail?.validation_status === 'warning' || Boolean(detail?.warnings?.length) || detail?.status === 'skip';
-  const tone = failed ? 'failed' : !detail || warning || dirty ? 'warning' : 'valid';
-  const status = failed ? 'Error' : dirty ? 'Unsaved' : !detail ? 'Review needed' : warning ? 'Warning' : 'Valid';
+  const tone = validating ? 'pending' : failed ? 'failed' : !detail || warning || dirty ? 'warning' : 'valid';
+  const status = validating ? 'Validating…' : failed ? 'Error' : dirty ? 'Unsaved' : !detail ? 'Review needed' : warning ? 'Warning' : 'Valid';
   const label = String(data.name || object(entry.match).name || after?.name || before?.name || detail?.label || 'Proposal');
   const destination = [after?.category_path, after?.location_path].filter(Boolean).join(' · ');
   return <article className={`proposal-row proposal-${tone}`}><header className="proposal-line">

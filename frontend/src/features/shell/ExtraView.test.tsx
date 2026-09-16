@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ExtraView } from "./ExtraView";
 
 describe("ExtraView", () => {
-  it("presents focused workspaces for analytics, data, inventory management, and settings", async () => {
+  it("presents focused workspaces for analytics, data, archive and loans, and settings", async () => {
     const onAnalytics = vi.fn();
     const onData = vi.fn();
     const onInventoryManagement = vi.fn();
@@ -26,7 +26,7 @@ describe("ExtraView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /analytics/i }));
     fireEvent.click(screen.getByRole("button", { name: /^data/i }));
-    fireEvent.click(screen.getByRole("button", { name: /inventory management/i }));
+    fireEvent.click(screen.getByRole("button", { name: /archive & loans/i }));
     fireEvent.click(screen.getByRole("button", { name: /^settings/i }));
     expect(onAnalytics).toHaveBeenCalledOnce();
     expect(onData).toHaveBeenCalledOnce();

@@ -206,6 +206,7 @@ export function InventoryView({
   const initialPrefs = useMemo(loadInventoryPrefs, []);
   const urlScope = useMemo(() => new URLSearchParams(location.search), []);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [viewName, setViewName] = useState("");
   const [moveItem, setMoveItem] = useState<Item | null>(null);
   const [filter, setFilter] = useState<InventoryFilter>(initialFilter !== "all" ? initialFilter : (urlScope.get("filter") as InventoryFilter) || "all");
   const [groupBy, setGroupBy] = useState<InventoryGroup>((urlScope.get("group") as InventoryGroup) || initialPrefs.groupBy);
@@ -306,6 +307,12 @@ export function InventoryView({
   const hasScope = Boolean(
     compatibilityFilter || searchTerm || filter !== "all" || tagFilter || categoryFilter || locationFilter || groupBy !== "none" || sortBy !== "updated" || formula.source.trim(),
   );
+  // Everything the Filters panel owns, counted for the badge on its trigger. The
+  // status chips and the search box report themselves, so they stay out of it.
+  const refinementCount = [
+    categoryFilter, locationFilter, tagFilter, compatibilityFilter, formula.source.trim(),
+    groupBy !== "none" ? "group" : "", sortBy !== "updated" ? "sort" : "", includeZero ? "zero" : "",
+  ].filter(Boolean).length;
   useEffect(() => {
     setRenderLimit((current) => Math.max(current, items.length));
   }, [categoryFilter, filter, formula, groupBy, items.length, locationFilter, searchTerm, sortBy, tagFilter]);
@@ -489,35 +496,47 @@ export function InventoryView({
           <button type="submit" className="primary search-submit" aria-busy={busy}>Find</button>
         </form>
       </div>
-      <div className="inventory-command-row">
-        <div className="saved-view-strip" role="region" tabIndex={0} aria-label="Saved inventory views">
-          <span>Views</span>
-          {savedViews.map((saved) => <div className="saved-view-chip" key={saved.id}><button type="button" onClick={() => applySavedView(saved)}>{saved.name}</button><button type="button" onClick={() => deleteSavedView(saved.id)} aria-label={`Delete ${saved.name}`}><Icon name="close" size={13} /></button></div>)}
-          {savedViews.length === 0 && <small>Save your current filters and layout</small>}
-        </div>
-        <div className="inventory-mode-actions"><button type="button" className="mobile-filters-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}>Filters</button>
-          <button type="button" className={formula.source.trim() ? "active" : ""} onClick={() => setFormulaOpen(true)}><Icon name="filter" size={16} />Advanced formula</button>
-          <button type="button" className="clear-inventory-filters" onClick={clearAllScope} disabled={!hasScope && !includeZero}><Icon name="close" size={16} />Clear all</button>
-          <button type="button" className={bulkMode ? "active" : ""} onClick={() => { if (bulkMode) leaveBulkMode(); else { onBulkStart(); setBulkMode(true); } }}><Icon name={bulkMode ? "close" : "check"} size={16} />{bulkMode ? "Exit bulk" : "Bulk mode"}</button>
-        </div>
-      </div>
-      {bulkMode && <div className="bulk-mode-banner" role="status"><span><Icon name="check" size={18} /><strong>Bulk action mode</strong><small>Items select instead of opening.</small></span><button type="button" onClick={() => setBulkSelection(new Set(visibleItems.map((item) => item.public_id)))}>Select visible</button><button type="button" onClick={() => setBulkSelection(new Set())}>Clear</button></div>}
-      <label className="compatibility-filter">Compatible with<input value={compatibilityFilter} disabled={offline} placeholder="Target name or ID" onChange={(event) => setCompatibilityFilter(event.target.value)} /></label>
-      {offline && compatibilityFilter && <p role="alert">Compatibility filtering requires a connection. Clear this filter to browse cached stock. <button onClick={() => setCompatibilityFilter("")}>Clear compatibility</button></p>}
       <div className="filter-row" role="group" aria-label="Filter inventory">
         <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>All <span>{allCount}</span></button>
         <button className={filter === "low" ? "active" : ""} onClick={() => setFilter("low")}>Low stock <span>{lowStockCount}</span></button>
         <button className={filter === "expiring" ? "active" : ""} onClick={() => setFilter("expiring")}>Expiring <span>{expiringCount}</span></button>
         <button className={filter === "details" ? "active" : ""} onClick={() => setFilter("details")}>Missing place <span>{displayedDetailsCount}</span></button>
       </div>
-      <div className={`view-toolbar compact-inventory-toolbar ${filtersOpen ? "filters-expanded" : ""}`}>
-        <label><span>Sort</span><select aria-label="Sort Items" value={sortBy} onChange={(event) => setSortBy(event.target.value as InventorySort)}><option value="updated">Recent</option><option value="name">Name</option><option value="location">Place</option><option value="quantity-asc">Qty ↑</option><option value="quantity-desc">Qty ↓</option><option value="expiration">Expires</option></select></label>
-        <label><span>Group</span><select aria-label="Group Items" value={groupBy} onChange={(event) => setGroupBy(event.target.value as InventoryGroup)}><option value="none">None</option><option value="room">Room</option><option value="location">Place</option><option value="category">Category</option><option value="tag">Tag</option><option value="unit">Unit</option></select></label>
-        <div className="filter-choice"><span>Category</span><button type="button" onClick={() => setFilterPicker("category")}><Icon name="tag" size={16} /><strong>{selectedCategory ? categoryOptionLabel(selectedCategory) : "Any category"}</strong><Icon name="chevron" size={15} /></button></div>
-        <div className="filter-choice"><span>Place</span><button type="button" onClick={() => setFilterPicker("location")}><Icon name="pin" size={16} /><strong>{selectedLocation?.path || "Any Place"}</strong><Icon name="chevron" size={15} /></button></div>
-        <div className="filter-choice"><span>Tag</span><button type="button" onClick={() => setFilterPicker("tag")}><Icon name="tag" size={16} /><strong>{tagFilter || "Any tag"}</strong><Icon name="chevron" size={15} /></button></div>
-        <label className="toolbar-toggle"><span>Zero qty</span><input type="checkbox" checked={includeZero} onChange={(event) => onIncludeZeroChange(event.target.checked)} /></label>
+      {/* One filter entry point at every width: the panel below holds the controls,
+          and the active-filter chips underneath report whatever they set. */}
+      <div className="inventory-command-row">
+        <div className="inventory-mode-actions">
+          <button type="button" className={`filters-trigger ${filtersOpen ? "open" : ""} ${refinementCount ? "active" : ""}`} aria-expanded={filtersOpen} aria-controls="inventory-filters" onClick={() => setFiltersOpen(!filtersOpen)}>
+            <Icon name="filter" size={16} />Filters{refinementCount > 0 && <b>{refinementCount}</b>}<Icon name="chevron" size={15} />
+          </button>
+          <button type="button" className={bulkMode ? "active" : ""} onClick={() => { if (bulkMode) leaveBulkMode(); else { onBulkStart(); setBulkMode(true); } }}><Icon name={bulkMode ? "close" : "check"} size={16} />{bulkMode ? "Exit bulk" : "Bulk mode"}</button>
+        </div>
+        <span className="inventory-result-count">{showingSearchPlaceholder ? "Loading…" : `${visibleItems.length} shown · ${offline ? `${sortedEntries.length} cached matches` : `${matchingTotal ?? "…"} matches`}`}</span>
       </div>
+      {bulkMode && <div className="bulk-mode-banner" role="status"><span><Icon name="check" size={18} /><strong>Bulk action mode</strong><small>Items select instead of opening.</small></span><button type="button" onClick={() => setBulkSelection(new Set(visibleItems.map((item) => item.public_id)))}>Select visible</button><button type="button" onClick={() => setBulkSelection(new Set())}>Clear</button></div>}
+      {filtersOpen && <div className="inventory-filter-panel" id="inventory-filters">
+        <div className="view-toolbar filter-panel-grid">
+          <label><span>Sort</span><select aria-label="Sort Items" value={sortBy} onChange={(event) => setSortBy(event.target.value as InventorySort)}><option value="updated">Recent</option><option value="name">Name</option><option value="location">Place</option><option value="quantity-asc">Qty ↑</option><option value="quantity-desc">Qty ↓</option><option value="expiration">Expires</option></select></label>
+          <label><span>Group</span><select aria-label="Group Items" value={groupBy} onChange={(event) => setGroupBy(event.target.value as InventoryGroup)}><option value="none">None</option><option value="room">Room</option><option value="location">Place</option><option value="category">Category</option><option value="tag">Tag</option><option value="unit">Unit</option></select></label>
+          <div className="filter-choice"><span>Category</span><button type="button" onClick={() => setFilterPicker("category")}><Icon name="tag" size={16} /><strong>{selectedCategory ? categoryOptionLabel(selectedCategory) : "Any category"}</strong><Icon name="chevron" size={15} /></button></div>
+          <div className="filter-choice"><span>Place</span><button type="button" onClick={() => setFilterPicker("location")}><Icon name="pin" size={16} /><strong>{selectedLocation?.path || "Any Place"}</strong><Icon name="chevron" size={15} /></button></div>
+          <div className="filter-choice"><span>Tag</span><button type="button" onClick={() => setFilterPicker("tag")}><Icon name="tag" size={16} /><strong>{tagFilter || "Any tag"}</strong><Icon name="chevron" size={15} /></button></div>
+          <label className="toolbar-toggle"><span>Zero qty</span><input type="checkbox" checked={includeZero} onChange={(event) => onIncludeZeroChange(event.target.checked)} /></label>
+        </div>
+        <label className="compatibility-filter">Compatible with<input value={compatibilityFilter} disabled={offline} placeholder="Target name or ID" onChange={(event) => setCompatibilityFilter(event.target.value)} /></label>
+        {offline && compatibilityFilter && <p role="alert">Compatibility filtering requires a connection. Clear this filter to browse cached stock. <button onClick={() => setCompatibilityFilter("")}>Clear compatibility</button></p>}
+        <div className="filter-panel-foot">
+          <button type="button" className={`panel-formula ${formula.source.trim() ? "active" : ""}`} onClick={() => setFormulaOpen(true)}><Icon name="filter" size={16} />Filter builder</button>
+          <form className="save-view-form" onSubmit={(event) => { event.preventDefault(); saveCurrentView(viewName, formula); setViewName(""); }}>
+            <label>Save this view<input value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder="Pantry restock" /></label>
+            <button type="submit" className="secondary" disabled={!viewName.trim()}>Save</button>
+          </form>
+        </div>
+        {savedViews.length > 0 && <div className="saved-view-strip" role="region" tabIndex={0} aria-label="Saved inventory views">
+          <span>Views</span>
+          {savedViews.map((saved) => <div className="saved-view-chip" key={saved.id}><button type="button" onClick={() => applySavedView(saved)}>{saved.name}</button><button type="button" onClick={() => deleteSavedView(saved.id)} aria-label={`Delete ${saved.name}`}><Icon name="close" size={13} /></button></div>)}
+        </div>}
+      </div>}
       {hasScope && <div className="active-filter-row" aria-label="Active inventory filters">
         <span><Icon name="filter" size={15} />Showing</span>
         {query.trim() && <button type="button" onClick={() => { setQuery(""); requestSearch("", { showBusy: true }); }}>Search: {query.trim()}</button>}
@@ -528,10 +547,10 @@ export function InventoryView({
         {tagFilter && <button type="button" onClick={() => setTagFilter("")}>#{tagFilter}</button>}
         {formula.source.trim() && <button type="button" onClick={() => setFormulaOpen(true)}>Formula applied</button>}
         {groupBy !== "none" && <button type="button" onClick={() => setGroupBy("none")}>Grouped by {groupBy}</button>}
+        <button type="button" className="clear-all-filter" onClick={clearAllScope}>Clear all</button>
       </div>}
       <div className="section-heading">
         <h2>{query ? "Search results" : filter === "all" ? "Everything" : inventoryFilterLabel(filter)}</h2>
-        <span>{showingSearchPlaceholder ? "Loading…" : `${visibleItems.length} shown · ${offline ? `${sortedEntries.length} cached matches` : `${matchingTotal ?? "…"} matches`}`}</span>
       </div>
       {formulaValidation.error && <p role="alert" className="error-banner">{formulaValidation.error} <button onClick={() => setFormulaOpen(true)}>Edit formula</button></p>}
       {error && <div className="error-banner" role="alert">{error} <button onClick={() => requestSearch(query, { showBusy: true })}>Retry</button></div>}

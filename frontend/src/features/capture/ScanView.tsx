@@ -460,8 +460,8 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
         ["scan", "Scan", "scan"],
         ["quick", "Quick add", "plus"],
         ["putaway", "Put away", "pin"],
-        ["consume", "Consume", "minus"],
-        ["assistant", "Voice / AI", "mic"],
+        ["consume", "Use up", "minus"],
+        ["assistant", "Ask Findstuff", "mic"],
       ] as Array<[CaptureMode, string, IconName]>).map(([id, label, icon]) => <button type="button" role="tab" aria-selected={mode === id} className={mode === id ? "active" : ""} key={id} onClick={() => { setMode(id); if (id === "quick" && scannedRef.current.length === 0) addBlankEntry(); }}><Icon name={icon} size={18} /><span>{label}</span></button>)}</div>
       {mode === "assistant" ? <AICommandBox busy={busy} items={items} locations={locations} categories={categories} onApplied={onInventoryChanged} /> : <>
         {mode === "putaway" && <section className="putaway-destination"><div><span><Icon name="pin" size={17} /></span><div><small>EVERY ITEM GOES TO</small><strong>{flatLocations.find((entry) => entry.public_id === sessionDefaults.location_public_id)?.path || "Choose or scan a location"}</strong></div></div><button className="secondary" type="button" onClick={() => setPutawayPickerOpen(true)}>Choose</button>{recentLocations.length > 0 && <div className="recent-location-row"><small>Recent</small>{recentLocations.map((entry) => <button type="button" key={entry.public_id} onClick={() => setPutawayLocation(entry.public_id)}>{entry.name}</button>)}</div>}</section>}

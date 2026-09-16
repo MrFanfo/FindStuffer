@@ -29,16 +29,18 @@ import { AIScanSession, QuickPhotoSession } from "./PlaceCaptureSessions";
 export type PlacesSection = "locations" | "categories";
 type DetailItemSort = "name" | "quantity-asc" | "quantity-desc" | "location" | "category";
 type DetailItemView = "grid" | "list";
-export function PlacesView({ section, onSectionChange, locations, categories, locationTypes, selectedLocationId, busy, printQueueCount, onSelectLocation, onOpenPrintQueue, onQueuePrint, onOpenItem, onCaptureHere, onCreateLocation, onUpdateLocation, onDeleteLocation, onDeleteLocationTree, onCreateType, onOpenCategory, onCreateCategory, onUpdateCategory, onDeleteCategory, onDeleteCategoryTree, onSaveCapabilities, onSetDefaultLocation, onDefaultsChanged }: {
+export function PlacesView({ section, onSectionChange, locations, categories, locationTypes, selectedLocationId, selectedCategoryId, busy, printQueueCount, onSelectLocation, onSelectCategory, onOpenPrintQueue, onQueuePrint, onOpenItem, onCaptureHere, onCreateLocation, onUpdateLocation, onDeleteLocation, onDeleteLocationTree, onCreateType, onInventoryCategory, onCreateCategory, onUpdateCategory, onDeleteCategory, onDeleteCategoryTree, onSaveCapabilities, onSetDefaultLocation, onDefaultsChanged }: {
   section: PlacesSection;
   onSectionChange: (section: PlacesSection) => void;
   locations: LocationNode[];
   categories: Category[];
   locationTypes: LocationType[];
   selectedLocationId: string | null;
+  selectedCategoryId: number | null;
   busy: boolean;
   printQueueCount: number;
   onSelectLocation: (id: string | null) => void;
+  onSelectCategory: (id: number | null) => void;
   onOpenPrintQueue: () => void;
   onQueuePrint: (location: LocationNode) => void;
   onOpenItem: (item: Item) => void;
@@ -48,7 +50,7 @@ export function PlacesView({ section, onSectionChange, locations, categories, lo
   onDeleteLocation: (id: string) => Promise<void>;
   onDeleteLocationTree: (id: string) => Promise<void>;
   onCreateType: (name: string) => Promise<void>;
-  onOpenCategory: (id: number) => void;
+  onInventoryCategory: (id: number) => void;
   onCreateCategory: (name: string, parentId: number | null) => Promise<void>;
   onUpdateCategory: (id: number, body: { name: string; parent_id: number | null }) => Promise<void>;
   onDeleteCategory: (id: number) => Promise<void>;
@@ -60,7 +62,9 @@ export function PlacesView({ section, onSectionChange, locations, categories, lo
   const [hideEmptyCategories, setHideEmptyCategories] = useState(false);
   return <section className="places-page"><h1 className="sr-only">Places</h1>
     <header className="places-heading compact-places-heading"><div className="places-tabs" role="tablist" aria-label="Browse Places"><button type="button" role="tab" aria-selected={section === "locations"} className={section === "locations" ? "active" : ""} onClick={() => onSectionChange("locations")}><Icon name="pin" size={17} />Places</button><button type="button" role="tab" aria-selected={section === "categories"} className={section === "categories" ? "active" : ""} onClick={() => onSectionChange("categories")}><Icon name="tag" size={17} />Categories</button></div>{section === "locations" ? <button type="button" className="print-queue-launcher" onClick={onOpenPrintQueue}><Icon name="qr" size={17} /><span>Print queue</span><strong>{printQueueCount}</strong></button> : <BranchToggle hideEmpty={hideEmptyCategories} onChange={setHideEmptyCategories} />}</header>
-    {section === "locations" ? <div className={`places-layout ${selectedLocationId ? "has-detail" : ""}`}><div className="places-tree-pane"><LocationsView locations={locations} locationTypes={locationTypes} busy={busy} onQueuePrint={onQueuePrint} onOpen={(id) => onSelectLocation(id)} onCreate={onCreateLocation} onUpdate={onUpdateLocation} onDelete={onDeleteLocation} onDeleteTree={onDeleteLocationTree} onCreateType={onCreateType} /></div>{selectedLocationId ? <div className="places-detail-pane"><LocationDetailView locationId={selectedLocationId} locations={locations} categories={categories} locationTypes={locationTypes} busy={busy} onQueuePrint={onQueuePrint} onOpenItem={onOpenItem} onOpenLocation={(id) => onSelectLocation(id)} onAddHere={(id) => onCaptureHere(id, "quick")} onPutAwayHere={(id) => onCaptureHere(id, "putaway")} onCreateLocationHere={onCreateLocation} onDefaultsChanged={onDefaultsChanged} onBack={() => onSelectLocation(null)} /></div> : <aside className="places-detail-empty"><span><Icon name="pin" size={25} /></span><h2>Select a Place</h2><p>Its Items, child Places, defaults, and actions will stay beside the tree on larger screens.</p></aside>}</div> : <CategoriesView categories={categories} locations={locations} busy={busy} hideEmpty={hideEmptyCategories} onHideEmptyChange={setHideEmptyCategories} onOpen={onOpenCategory} onCreate={onCreateCategory} onUpdate={onUpdateCategory} onDelete={onDeleteCategory} onDeleteTree={onDeleteCategoryTree} onSaveCapabilities={onSaveCapabilities} onSetDefaultLocation={onSetDefaultLocation} />}
+    {section === "locations"
+      ? <div className={`places-layout ${selectedLocationId ? "has-detail" : ""}`}><div className="places-tree-pane"><LocationsView locations={locations} locationTypes={locationTypes} busy={busy} onQueuePrint={onQueuePrint} onOpen={(id) => onSelectLocation(id)} onCreate={onCreateLocation} onUpdate={onUpdateLocation} onDelete={onDeleteLocation} onDeleteTree={onDeleteLocationTree} onCreateType={onCreateType} /></div>{selectedLocationId ? <div className="places-detail-pane"><LocationDetailView locationId={selectedLocationId} locations={locations} categories={categories} locationTypes={locationTypes} busy={busy} onQueuePrint={onQueuePrint} onOpenItem={onOpenItem} onOpenLocation={(id) => onSelectLocation(id)} onAddHere={(id) => onCaptureHere(id, "quick")} onPutAwayHere={(id) => onCaptureHere(id, "putaway")} onCreateLocationHere={onCreateLocation} onDefaultsChanged={onDefaultsChanged} onBack={() => onSelectLocation(null)} /></div> : <aside className="places-detail-empty"><span><Icon name="pin" size={25} /></span><h2>Select a Place</h2><p>Its Items, child Places, defaults, and actions will stay beside the tree on larger screens.</p></aside>}</div>
+      : <div className={`places-layout ${selectedCategoryId ? "has-detail" : ""}`}><div className="places-tree-pane"><CategoriesView categories={categories} locations={locations} busy={busy} hideEmpty={hideEmptyCategories} onHideEmptyChange={setHideEmptyCategories} onOpen={(id) => onSelectCategory(id)} onCreate={onCreateCategory} onUpdate={onUpdateCategory} onDelete={onDeleteCategory} onDeleteTree={onDeleteCategoryTree} onSaveCapabilities={onSaveCapabilities} onSetDefaultLocation={onSetDefaultLocation} /></div>{selectedCategoryId ? <div className="places-detail-pane"><CategoryDetailView categoryId={selectedCategoryId} categories={categories} busy={busy} onOpenItem={onOpenItem} onOpenCategory={(id) => onSelectCategory(id)} onInventory={onInventoryCategory} onCreateCategoryHere={onCreateCategory} onBack={() => onSelectCategory(null)} /></div> : <aside className="places-detail-empty"><span><Icon name="tag" size={25} /></span><h2>Select a Category</h2><p>Its Items, child Categories, defaults, and actions will stay beside the tree on larger screens.</p></aside>}</div>}
   </section>;
 }
 
@@ -75,21 +79,24 @@ export function CategoryDetailView({ categoryId, categories, busy, onOpenItem, o
   onBack: () => void;
 }) {
   const [contents, setContents] = useState<CategoryContents | null>(null);
+  const [error, setError] = useState("");
   const [showFields, setShowFields] = useState(false);
   const [quickPhotos, setQuickPhotos] = useState(false);
   const [showCreateChild, setShowCreateChild] = useState(false);
   const [childName, setChildName] = useState("");
   const missingPhotoItems = useMemo(() => contents?.items.filter((item) => !item.primary_photo_url) || [], [contents]);
   const load = useCallback(async () => {
-    setContents(await api.categoryContents(categoryId));
+    try {
+      setError("");
+      setContents(await api.categoryContents(categoryId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load category");
+    }
   }, [categoryId]);
-  useEffect(() => {
-    let active = true;
-    setContents(null);
-    load().catch(() => { if (active) setContents(null); });
-    return () => { active = false; };
-  }, [categories, load]);
-  if (!contents) return <section className="locations-page"><button className="text-button" onClick={onBack}>Back to categories</button><EmptyState icon="tag" title={busy ? "Loading category" : "Category unavailable"} text="Open a category from the hierarchy." /></section>;
+  useEffect(() => { void load(); }, [categories, load]);
+  if (error) return <section className="location-detail-page"><button className="text-button" onClick={onBack}>Back to Categories</button><div className="inline-alert">{error}</div></section>;
+  if (!contents) return <div className="dashboard-skeleton" aria-label="Loading Category"><span /><span /><span /></div>;
+  const currentCategory = contents.category;
   async function createChildCategory(event: FormEvent) {
     event.preventDefault();
     if (!contents || !childName.trim()) return;
@@ -99,17 +106,15 @@ export function CategoryDetailView({ categoryId, categories, busy, onOpenItem, o
     await load();
   }
   return (
-    <section className="locations-page">
-      <button className="text-button" onClick={onBack}>Back to categories</button>
-      <div className="detail-hero"><div><p className="eyebrow">CATEGORY</p><h1>{contents.category.name}</h1><CategoryCrumbs category={contents.category} categories={categories} onOpen={onOpenCategory} /></div><div className="detail-hero-actions"><button className="primary button-with-icon" onClick={() => setShowCreateChild((value) => !value)}><Icon name="plus" size={16} />Add category here</button><button className="secondary" onClick={() => onInventory(contents.category.id)}>Show in inventory</button><button className="secondary button-with-icon" disabled={missingPhotoItems.length === 0} onClick={() => setQuickPhotos(true)}><Icon name="camera" size={16} />Photos {missingPhotoItems.length}</button></div></div>
-      {showCreateChild && <form className="inline-detail-create" onSubmit={createChildCategory}><label>New child category<input required autoFocus value={childName} onChange={(event) => setChildName(event.target.value)} placeholder={`Inside ${contents.category.name}`} /></label><div className="button-row"><button type="button" onClick={() => { setShowCreateChild(false); setChildName(""); }}>Cancel</button><button className="secondary" disabled={busy || !childName.trim()}>Create category</button></div></form>}
-      <div className="location-overview"><div><span>Direct items</span><strong>{contents.category.item_count}</strong></div><div><span>Including children</span><strong>{contents.category.total_item_count}</strong></div><div><span>Default location</span><strong>{contents.category.default_location?.name || "Inherited"}</strong></div></div>
-      {contents.children.length > 0 && <section className="detail-section"><div className="section-heading"><div><h2>Child categories</h2><span>{contents.children.length} below this level</span></div></div><div className="child-location-grid">{contents.children.map((child) => <button key={child.id} onClick={() => onOpenCategory(child.id)}><Icon name="tag" size={18} /><strong>{child.name}</strong><small>{child.total_item_count} item{child.total_item_count === 1 ? "" : "s"}</small></button>)}</div></section>}
-      <button className="secondary" onClick={() => setShowFields(true)}>Custom fields</button>
-      {showFields && <CategoryFieldsPanel category={categoryId} name={contents.category.path} onClose={() => setShowFields(false)} />}
-      <CategoryConsolidation key={categoryId} categories={categories} categoryId={categoryId} />
+    <section className="location-detail-page">
+      <div className="page-heading"><div><h1>{currentCategory.name}</h1><CategoryCrumbs category={currentCategory} categories={categories} onOpen={onOpenCategory} /><p>{contents.items.length} Item{contents.items.length === 1 ? "" : "s"} including nested Categories.</p></div><div className="location-heading-actions"><details className="category-row-menu location-detail-menu"><summary aria-label="Category actions" title="Category actions"><Icon name="more" size={18} /></summary><div onClick={(event) => { if ((event.target as HTMLElement).closest("button:not(:disabled)")) event.currentTarget.closest("details")?.removeAttribute("open"); }}><button className="primary button-with-icon" onClick={() => setShowCreateChild((value) => !value)}><Icon name="plus" size={17} />Add Category</button><button className="secondary button-with-icon" onClick={() => onInventory(currentCategory.id)}><Icon name="box" size={17} />Show in inventory</button><button className="secondary button-with-icon" disabled={missingPhotoItems.length === 0} onClick={() => setQuickPhotos(true)}><Icon name="camera" size={17} />Photos {missingPhotoItems.length}</button><button type="button" className="secondary button-with-icon" onClick={() => setShowFields((value) => !value)}><Icon name="settings" size={17} />Custom fields</button></div></details><button className="icon-button" onClick={onBack} aria-label="Back to Categories"><Icon name="close" /></button></div></div>
+
+      {showCreateChild && <form className="inline-detail-create" onSubmit={createChildCategory}><label>New Category<input required autoFocus value={childName} onChange={(event) => setChildName(event.target.value)} placeholder={`Inside ${currentCategory.name}`} /></label><div className="button-row"><button type="button" onClick={() => { setShowCreateChild(false); setChildName(""); }}>Cancel</button><button className="secondary" disabled={busy || !childName.trim()}>Create Category</button></div></form>}
+      <details className="detail-section defaults-section"><summary><span><Icon name="settings" size={16} />Defaults here</span><Icon name="chevron" size={16} /></summary><div className="defaults-section-body"><div className="defaults-grid"><div><strong>Default location</strong><p className="default-chip"><span>{currentCategory.default_location?.name || "Inherited"}</span></p></div><div><strong>Items</strong><small>{currentCategory.item_count} directly here · {currentCategory.total_item_count} including children</small></div></div><CategoryConsolidation key={categoryId} categories={categories} categoryId={categoryId} /></div></details>
+      {showFields && <CategoryFieldsPanel category={categoryId} name={currentCategory.path} onClose={() => setShowFields(false)} />}
+      {contents.children.length > 0 && <section className="detail-section"><div className="section-heading"><div><h2>Inside this category</h2></div></div><div className="child-location-grid">{contents.children.map((child) => <button type="button" key={child.id} onClick={() => onOpenCategory(child.id)}><Icon name="tag" size={18} /><strong>{child.name}</strong><small>{child.total_item_count} item{child.total_item_count === 1 ? "" : "s"}</small></button>)}</div></section>}
       <DetailItemsBrowser items={contents.items} groupMode="location" emptyText="Items assigned to this category or its children will appear here." onOpenItem={onOpenItem} busy={busy} />
-      {quickPhotos && <QuickPhotoSession title={contents.category.name} items={missingPhotoItems} onDone={async () => { setQuickPhotos(false); await load(); }} onClose={() => setQuickPhotos(false)} />}
+      {quickPhotos && <QuickPhotoSession title={currentCategory.name} items={missingPhotoItems} onDone={async () => { setQuickPhotos(false); await load(); }} onClose={() => setQuickPhotos(false)} />}
     </section>
   );
 }

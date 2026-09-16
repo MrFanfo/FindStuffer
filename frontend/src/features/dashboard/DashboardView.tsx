@@ -51,15 +51,30 @@ export function DashboardView({
       <EmptyState icon="spark" title="Home could not load" text={connectionIssue || "Findstuff could not reach the backend."} action={{ label: "Try again", onClick: onRetry }} />
     </div>
   );
+  // Each row names the fix rather than the metric, and a count of zero is not
+  // something to act on, so it leaves the list entirely.
+  const plural = (count: number) => (count === 1 ? "" : "s");
+  const attentionRows: Array<{ filter: InventoryFilter; count: number; tone: string; title: string; detail: string }> = ([
+    { filter: "expiring" as InventoryFilter, count: dashboard.expiring_count, tone: "critical",
+      title: `${dashboard.expiring_count} item${plural(dashboard.expiring_count)} expiring soon`, detail: "Use them up or plan a replacement" },
+    { filter: "low" as InventoryFilter, count: dashboard.low_stock_count, tone: "hot",
+      title: `${dashboard.low_stock_count} item${plural(dashboard.low_stock_count)} low on stock`, detail: "Review and add to the shopping list" },
+    { filter: "details" as InventoryFilter, count: detailsCount, tone: "hot",
+      title: `${detailsCount} item${plural(detailsCount)} without a place`, detail: "Put them away to make them findable" },
+  ]).filter((row) => row.count > 0);
   return (
     <section className="dashboard-page"><header className="page-heading"><div><p className="eyebrow">YOUR INVENTORY</p><h1>Home</h1></div></header>
       {connectionIssue && <div className="connection-panel" role="status"><div><strong>Using local view</strong><span>{connectionIssue}</span></div><button className="outline-button" type="button" onClick={onRetry}>Retry</button></div>}
       <button className="where-button" onClick={onGlobalSearch}><span><Icon name="search" size={25} /></span><div><small>GLOBAL SEARCH</small><strong>Find anything in Findstuff</strong></div><kbd>{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd></button>
-      <div className="attention-strip" aria-label="Inventory shortcuts">
-        <button className={dashboard.low_stock_count ? "hot" : ""} onClick={() => onInventory("low")}><strong>{dashboard.low_stock_count}</strong><span>low stock</span></button>
-        <button className={dashboard.expiring_count ? "hot" : ""} onClick={() => onInventory("expiring")}><strong>{dashboard.expiring_count}</strong><span>expiring</span></button>
-        <button className={detailsCount ? "hot" : ""} onClick={() => onInventory("details")}><strong>{detailsCount}</strong><span>missing location</span></button>
-      </div>
+      {attentionRows.length > 0 && <div className="attention-strip" aria-label="Needs attention">
+        {attentionRows.map((row) => (
+          <button key={row.filter} className={row.tone} onClick={() => onInventory(row.filter)}>
+            <span className="attention-count">{row.count}</span>
+            <span className="attention-copy"><strong>{row.title}</strong><small>{row.detail}</small></span>
+            <Icon name="chevron" size={17} />
+          </button>
+        ))}
+      </div>}
       <div className="quick-grid">
         <button onClick={() => onCapture("quick")}><span><Icon name="plus" /></span><strong>Quick capture</strong><small>Type, photo, or template</small></button>
         <button onClick={() => onCapture("scan")}><span><Icon name="scan" /></span><strong>Scan code</strong><small>Barcode or QR</small></button>
