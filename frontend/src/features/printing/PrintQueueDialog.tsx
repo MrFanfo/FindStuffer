@@ -1,5 +1,6 @@
 import { CSSProperties, useEffect } from "react";
 
+import { mediaUrl } from "../../api";
 import { Icon } from "../../components/Icon";
 import { type PrintDensity, type PrintDesign, type PrintLayout, type PrintQueueItem, type PrintQueueSettings, type PrintTextMode } from "./printModel";
 
@@ -107,7 +108,7 @@ function LocationQrLabel({ entry, settings }: { entry: PrintQueueItem; settings:
       <span className="qr-corner qr-corner-two" aria-hidden="true" />
       <span className="qr-corner qr-corner-three" aria-hidden="true" />
       <span className="qr-corner qr-corner-four" aria-hidden="true" />
-      <img src={`/api/v1/qr/locations/${entry.publicId}.svg?color=${encodeURIComponent(settings.color)}`} alt={`QR code for ${entry.name}`} />
+      <img src={mediaUrl(`/api/v1/qr/locations/${entry.publicId}.svg?color=${encodeURIComponent(settings.color)}`)} alt={`QR code for ${entry.name}`} />
     </div>
     {settings.showKind && <p className="qr-label-kind">{entry.kind}</p>}
   </article>;

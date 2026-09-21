@@ -3,6 +3,7 @@ import { ImportReviewEditor } from "./ImportReviewEditor";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
+  authHeaders,
   type ApplicationSettings,
   type Category,
   type ImportBatch,
@@ -56,7 +57,7 @@ export function DataView({ categories, locations, busy, onBack, onChanged, setNo
   async function download(path: string, filename: string, label: string) {
     setActivity(`Preparing ${label.toLowerCase()}…`);
     try {
-      const response = await fetch(path, { credentials: "same-origin", cache: "no-store" });
+      const response = await fetch(path, { credentials: "same-origin", cache: "no-store", headers: authHeaders() });
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { detail?: string } | null;
         throw new Error(body?.detail || `${label} could not be prepared`);

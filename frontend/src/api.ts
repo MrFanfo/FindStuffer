@@ -737,6 +737,7 @@ export type Dashboard = {
 export type AuthStatus = {
   authenticated: boolean;
   user: { public_id: string; username: string; is_admin: boolean } | null;
+  session_token?: string;
 };
 
 export type Bootstrap = {
@@ -811,6 +812,67 @@ function shouldRetryRequest(error: unknown, method: string, attempt: number, sig
   return error.message === "Failed to fetch" || error.message.includes("timed out");
 }
 
+// Findstuff framed by another site (a Home Assistant dashboard, say) cannot keep
+// its SameSite=Strict session cookie: the browser drops it, so the first request
+// after a successful sign-in comes back 401. That tab carries the session as a
+// header instead, kept in sessionStorage so it ends with the tab. Images and
+// files the browser loads itself cannot send a header, so they get a short-lived
+// read-only media token in their query string.
+const HEADER_SESSION_KEY = "findstuff.headerSession.v1";
+let headerSession: string | null = readHeaderSession();
+let mediaToken: { token: string; expiresAt: number } | null = null;
+let mediaTokenRequest: Promise<void> | null = null;
+
+function readHeaderSession(): string | null {
+  try { return sessionStorage.getItem(HEADER_SESSION_KEY); } catch { return null; }
+}
+
+export function setHeaderSession(token: string | null): void {
+  headerSession = token;
+  mediaToken = null;
+  try {
+    if (token) sessionStorage.setItem(HEADER_SESSION_KEY, token);
+    else sessionStorage.removeItem(HEADER_SESSION_KEY);
+  } catch {
+    // Without storage the header still works until this page is reloaded.
+  }
+}
+
+export function authHeaders(): Record<string, string> {
+  return headerSession ? { Authorization: `Bearer ${headerSession}` } : {};
+}
+
+async function ensureMediaToken(): Promise<void> {
+  if (!headerSession) return;
+  if (mediaToken && mediaToken.expiresAt - 3600 > Date.now() / 1000) return;
+  mediaTokenRequest ??= doRequest<{ token: string; expires_at: number }>("/api/v1/auth/media-token")
+    .then((issued) => { mediaToken = { token: issued.token, expiresAt: issued.expires_at }; })
+    .catch(() => undefined)
+    .finally(() => { mediaTokenRequest = null; });
+  await mediaTokenRequest;
+}
+
+export function mediaUrl(url: string): string {
+  if (!mediaToken || !url.startsWith("/api/v1/")) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}media_token=${encodeURIComponent(mediaToken.token)}`;
+}
+
+// Every API field that points at a Findstuff file ends in "url", so rewriting
+// those in one place covers photos, documents and project files wherever they
+// are rendered.
+function withMediaTokens<T>(value: T): T {
+  if (!mediaToken) return value;
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (!node || typeof node !== "object") return node;
+    return Object.fromEntries(Object.entries(node as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      typeof entry === "string" && /url$/i.test(key) ? mediaUrl(entry) : walk(entry),
+    ]));
+  };
+  return walk(value) as T;
+}
+
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const method = options?.method || "GET";
   const coalesceKey = method === "GET" && !options?.signal ? path : "";
@@ -837,6 +899,7 @@ async function requestWithRetry<T>(path: string, options: RequestInit | undefine
 }
 
 async function doRequest<T>(path: string, options?: RequestInit): Promise<T> {
+  if (headerSession && path !== "/api/v1/auth/media-token") await ensureMediaToken();
   const isForm = options?.body instanceof FormData;
   const controller = new AbortController();
   let timedOut = false;
@@ -865,6 +928,7 @@ async function doRequest<T>(path: string, options?: RequestInit): Promise<T> {
       signal: controller.signal,
       headers: {
         ...(isForm ? {} : { "Content-Type": "application/json" }),
+        ...authHeaders(),
         ...options?.headers,
       },
     });
@@ -893,7 +957,7 @@ async function doRequest<T>(path: string, options?: RequestInit): Promise<T> {
     throw new HttpRequestError(response.status, message, diagnostic);
   }
   if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  return withMediaTokens(await response.json() as T);
 }
 
 export const api = {
@@ -903,7 +967,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
-  logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
+  logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }).finally(() => setHeaderSession(null)),
   bootstrap: (query = "", options?: RequestInit, includeZero = false) =>
     request<Bootstrap>(`/api/v1/bootstrap?q=${encodeURIComponent(query)}&limit=250&include_zero=${includeZero ? "true" : "false"}`, options),
   dashboard: (options?: RequestInit) => request<Dashboard>("/api/v1/dashboard", options),

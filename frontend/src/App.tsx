@@ -12,6 +12,7 @@ import {
   flattenLocations,
   isAuthenticationError,
   isRequestAborted,
+  setHeaderSession,
   type AuthStatus,
   type Bootstrap,
   type Category,
@@ -900,8 +901,18 @@ function App() {
   }
 
   async function signIn(username: string, password: string) {
-    await api.login(username, password);
-    const snapshot = await api.bootstrap("", undefined, inventoryIncludeZero);
+    const signedIn = await api.login(username, password);
+    let snapshot: Bootstrap;
+    try {
+      snapshot = await api.bootstrap("", undefined, inventoryIncludeZero);
+    } catch (error) {
+      // The password was accepted but the next request arrived without the
+      // cookie: this tab is framed by another site, which drops it. Carry the
+      // session as a header for this tab instead of failing the sign-in.
+      if (!isAuthenticationError(error) || !signedIn.session_token) throw error;
+      setHeaderSession(signedIn.session_token);
+      snapshot = await api.bootstrap("", undefined, inventoryIncludeZero);
+    }
     applyBootstrap(snapshot);
     setNotice("");
   }

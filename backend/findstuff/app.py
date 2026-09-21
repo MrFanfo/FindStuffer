@@ -5,6 +5,7 @@ import base64
 import binascii
 import contextlib
 import html
+from urllib.parse import quote
 import json
 import logging
 import os
@@ -53,10 +54,13 @@ from .ai_scans import (
 )
 from .auth_config import (
     SESSION_COOKIE_NAME,
+    MEDIA_PATH_PREFIXES,
     SESSION_MAX_AGE_SECONDS,
+    create_media_token,
     create_session_token,
     credentials_are_valid,
     get_admin_password,
+    media_token_is_valid,
     save_admin_password,
     session_token_is_valid,
 )
@@ -386,8 +390,14 @@ async def protect_api(request: Request, call_next):
                 authenticated = credentials_are_valid(username, password)
             except (binascii.Error, UnicodeDecodeError, ValueError):
                 authenticated = False
+        elif authorization.startswith("Bearer "):
+            # A tab whose browser refused the session cookie (Findstuff framed by
+            # another site, such as a Home Assistant dashboard) carries it here.
+            authenticated = session_token_is_valid(authorization.removeprefix("Bearer ").strip())
         elif not authorization:
             authenticated = session_token_is_valid(request.cookies.get(SESSION_COOKIE_NAME, ""))
+            if not authenticated and request.method in {"GET", "HEAD"} and path.startswith(MEDIA_PATH_PREFIXES):
+                authenticated = media_token_is_valid(request.query_params.get("media_token", ""))
         if not authenticated:
             return JSONResponse(
                 status_code=401,
@@ -448,9 +458,10 @@ async def login(payload: AdminLogin, request: Request, response: Response) -> di
     settings = get_settings()
     if not credentials_are_valid(payload.username, payload.password):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
+    session_token = create_session_token()
     response.set_cookie(
         SESSION_COOKIE_NAME,
-        create_session_token(),
+        session_token,
         max_age=SESSION_MAX_AGE_SECONDS,
         httponly=True,
         secure=(
@@ -464,7 +475,15 @@ async def login(payload: AdminLogin, request: Request, response: Response) -> di
     return {
         "authenticated": True,
         "user": local_user(),
+        # Used only when the browser refuses the cookie above; see media_token.
+        "session_token": session_token,
     }
+
+
+@app.get("/api/v1/auth/media-token", tags=["authentication"])
+async def media_token() -> dict[str, Any]:
+    token, expires_at = create_media_token()
+    return {"token": token, "expires_at": expires_at}
 
 
 @app.post("/api/v1/auth/logout", status_code=204, tags=["authentication"])
@@ -1185,8 +1204,16 @@ async def location_qr(
     return Response(make_qr_svg(target, color.upper()), media_type="image/svg+xml")
 
 
+def _label_media_query(request: Request) -> str:
+    """Carry a media token from the label page onto the QR image it embeds."""
+    token = request.query_params.get("media_token", "")
+    if not token or not media_token_is_valid(token):
+        return ""
+    return "?media_token=" + html.escape(quote(token, safe=""), quote=True)
+
+
 @app.get("/api/v1/labels/items/{public_id}", response_class=HTMLResponse, tags=["qr"])
-async def print_item_label(public_id: str, database: Database) -> str:
+async def print_item_label(public_id: str, request: Request, database: Database) -> str:
     item = get_item(database, public_id)
     item_name = html.escape(str(item["name"]))
     location_path = html.escape(str(item["location_path"]))
@@ -1195,12 +1222,12 @@ async def print_item_label(public_id: str, database: Database) -> str:
     <style>body{{font:16px sans-serif}}.label{{width:60mm;border:1px solid;padding:4mm;
     text-align:center}}img{{width:38mm}}@media print{{button{{display:none}}}}</style>
     <button onclick='print()'>Print</button><div class='label'><img
-    src='/api/v1/qr/items/{safe_public_id}.svg'><strong>{item_name}</strong><br>
+    src='/api/v1/qr/items/{safe_public_id}.svg{_label_media_query(request)}'><strong>{item_name}</strong><br>
     <small>{location_path}</small></div>"""
 
 
 @app.get("/api/v1/labels/locations/{public_id}", response_class=HTMLResponse, tags=["qr"])
-async def print_location_label(public_id: str, database: Database) -> str:
+async def print_location_label(public_id: str, request: Request, database: Database) -> str:
     location = serialize_location(database, get_location_row(database, public_id))
     location_name = html.escape(str(location["name"]))
     location_path = html.escape(str(location["path"]))
@@ -1209,7 +1236,7 @@ async def print_location_label(public_id: str, database: Database) -> str:
     <style>body{{font:16px sans-serif}}.label{{width:60mm;border:1px solid;padding:4mm;
     text-align:center}}img{{width:38mm}}@media print{{button{{display:none}}}}</style>
     <button onclick='print()'>Print</button><div class='label'><img
-    src='/api/v1/qr/locations/{safe_public_id}.svg'><strong>{location_name}</strong><br>
+    src='/api/v1/qr/locations/{safe_public_id}.svg{_label_media_query(request)}'><strong>{location_name}</strong><br>
     <small>{location_path}</small></div>"""
 
 

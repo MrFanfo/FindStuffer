@@ -7,6 +7,7 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef
 import {
   api,
   flattenLocations,
+  mediaUrl,
   type Category,
   type FullOffProduct,
   type Enrichment,
@@ -558,7 +559,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             {optionalSections(false)}
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "more"}>
-            <section className="detail-section qr-section"><div><h2>QR label</h2><p>Print or scan to open this item.</p></div><a href={`/api/v1/labels/items/${item.public_id}`} target="_blank" rel="noreferrer"><img src={`/api/v1/qr/items/${item.public_id}.svg`} alt={`QR code for ${item.name}`} /></a></section>
+            <section className="detail-section qr-section"><div><h2>QR label</h2><p>Print or scan to open this item.</p></div><a href={mediaUrl(`/api/v1/labels/items/${item.public_id}`)} target="_blank" rel="noreferrer"><img src={mediaUrl(`/api/v1/qr/items/${item.public_id}.svg`)} alt={`QR code for ${item.name}`} /></a></section>
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "details"}>
             {showEnrichmentData && <details className="detail-section enrichment-section">

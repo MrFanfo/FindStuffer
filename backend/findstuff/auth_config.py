@@ -13,6 +13,16 @@ ADMIN_PASSWORD_FILENAME = "admin-password"
 SESSION_SECRET_FILENAME = "session-secret"
 SESSION_COOKIE_NAME = "findstuff_session"
 SESSION_MAX_AGE_SECONDS = 90 * 24 * 60 * 60
+SESSION_TOKEN_SCOPE = "v1"
+MEDIA_TOKEN_SCOPE = "m1"
+MEDIA_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60
+MEDIA_PATH_PREFIXES = (
+    "/api/v1/photos/",
+    "/api/v1/documents/",
+    "/api/v1/qr/",
+    "/api/v1/labels/",
+    "/api/v1/project-files/",
+)
 
 
 def _password_path() -> Path:
@@ -64,11 +74,13 @@ def _session_secret(create: bool) -> bytes | None:
     return value
 
 
-def _session_signature(expires_at: int, secret: bytes) -> str:
+def _session_signature(expires_at: int, secret: bytes, scope: str = SESSION_TOKEN_SCOPE) -> str:
     settings = get_settings()
     password_digest = hashlib.sha256(get_admin_password().encode()).hexdigest()
+    # The scope is part of the signed message, so a read-only media token can
+    # never be relabelled into a full session token.
     message = (
-        f"v1|{expires_at}|{settings.admin_username}|{password_digest}".encode()
+        f"{scope}|{expires_at}|{settings.admin_username}|{password_digest}".encode()
     )
     return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
@@ -78,22 +90,46 @@ def create_session_token() -> str:
     if secret is None:
         raise OSError("Could not create the session secret")
     expires_at = int(time.time()) + SESSION_MAX_AGE_SECONDS
-    return f"v1.{expires_at}.{_session_signature(expires_at, secret)}"
+    return f"{SESSION_TOKEN_SCOPE}.{expires_at}.{_session_signature(expires_at, secret)}"
 
 
-def session_token_is_valid(token: str) -> bool:
+def _scoped_token_is_valid(token: str, scope: str) -> bool:
     try:
         version, expires_text, supplied_signature = token.split(".", 2)
         expires_at = int(expires_text)
-    except (TypeError, ValueError):
+    except (AttributeError, TypeError, ValueError):
         return False
-    if version != "v1" or expires_at < int(time.time()):
+    if version != scope or expires_at < int(time.time()):
         return False
     secret = _session_secret(create=False)
     if secret is None:
         return False
-    expected_signature = _session_signature(expires_at, secret)
+    expected_signature = _session_signature(expires_at, secret, scope)
     return secrets.compare_digest(supplied_signature, expected_signature)
+
+
+def session_token_is_valid(token: str) -> bool:
+    return _scoped_token_is_valid(token, SESSION_TOKEN_SCOPE)
+
+
+def create_media_token() -> tuple[str, int]:
+    """Short-lived, read-only token for images and files the browser loads itself.
+
+    A tab that cannot keep the session cookie (Findstuff framed by another site)
+    sends its session as a header, but <img> and <a> requests cannot carry one.
+    This token rides in their query string instead, only opens GET requests to
+    MEDIA_PATH_PREFIXES, and expires within a day, so one that lands in an
+    access log cannot change the inventory.
+    """
+    secret = _session_secret(create=True)
+    if secret is None:
+        raise OSError("Could not create the session secret")
+    expires_at = int(time.time()) + MEDIA_TOKEN_MAX_AGE_SECONDS
+    return f"{MEDIA_TOKEN_SCOPE}.{expires_at}.{_session_signature(expires_at, secret, MEDIA_TOKEN_SCOPE)}", expires_at
+
+
+def media_token_is_valid(token: str) -> bool:
+    return _scoped_token_is_valid(token, MEDIA_TOKEN_SCOPE)
 
 
 def save_admin_password(current_password: str, new_password: str) -> None:

@@ -295,6 +295,86 @@ def test_required_basic_auth(tmp_path: Path, monkeypatch) -> None:
     asyncio.run(scenario())
 
 
+def test_framed_tab_keeps_its_session_without_the_cookie(tmp_path: Path, monkeypatch) -> None:
+    """A tab framed by another site loses the SameSite=Strict cookie; it carries
+    the session as a header and loads media with a read-only token instead."""
+    monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FINDSTUFF_DATABASE_PATH", str(tmp_path / "framed.sqlite3"))
+    monkeypatch.setenv("FINDSTUFF_AUTO_BACKUP_ENABLED", "false")
+    monkeypatch.setenv("FINDSTUFF_REQUIRE_AUTH", "true")
+    monkeypatch.setenv("FINDSTUFF_ADMIN_USERNAME", "owner")
+    monkeypatch.setenv("FINDSTUFF_ADMIN_PASSWORD", "correct horse battery staple")
+
+    import findstuff.app as app_module
+
+    app_module = importlib.reload(app_module)
+
+    async def scenario() -> None:
+        transport = httpx.ASGITransport(app=app_module.app)
+        async with app_module.app.router.lifespan_context(app_module.app):
+            async with httpx.AsyncClient(transport=transport, base_url="https://testserver") as client:
+                login = await client.post(
+                    "/api/v1/auth/login",
+                    json={"username": "owner", "password": "correct horse battery staple"},
+                )
+                assert login.status_code == 200
+                session_token = login.json()["session_token"]
+                assert session_token.startswith("v1.")
+                # The framed tab never gets to keep the cookie.
+                client.cookies.clear()
+                bearer = {"Authorization": f"Bearer {session_token}"}
+
+                assert (await client.get("/api/v1/dashboard")).status_code == 401
+                assert (await client.get("/api/v1/dashboard", headers=bearer)).status_code == 200
+
+                created = await client.post(
+                    "/api/v1/locations",
+                    headers=bearer,
+                    json={"name": "Drawer A", "kind": "drawer", "parent_public_id": None},
+                )
+                assert created.status_code in {200, 201}
+                location_id = created.json()["public_id"]
+
+                issued = await client.get("/api/v1/auth/media-token", headers=bearer)
+                assert issued.status_code == 200
+                media_token = issued.json()["token"]
+                assert media_token.startswith("m1.")
+                assert (await client.get("/api/v1/auth/media-token")).status_code == 401
+
+                qr = f"/api/v1/qr/locations/{location_id}.svg"
+                assert (await client.get(qr)).status_code == 401
+                assert (await client.get(qr, params={"media_token": media_token})).status_code == 200
+                label = await client.get(
+                    f"/api/v1/labels/locations/{location_id}", params={"media_token": media_token}
+                )
+                assert label.status_code == 200
+                assert "media_token=" in label.text
+
+                # The media token opens media reads and nothing else.
+                assert (
+                    await client.get("/api/v1/dashboard", params={"media_token": media_token})
+                ).status_code == 401
+                assert (
+                    await client.delete("/api/v1/photos/anything", params={"media_token": media_token})
+                ).status_code == 401
+                assert (
+                    await client.get(
+                        "/api/v1/dashboard", headers={"Authorization": f"Bearer {media_token}"}
+                    )
+                ).status_code == 401
+                # The scope is signed, so relabelling it as a session fails too.
+                relabelled = "v1." + media_token.split(".", 1)[1]
+                assert (
+                    await client.get(
+                        "/api/v1/dashboard", headers={"Authorization": f"Bearer {relabelled}"}
+                    )
+                ).status_code == 401
+                # A session token is not accepted in a query string.
+                assert (await client.get(qr, params={"media_token": session_token})).status_code == 401
+
+    asyncio.run(scenario())
+
+
 def test_request_body_limit_rejects_large_json(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("FINDSTUFF_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("FINDSTUFF_DATABASE_PATH", str(tmp_path / "body-limit.sqlite3"))
