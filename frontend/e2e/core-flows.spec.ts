@@ -184,7 +184,7 @@ async function mockApi(page: Page) {
       });
     }
     if (url.pathname === "/api/v1/dashboard") return route.fulfill({ json: dashboard });
-    if (url.pathname === "/api/v1/projects" || url.pathname === "/api/v1/location-rules" || url.pathname === "/api/v1/shopping-list") {
+    if (url.pathname === "/api/v1/saved-views" || url.pathname === "/api/v1/projects" || url.pathname === "/api/v1/location-rules" || url.pathname === "/api/v1/shopping-list") {
       return route.fulfill({ json: [] });
     }
     return route.fulfill({ json: {} });
@@ -397,4 +397,54 @@ test("target editor picks a category from the hierarchy", async ({ page }) => {
   await expect(page.getByRole("dialog", { name: "Choose category" })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: /PTFE Tubes and Pneumatic Fittings/ })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Clear category" })).toBeVisible();
+});
+
+
+test("capture draft survives a reload", async ({ page }) => {
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  await page.getByLabel("Barcode").fill("8001234567890");
+  await page.getByRole("button", { name: "Use code" }).click();
+  const name = page.getByRole("textbox", { name: "Name", exact: true });
+  await expect(name).toHaveValue("Workshop screws");
+  await name.fill("Unfinished capture draft");
+  await expect(page.getByText("Draft saved on this device", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(name).toHaveValue("Unfinished capture draft");
+  await expect(page.getByText(/Your unfinished draft is restored/)).toBeVisible();
+});
+
+test("saved views persist on the server with compatibility filters", async ({ page }) => {
+  let saved: Record<string, unknown> | null = null;
+  await page.route("**/api/v1/saved-views**", async route => {
+    if (route.request().method() === "PUT") {
+      saved = { ...route.request().postDataJSON().view, revision: 1 };
+      return route.fulfill({ json: saved });
+    }
+    return route.fulfill({ json: saved ? [saved] : [] });
+  });
+  await page.reload();
+  await page.getByRole("button", { name: /^Filters/ }).click();
+  await page.getByLabel("Compatible with").fill("Camera");
+  await page.getByLabel("Save this view").fill("Camera stock");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Camera stock", exact: true })).toBeVisible();
+  expect(saved).toMatchObject({ compatibilityFilter: "Camera", revision: 1 });
+  await page.reload();
+  await page.getByRole("button", { name: /^Filters/ }).click();
+  await page.getByLabel("Compatible with").fill("");
+  await page.getByRole("button", { name: "Camera stock", exact: true }).click();
+  await expect(page.getByLabel("Compatible with")).toHaveValue("Camera");
+});
+
+test("item detail fits laptop and desktop widths", async ({ page }) => {
+  for (const width of [1100, 1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/?view=inventory&item=${item.public_id}`);
+    const sheet = page.locator(".detail-sheet");
+    await expect(sheet).toBeVisible();
+    const bounds = await sheet.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
+  }
 });

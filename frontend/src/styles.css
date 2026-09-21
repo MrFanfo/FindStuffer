@@ -1980,7 +1980,7 @@ button:active:not(:disabled) { transform: scale(.98); }
   .compact-places-heading { display: flex; }
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1440px) {
   .inventory-desktop-layout.has-detail { display: grid; grid-template-columns: minmax(440px, .82fr) minmax(560px, 1.18fr); align-items: start; gap: 16px; }
   .inventory-desktop-layout.has-detail > .inventory-page { min-width: 0; }
   .inventory-desktop-layout.has-detail .item-list, .inventory-desktop-layout.has-detail .inventory-group { grid-template-columns: 1fr; }
@@ -2282,11 +2282,11 @@ button:active:not(:disabled) { transform: scale(.98); }
 .category-results .category-row-menu > div { z-index: 6; }
 .category-results .category-row-menu button { width: 100%; font-size: .85rem; }
 /* Wide workspaces use the screen; individual editors retain readable line lengths. */
-/* Wide screens get a side rail instead of the phone tab bar, and the content
-   stops widening at 1440px so rows never stretch across a whole monitor. */
+/* Wide screens get a side rail and use all remaining width for page content. */
 @media screen and (min-width: 1100px) {
   .app-shell { width: 100%; max-width: none; padding: 0 32px 48px calc(var(--rail) + 32px); }
-  .page-content { width: min(100%, 1440px); margin: 0 auto; }
+  .page-content { width: 100%; margin: 0; }
+  .item-list, .inventory-group { grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); }
   .places-layout { grid-template-columns: minmax(340px, min(34%, 560px)) minmax(0, 1fr); }
   .workspace-page, .extra-page, .dashboard-page, .locations-page { width: 100%; max-width: none; }
   .workspace-header > p, .page-heading p, .prose { max-width: 80ch; }

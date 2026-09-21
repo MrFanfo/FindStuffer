@@ -1,3 +1,4 @@
+import { useSavedViews } from "./useSavedViews";
 import type { InventoryQueryOptions } from "../../api";
 import { type FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api, flattenLocations, type Category, type InventoryDisplaySettings, type Item, type LocationNode } from "../../api";
@@ -10,8 +11,6 @@ import {
   cloneFormula,
   emptyInventoryFormula,
   inventoryFormulaMatches,
-  loadSavedInventoryViews,
-  saveSavedInventoryViews,
   uid,
   validateInventoryFormula,
   type InventoryFilter,
@@ -218,7 +217,8 @@ export function InventoryView({
   const [filterPicker, setFilterPicker] = useState<"category" | "tag" | "location" | null>(null);
   const [formulaOpen, setFormulaOpen] = useState(false);
   const [formula, setFormula] = useState<InventoryFormula>(() => ({ source: urlScope.get("formula") || "" }));
-  const [savedViews, setSavedViews] = useState<SavedInventoryView[]>(loadSavedInventoryViews);
+  const sharedViews = useSavedViews();
+  const savedViews = sharedViews.views;
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkSelection, setBulkSelection] = useState<Set<string>>(() => new Set());
   const [bulkPicker, setBulkPicker] = useState<"category" | "location" | "remove-tag" | null>(null);
@@ -433,17 +433,13 @@ export function InventoryView({
     });
     leaveBulkMode();
   }
-  function saveCurrentView(name: string, nextFormula: InventoryFormula) {
+  async function saveCurrentView(name: string, nextFormula: InventoryFormula) {
     if (!name.trim()) return;
     const next: SavedInventoryView = {
       id: uid("view"), name: name.trim(), formula: cloneFormula(nextFormula), query, filter, groupBy, sortBy,
-      categoryFilter, locationFilter, tagFilter, includeZero,
+      categoryFilter, locationFilter, compatibilityFilter, tagFilter, includeZero,
     };
-    setSavedViews((current) => {
-      const updated = [...current, next];
-      saveSavedInventoryViews(updated);
-      return updated;
-    });
+    return sharedViews.save(next);
   }
   function applySavedView(saved: SavedInventoryView) {
     setFormula(cloneFormula(saved.formula));
@@ -454,15 +450,13 @@ export function InventoryView({
     setCategoryFilter(saved.categoryFilter);
     setLocationFilter(saved.locationFilter);
     setTagFilter(saved.tagFilter);
+    setCompatibilityFilter(saved.compatibilityFilter || "");
     onIncludeZeroChange(saved.includeZero);
     requestSearch(saved.query, { showBusy: true });
   }
   function deleteSavedView(id: string) {
-    setSavedViews((current) => {
-      const updated = current.filter((view) => view.id !== id);
-      saveSavedInventoryViews(updated);
-      return updated;
-    });
+    const view = savedViews.find((entry) => entry.id === id);
+    if (view) void sharedViews.remove(view);
   }
   function exportBulkSelection() {
     const selected = items.filter((item) => bulkSelection.has(item.public_id));
@@ -527,14 +521,15 @@ export function InventoryView({
         {offline && compatibilityFilter && <p role="alert">Compatibility filtering requires a connection. Clear this filter to browse cached stock. <button onClick={() => setCompatibilityFilter("")}>Clear compatibility</button></p>}
         <div className="filter-panel-foot">
           <button type="button" className={`panel-formula ${formula.source.trim() ? "active" : ""}`} onClick={() => setFormulaOpen(true)}><Icon name="filter" size={16} />Filter builder</button>
-          <form className="save-view-form" onSubmit={(event) => { event.preventDefault(); saveCurrentView(viewName, formula); setViewName(""); }}>
+          <form className="save-view-form" onSubmit={(event) => { event.preventDefault(); void saveCurrentView(viewName, formula).then((saved) => { if (saved) setViewName(""); }); }}>
             <label>Save this view<input value={viewName} onChange={(event) => setViewName(event.target.value)} placeholder="Pantry restock" /></label>
-            <button type="submit" className="secondary" disabled={!viewName.trim()}>Save</button>
+            <button type="submit" className="secondary" disabled={!viewName.trim() || sharedViews.busy || !sharedViews.connected}>Save</button>
           </form>
         </div>
+        {sharedViews.error && <p role="alert">{sharedViews.error}</p>}
         {savedViews.length > 0 && <div className="saved-view-strip" role="region" tabIndex={0} aria-label="Saved inventory views">
           <span>Views</span>
-          {savedViews.map((saved) => <div className="saved-view-chip" key={saved.id}><button type="button" onClick={() => applySavedView(saved)}>{saved.name}</button><button type="button" onClick={() => deleteSavedView(saved.id)} aria-label={`Delete ${saved.name}`}><Icon name="close" size={13} /></button></div>)}
+          {savedViews.map((saved) => <div className="saved-view-chip" key={saved.id}><button type="button" onClick={() => applySavedView(saved)}>{saved.name}</button><button type="button" disabled={sharedViews.busy || !sharedViews.connected} onClick={() => deleteSavedView(saved.id)} aria-label={`Delete ${saved.name}`}><Icon name="close" size={13} /></button></div>)}
         </div>}
       </div>}
       {hasScope && <div className="active-filter-row" aria-label="Active inventory filters">
@@ -591,7 +586,7 @@ export function InventoryView({
       {filterPicker === "category" && <SearchableFilterPicker title="Filter by category" icon="tag" selectedId={categoryFilter} emptyLabel="Any category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: `${category.path} · ${category.total_item_count} item${category.total_item_count === 1 ? "" : "s"}` }))} onChoose={setCategoryFilter} onClose={() => setFilterPicker(null)} />}
       {filterPicker === "location" && <SearchableFilterPicker title="Filter by Place" icon="pin" selectedId={locationFilter} emptyLabel="Any Place" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: `${location.path} · ${location.total_item_count ?? location.item_count ?? 0} Items inside` }))} onChoose={setLocationFilter} onClose={() => setFilterPicker(null)} />}
       {filterPicker === "tag" && <SearchableFilterPicker title="Filter by tag" icon="tag" selectedId={tagFilter} emptyLabel="Any tag" options={tags.map((tag) => ({ id: tag, label: tag, detail: "Filter the inventory by this tag" }))} onChoose={setTagFilter} onClose={() => setFilterPicker(null)} />}
-      {formulaOpen && <FormulaBuilder formula={formula} categories={categories} locations={flatInventoryLocations} tags={tags} units={Array.from(new Set([...availableUnits, ...items.map((item) => item.unit)])).sort()} onApply={(next) => { setFormula(next); setFormulaOpen(false); requestSearch(query, { showBusy: true }); }} onSave={(name, next) => { saveCurrentView(name, next); setFormula(next); setFormulaOpen(false); requestSearch(query, { showBusy: true }); }} onClose={() => setFormulaOpen(false)} />}
+      {formulaOpen && <FormulaBuilder formula={formula} categories={categories} locations={flatInventoryLocations} tags={tags} units={Array.from(new Set([...availableUnits, ...items.map((item) => item.unit)])).sort()} onApply={(next) => { setFormula(next); setFormulaOpen(false); requestSearch(query, { showBusy: true }); }} onSave={(name, next) => { void saveCurrentView(name, next).then((saved) => { if (saved) { setFormula(next); setFormulaOpen(false); requestSearch(query, { showBusy: true }); } }); }} onClose={() => setFormulaOpen(false)} />}
       {bulkMode && bulkSelection.size > 0 && <div className="bulk-action-dock" aria-label="Bulk actions"><strong>{bulkSelection.size}<small>selected</small></strong><button type="button" onClick={() => setBulkPicker("location")}><Icon name="pin" size={17} />Move</button><button type="button" onClick={() => setBulkPicker("category")}><Icon name="tag" size={17} />Category</button><button type="button" onClick={() => { const tag = window.prompt("Tag to add to the selected items"); if (tag?.trim()) void performBulk("Tagged", (item) => api.setTags(item, Array.from(new Set([...item.tags, tag.trim()]))), (current, original) => api.setTags(current, original.tags)); }}><Icon name="plus" size={17} />Add tag</button><button type="button" onClick={() => setBulkPicker("remove-tag")}><Icon name="minus" size={17} />Remove tag</button><button type="button" onClick={() => { const value = window.prompt("Quantity adjustment for every selected item (for example: 2 or -1)", "1"); const delta = Number(value?.replace(",", ".")); if (value && Number.isFinite(delta) && delta !== 0) void performBulk("Updated", (item) => api.adjust(item, delta), (current) => api.adjust(current, -delta)); }}><Icon name="plus" size={17} />Quantity</button><button type="button" onClick={exportBulkSelection}><Icon name="more" size={17} />Export</button><button type="button" className="danger" onClick={() => { if (window.confirm(`Archive ${bulkSelection.size} selected items?`)) void performBulk("Archived", api.archive, (_current, original) => api.restoreItem(original.public_id)); }}><Icon name="close" size={17} />Archive</button></div>}
       {bulkPicker === "location" && <SearchableFilterPicker title="Move selected Items" icon="pin" selectedId="" emptyLabel="Cancel" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: location.path }))} onChoose={(id) => { if (id) void performBulk("Moved", (item) => api.move(item, id), (current, original) => api.move(current, original.location_public_id)); }} onClose={() => setBulkPicker(null)} />}
       {bulkPicker === "category" && <SearchableFilterPicker title="Change Category" icon="tag" selectedId="" emptyLabel="No Category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: category.path }))} onChoose={(id) => { void performBulk("Category updated", (item) => api.updateItem(item, { category_id: id ? Number(id) : null }), (current, original) => api.updateItem(current, { category_id: original.category_id })); }} onClose={() => setBulkPicker(null)} />}

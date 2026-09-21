@@ -24,6 +24,8 @@ export type FormulaNode =
 export type FormulaToken = { value: string; position: number; kind: "word" | "string" | "operator" | "punctuation" };
 export type FormulaValidation = { node: FormulaNode | null; error: string };
 export type SavedInventoryView = {
+  revision?: number;
+  compatibilityFilter?: string;
   id: string;
   name: string;
   formula: InventoryFormula;

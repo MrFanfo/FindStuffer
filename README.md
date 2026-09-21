@@ -12,7 +12,7 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 
 New in 1.9: [Projects, inherited category fields and compatibility](docs/PROJECTS_AND_METADATA.md),
 plus [editable, atomic AI imports](docs/IMPORT_OPERATIONS.md).
-See the [1.12.0 release notes](docs/RELEASE_NOTES_1.12.0.md).
+See the [1.13.0 release notes](docs/RELEASE_NOTES_1.13.0.md).
 
 - Nested locations such as room → cabinet → drawer → shelf.
 - Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
@@ -455,8 +455,9 @@ Findstuff uses MQTT discovery instead of a Home Assistant REST sensor:
 6. Save, then select **Test connection**.
 
 The publisher reloads immediately; no container restart is needed. Home
-Assistant should discover a Findstuff device containing item, location,
-low-stock, expiration, needs-details, and online sensors. If Home Assistant and
+Assistant should discover a Findstuff device containing 27 sensors plus online
+availability. See the [MQTT topic and sensor reference](docs/MQTT.md) for the
+complete list, units, and count definitions. If Home Assistant and
 Findstuff run in separate containers, `localhost` means the Findstuff container
 itself—use a LAN address, resolvable hostname, or shared Docker-network broker
 name instead.
@@ -615,7 +616,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.12.0`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.13.0`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

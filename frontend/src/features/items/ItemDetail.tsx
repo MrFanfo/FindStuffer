@@ -1,3 +1,4 @@
+import { useDeviceDraft, draftField, DraftNotice } from "../shell/useDeviceDraft";
 import { ItemContents } from "./ItemContents";
 import { CategoryValueInputs } from "../../components/CategoryValueInputs";
 import { ItemStructuredData, type RelatedDraft } from "./ItemStructuredData";
@@ -143,34 +144,54 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
 }) {
   const photoRail = useRef<HTMLDivElement | null>(null);
   const [storedCustomFields, setStoredCustomFields] = useState<Record<string, unknown>>(item.custom_fields || {});
-  const [customFieldEdits, setCustomFieldEdits] = useState<Record<string, unknown>>({});
   const [saveError, setSaveError] = useState("");
   const [savingDetails, setSavingDetails] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [relatedEdits, setRelatedEdits] = useState<RelatedDraft | null>(null);
   const [detailTab, setDetailTab] = useState<"overview" | "details" | "activity" | "more">("overview");
   const [picker, setPicker] = useState<"move" | "category" | "editCategory" | null>(null);
-  const [name, setName] = useState(item.name);
-  const [description, setDescription] = useState(item.description);
-  const [notes, setNotes] = useState(item.notes);
-  const [brand, setBrand] = useState(item.brand);
-  const [model, setModel] = useState(item.model);
-  const [serial, setSerial] = useState(item.serial_number);
-  const [expiration, setExpiration] = useState(item.expiration_date || "");
-  const [threshold, setThreshold] = useState(item.low_stock_threshold || "");
-  const [fullness, setFullness] = useState(item.fullness_percent ?? 100);
-  const [unit, setUnit] = useState(item.unit);
-  const [category, setCategory] = useState(item.category_id ? String(item.category_id) : "");
-  const [tags, setTags] = useState(item.tags.join(", "));
-  const [linksValue, setLinksValue] = useState(linkText(item.links || []));
-  const [purchasePrice, setPurchasePrice] = useState(item.purchase_price_minor === null ? "" : String(item.purchase_price_minor / 100));
-  const [estimatedPrice, setEstimatedPrice] = useState(item.estimated_price_minor === null ? "" : String(item.estimated_price_minor / 100));
-  const [weight, setWeight] = useState(item.weight_g === null ? "" : String(item.weight_g));
-  const [dimensions, setDimensions] = useState<string[]>(
+  const itemDraft = useDeviceDraft(`item:${item.public_id}`, {
+    name: item.name,
+    description: item.description,
+    notes: item.notes,
+    brand: item.brand,
+    model: item.model,
+    serial: item.serial_number,
+    expiration: item.expiration_date || "",
+    threshold: item.low_stock_threshold || "",
+    fullness: item.fullness_percent ?? 100,
+    unit: item.unit,
+    category: item.category_id ? String(item.category_id) : "",
+    tags: item.tags.join(", "),
+    linksValue: linkText(item.links || []),
+    purchasePrice: item.purchase_price_minor === null ? "" : String(item.purchase_price_minor / 100),
+    estimatedPrice: item.estimated_price_minor === null ? "" : String(item.estimated_price_minor / 100),
+    weight: item.weight_g === null ? "" : String(item.weight_g),
+    dimensions:
     [item.length_mm, item.width_mm, item.height_mm].map((value) =>
       value === null ? "" : String(value),
     ),
-  );
+    customFieldEdits: {} as Record<string, unknown>, relatedEdits: null as RelatedDraft | null,
+  });
+  const [name, setName] = draftField(itemDraft, "name");
+  const [description, setDescription] = draftField(itemDraft, "description");
+  const [notes, setNotes] = draftField(itemDraft, "notes");
+  const [brand, setBrand] = draftField(itemDraft, "brand");
+  const [model, setModel] = draftField(itemDraft, "model");
+  const [serial, setSerial] = draftField(itemDraft, "serial");
+  const [expiration, setExpiration] = draftField(itemDraft, "expiration");
+  const [threshold, setThreshold] = draftField(itemDraft, "threshold");
+  const [fullness, setFullness] = draftField(itemDraft, "fullness");
+  const [unit, setUnit] = draftField(itemDraft, "unit");
+  const [category, setCategory] = draftField(itemDraft, "category");
+  const [tags, setTags] = draftField(itemDraft, "tags");
+  const [linksValue, setLinksValue] = draftField(itemDraft, "linksValue");
+  const [purchasePrice, setPurchasePrice] = draftField(itemDraft, "purchasePrice");
+  const [estimatedPrice, setEstimatedPrice] = draftField(itemDraft, "estimatedPrice");
+  const [weight, setWeight] = draftField(itemDraft, "weight");
+  const [dimensions, setDimensions] = draftField(itemDraft, "dimensions");
+  const [customFieldEdits, setCustomFieldEdits] = draftField(itemDraft, "customFieldEdits");
+  const [relatedEdits, setRelatedEdits] = draftField(itemDraft, "relatedEdits");
+  useEffect(() => { if (itemDraft.restored) setEditing(true); }, [itemDraft.restored]);
   const [extrasErrors, setExtrasErrors] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryEvent[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -337,7 +358,8 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     });
     const tagged = await api.setTags(updated, tags.split(",").map((tag) => tag.trim()).filter(Boolean));
     await onChanged(tagged);
-    setEditing(false); setCustomFieldEdits({}); setRelatedEdits(null);
+    await itemDraft.clear({ ...itemDraft.value, customFieldEdits: {}, relatedEdits: null });
+    setEditing(false);
     } catch (reason) { setSaveError(reason instanceof Error ? reason.message : "Could not save changes"); }
     finally { setSavingDetails(false); }
   }
@@ -493,7 +515,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
       <article className="detail-sheet">
         {extrasErrors.map((section) => <p className="error-banner" role="alert" key={section}>{section} could not load. <button onClick={() => void loadExtras()}>Retry</button></p>)}
         <div className="sheet-handle" aria-hidden="true" />
-        <header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><strong className="detail-quantity-summary">{item.quantity} {item.unit}</strong>{item.project_holds?.map(hold => <small key={hold.public_id}>{hold.quantity} {item.unit} reserved for <a href={`?view=projects&project=${hold.public_id}`}>{hold.name}</a></small>)}{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div>{editing && <button className="text-button" onClick={() => { setEditing(false); setRelatedEdits(null); }}>Cancel editing</button>}</header>
+        <DraftNotice draft={itemDraft} onDiscard={() => { void itemDraft.clear(); setEditing(false); }} /><header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><strong className="detail-quantity-summary">{item.quantity} {item.unit}</strong>{item.project_holds?.map(hold => <small key={hold.public_id}>{hold.quantity} {item.unit} reserved for <a href={`?view=projects&project=${hold.public_id}`}>{hold.name}</a></small>)}{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div>{editing && <button className="text-button" onClick={() => { void itemDraft.clear(); setEditing(false); }}>Cancel editing</button>}</header>
         {((editing ? editCapabilities.photos : detailCapabilities.photos) && (editing || photos.length > 0)) && <section className={`detail-photo-hero ${photos.length ? "" : "empty-photo"}`} aria-label="Item photos">
           <div className="detail-photo-rail" ref={photoRail}>
             {photos.map((photo, index) => <figure key={photo.public_id}><img src={photo.url} alt={`${item.name} photo ${index + 1}`} /><button aria-label={`Delete photo ${index + 1}`} onClick={() => run(() => api.deletePhoto(photo).then(loadExtras), "Photo removed")}><Icon name="close" size={15} /></button></figure>)}

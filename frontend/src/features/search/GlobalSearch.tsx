@@ -10,11 +10,12 @@ type GlobalDestination = "projects" | "inventory" | "capture" | "places" | "cate
 type PaletteEntry = { key: string; icon: IconName; title: string; detail: string; run: () => void };
 type PaletteGroup = { title: string; entries: PaletteEntry[] };
 
-export function GlobalSearch({ items, locations, categories, onClose, onOpenItem, onOpenLocation, onOpenCategory, onNavigate, onCapture }: {
+export function GlobalSearch({ items, locations, categories, onClose, onOpenItem, onOpenLocation, onOpenCategory, onNavigate, onCapture, onOpenProject }: {
   items: Item[];
   locations: LocationNode[];
   categories: Category[];
   onClose: () => void;
+  onOpenProject: (id: string) => void;
   onOpenItem: (item: Item) => void;
   onOpenLocation: (id: string) => void;
   onOpenCategory: (id: number) => void;
@@ -103,7 +104,7 @@ export function GlobalSearch({ items, locations, categories, onClose, onOpenItem
     })) },
     { title: "Projects", entries: projectResults.map((project) => ({
       key: `prj-${project.public_id}`, icon: "spark" as IconName, title: project.name,
-      detail: `${project.status} · ${project.reservations.length} reservations`, run: () => onNavigate("projects"),
+      detail: `${project.status} · ${(project.reservations || []).length} reservations`, run: () => onOpenProject(project.public_id),
     })) },
     { title: "Commands", entries: commands.map((command) => ({
       key: `cmd-${command.label}`, icon: command.icon, title: command.label, detail: command.detail, run: command.run,
@@ -114,18 +115,18 @@ export function GlobalSearch({ items, locations, categories, onClose, onOpenItem
   const activeKey = flatEntries[activeIndex]?.key;
   function onKeyDown(event: ReactKeyboardEvent) {
     if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
-    if (event.key === "ArrowDown" || (event.key === "Tab" && !event.shiftKey && flatEntries.length > 0)) {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
       setActive((current) => (Math.min(current, flatEntries.length - 1) + 1) % Math.max(flatEntries.length, 1));
       return;
     }
-    if (event.key === "ArrowUp" || (event.key === "Tab" && event.shiftKey && flatEntries.length > 0)) {
+    if (event.key === "ArrowUp") {
       event.preventDefault();
       setActive((current) => (Math.min(current, flatEntries.length - 1) + flatEntries.length - 1) % Math.max(flatEntries.length, 1));
       return;
     }
-    if (event.key === "Home") { event.preventDefault(); setActive(0); return; }
-    if (event.key === "End") { event.preventDefault(); setActive(Math.max(flatEntries.length - 1, 0)); return; }
+    if (event.key === "Home" && event.ctrlKey) { event.preventDefault(); setActive(0); return; }
+    if (event.key === "End" && event.ctrlKey) { event.preventDefault(); setActive(Math.max(flatEntries.length - 1, 0)); return; }
     if (event.key === "Enter" && activeIndex >= 0) { event.preventDefault(); flatEntries[activeIndex].run(); }
   }
   useEffect(() => {

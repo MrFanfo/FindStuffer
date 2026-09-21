@@ -169,3 +169,14 @@ export function downloadOfflineInventory(progress: (count: number) => void): Pro
   });
   return inventoryDownload.finally(() => downloadListeners.delete(progress));
 }
+
+export async function readDeviceDraft<T>(key: string): Promise<T | null> {
+  const row = await transact<{ key: string; value: T } | undefined>(META_STORE, "readonly", (store) => store.get(`draft:${key}`));
+  return row?.value ?? null;
+}
+export async function writeDeviceDraft<T>(key: string, value: T): Promise<void> {
+  await transact(META_STORE, "readwrite", (store) => store.put({ key: `draft:${key}`, value }));
+}
+export async function removeDeviceDraft(key: string): Promise<void> {
+  await transact(META_STORE, "readwrite", (store) => store.delete(`draft:${key}`));
+}

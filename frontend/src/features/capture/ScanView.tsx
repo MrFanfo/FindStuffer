@@ -1,3 +1,4 @@
+import { useDeviceDraft, DraftNotice } from "../shell/useDeviceDraft";
 import { CategoryValueInputs } from "../../components/CategoryValueInputs";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -113,7 +114,12 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
   const scannedRef = useRef<ScannedEntry[]>([]);
   const lookupInFlight = useRef<Set<string>>(new Set());
   const [code, setCode] = useState("");
-  const [scanned, setScanned] = useState<ScannedEntry[]>([]);
+  const captureDraft = useDeviceDraft<ScannedEntry[]>("capture-session", [], (entries) => entries.map((entry) => ({ ...entry,
+    photo_preview: entry.photo_file ? URL.createObjectURL(entry.photo_file) : null,
+    status: entry.status === "looking_up" ? "error" : entry.status,
+    error: entry.status === "looking_up" ? "Lookup interrupted. Enter a name or scan this code again." : entry.error,
+  })));
+  const { value: scanned, set: setScanned } = captureDraft;
   const [message, setMessage] = useState("");
   const [photoScanning, setPhotoScanning] = useState(false);
   const [savingCodes, setSavingCodes] = useState<Set<string>>(new Set());
@@ -454,9 +460,10 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
     }
   }
 
+  if (captureDraft.status === "loading") return <p role="status">Opening your capture workspace…</p>;
   return (
     <section className="scan-page"><h1 className="sr-only">Capture</h1>
-      <div className="capture-modes" role="tablist" aria-label="Capture mode">{([
+      <DraftNotice draft={captureDraft} onDiscard={() => { void captureDraft.clear([]); }} /><div className="capture-modes" role="tablist" aria-label="Capture mode">{([
         ["scan", "Scan", "scan"],
         ["quick", "Quick add", "plus"],
         ["putaway", "Put away", "pin"],

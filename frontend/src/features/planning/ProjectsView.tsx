@@ -1,3 +1,4 @@
+import { useDeviceDraft, draftField, DraftNotice } from "../shell/useDeviceDraft";
 import { Icon } from "../../components/Icon";
 import { useCallback, useEffect, useState } from 'react';
 import { applyOperation, extensions, type CompatibilityTarget, type PlanningProject } from '../../extensionApi';
@@ -7,8 +8,9 @@ export function ProjectsView({ onBack, onOpenProject }: { onBack: () => void; on
   const [projects, setProjects] = useState<PlanningProject[]>([]);
   const [targets, setTargets] = useState<CompatibilityTarget[]>([]);
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  const [name, setName] = useState(''); const [description, setDescription] = useState('');
-  const [projectTargets, setProjectTargets] = useState<string[]>([]);
+  const draft = useDeviceDraft("new-project", { name: "", description: "", targets: [] as string[] });
+  const [name, setName] = draftField(draft, "name"); const [description, setDescription] = draftField(draft, "description");
+  const [projectTargets, setProjectTargets] = draftField(draft, "targets");
   const reload = useCallback(async () => { const results = await Promise.allSettled([extensions.projects(), extensions.targets()]); if (results[0].status === 'fulfilled') setProjects(results[0].value); if (results[1].status === 'fulfilled') setTargets(results[1].value); const failed = results.filter((result) => result.status === 'rejected'); if (failed.length) throw new Error('Projects or compatibility targets could not load'); }, []);
   useEffect(() => { void reload().catch((reason: Error) => setError(reason.message)); }, [reload]);
   async function perform(action: () => Promise<unknown>) { setBusy(true); setError(''); try { await action(); await reload(); return true; } catch (reason) { setError(reason instanceof Error ? reason.message : 'Change failed'); return false; } finally { setBusy(false); } }
@@ -23,7 +25,7 @@ export function ProjectsView({ onBack, onOpenProject }: { onBack: () => void; on
         <Icon name="chevron" size={15} />
       </button>)}</div>
       {!projects.length && <p className="planning-empty">No projects yet. Create one to plan requirements, purchases and compatibility.</p>}
-      <details className="project-create"><summary>Create project</summary><form className="form-card compact-form" onSubmit={(event) => { event.preventDefault(); void perform(() => applyOperation({ op: 'add', type: 'project', data: { name, description, compatibility: projectTargets } })).then((saved) => { if (saved) { setName(''); setDescription(''); setProjectTargets([]); } }); }}><label>Name<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label>Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} /></label><TargetChoices targets={targets} values={projectTargets} onChange={setProjectTargets} /><button className="primary" disabled={busy}>Create project</button></form></details>
+      <details className="project-create" open={draft.restored || undefined}><summary>Create project</summary><form className="form-card compact-form" onSubmit={(event) => { event.preventDefault(); void perform(() => applyOperation({ op: 'add', type: 'project', data: { name, description, compatibility: projectTargets } })).then((saved) => { if (saved) { void draft.clear({ name: "", description: "", targets: [] }); } }); }}><DraftNotice draft={draft} onDiscard={() => { void draft.clear(); }} /><label>Name<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label>Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} /></label><TargetChoices targets={targets} values={projectTargets} onChange={setProjectTargets} /><button className="primary" disabled={busy}>Create project</button></form></details>
     </div>
   </section>;
 }

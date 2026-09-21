@@ -1,3 +1,4 @@
+import { applyQuantityOperation, persistQuantityChange } from "./features/inventory/quantityChanges";
 import { AutoOfflineInventory } from './features/shell/AutoOfflineInventory';
 import { restoreInventoryPage, rememberInventoryPage } from "./features/inventory/inventoryHistory";
 import { HomeExtras } from "./features/dashboard/HomeExtras";
@@ -76,12 +77,7 @@ const PrintQueueDialog = lazyView(() => import("./features/printing/PrintQueueDi
 
 type View = "projects" | "project" | "compatibility" | "target" | "inventory" | "capture" | "add" | "scan" | "places" | "locations" | "location" | "categories" | "category" | "default-rules" | "off-category-mappings" | "ai-inbox" | "dashboard" | "extra" | "analytics" | "data" | "inventory-management" | "manage";
 type InventorySearchOptions = { showBusy?: boolean };
-type AdjustmentQueue = {
-  confirmed: Item;
-  inFlight: boolean;
-  pendingDelta: number;
-  timer: number | null;
-};
+type AdjustmentQueue = { displayed: Item; pending: number };
 type RefreshScope = "all" | "inventory" | "none";
 type RetryNotice = {
   action: () => Promise<void>;
@@ -284,9 +280,6 @@ function App() {
   // Planning detail pages keep their own query parameter so a refresh, a shared
   // link or the browser Back button all resolve to the same record.
   const openPlanningDetail = useCallback((key: "target" | "project", publicId: string) => {
-    const params = new URLSearchParams(location.search);
-    params.set(key, publicId);
-    history.replaceState(history.state, "", `?${params}`);
     if (key === "target") setSelectedTargetId(publicId); else setSelectedProjectId(publicId);
     setView(key);
   }, []);
@@ -594,15 +587,19 @@ function App() {
 
 
   useNavigationHistory({ view, item: selectedItem?.public_id || null,
-    location: view === "location" ? selectedLocationId : null,
-    category: view === "category" ? selectedCategoryId : null, mode: captureMode }, (route, nextItem) => {
+    location: view === "location" || (view === "places" && placesSection === "locations") ? selectedLocationId : null,
+    category: view === "category" || (view === "places" && placesSection === "categories") ? selectedCategoryId : null,
+    section: view === "places" ? placesSection : null, project: view === "project" ? selectedProjectId : null,
+    target: view === "target" ? selectedTargetId : null, mode: captureMode }, (route, nextItem) => {
     setView(viewFromParameter(route.view) || (route.location ? "location" : "dashboard"));
     setSelectedItem(nextItem || itemsRef.current.find((entry) => entry.public_id === route.item) || null);
     setSelectedLocationId(route.location); setSelectedCategoryId(route.category);
+    setPlacesSection(route.section === "categories" ? "categories" : "locations");
     if (route.location && route.mode === "add") { setAddLocation(route.location); setCaptureMode("quick"); setView("capture"); }
     if (["scan", "quick", "putaway", "consume", "assistant"].includes(route.mode)) setCaptureMode(route.mode as CaptureMode);
     const params = new URLSearchParams(window.location.search);
-    setSelectedTargetId(params.get("target")); setSelectedProjectId(params.get("project"));
+    setSelectedTargetId(route.target); setSelectedProjectId(route.project);
+    if (route.view === "projects" && route.project) setView("project");
     setQuery(params.get("q") || ""); setInventoryIncludeZero(params.get("zero") === "1");
     setInventoryFilter((params.get("filter") || "all") as InventoryFilter);
     setInventoryCategoryId(params.has("category_id") ? Number(params.get("category_id")) : null);
@@ -641,107 +638,45 @@ function App() {
     ));
   }
 
-  function finishQueue(publicId: string) {
-    adjustmentQueue.current.delete(publicId);
-    setPendingItems((current) => {
-      const next = new Set(current);
-      next.delete(publicId);
-      return next;
-    });
-    scheduleInventoryRefresh();
-  }
-
-  async function flushAdjustment(publicId: string) {
-    const queued = adjustmentQueue.current.get(publicId);
-    if (!queued || queued.inFlight || queued.pendingDelta === 0) return;
-    const delta = queued.pendingDelta;
-    queued.pendingDelta = 0;
-    queued.inFlight = true;
-    try {
-      const updated = await api.adjust(queued.confirmed, delta);
-      queued.confirmed = updated;
-      queued.inFlight = false;
-      if (queued.pendingDelta !== 0) {
-        applyLocalItem(optimisticQuantity(updated, queued.pendingDelta));
-        void flushAdjustment(publicId);
-        return;
-      }
-      applyLocalItem(updated);
-      notify(`${updated.name}: quantity updated`, {
-        label: "Undo",
-        action: async () => {
-          const current = await api.item(updated.public_id);
-          const restored = await api.adjust(current, -delta);
-          applyLocalItem(restored);
-          scheduleInventoryRefresh();
-          notify(`${restored.name}: change undone`);
-        },
-      });
-      finishQueue(publicId);
-    } catch (error) {
-      const retryDelta = delta;
-      const retryBase = queued.confirmed;
-      if (isOfflineFailure(error)) {
-        adjustmentQueue.current.delete(publicId);
-        const operation: OfflineOperation = {
-          id: offlineOperationId(),
-          kind: "adjust_quantity",
-          createdAt: new Date().toISOString(),
-          payload: {
-            item_public_id: publicId,
-            item_name: retryBase.name,
-            delta: retryDelta,
-          },
-        };
-        await putOfflineOperation(operation);
-        setOfflineOperations(await listOfflineOperations());
-        notify(`${retryBase.name}: quantity change saved offline`);
-        return;
-      }
-      applyLocalItem(queued.confirmed);
-      finishQueue(publicId);
-      notify(friendlyErrorMessage(error, "Quantity was not saved"), {
-        label: "Retry",
-        action: async () => {
-          setPendingItems((current) => new Set(current).add(publicId));
-          try {
-            const updated = await api.adjust(retryBase, retryDelta);
-            applyLocalItem(updated);
-            notify(`${updated.name}: quantity updated`);
-            scheduleInventoryRefresh();
-          } finally {
-            setPendingItems((current) => {
-              const next = new Set(current);
-              next.delete(publicId);
-              return next;
-            });
-          }
-        },
-      });
-    }
-  }
-
   async function quickAdjust(item: Item, delta: number) {
-    const displayed = itemsRef.current.find((entry) => entry.public_id === item.public_id) || item;
-    if (delta < 0 && Number(displayed.quantity) <= 0) return;
-    const queued = adjustmentQueue.current.get(item.public_id) || {
-      confirmed: displayed,
-      inFlight: false,
-      pendingDelta: 0,
-      timer: null,
+    const queue = adjustmentQueue.current.get(item.public_id) || {
+      displayed: itemsRef.current.find((entry) => entry.public_id === item.public_id) || item, pending: 0,
     };
-    if (!adjustmentQueue.current.has(item.public_id)) {
-      adjustmentQueue.current.set(item.public_id, queued);
-    }
-    queued.pendingDelta += delta;
-    const optimistic = optimisticQuantity(displayed, delta);
-    applyLocalItem(optimistic);
+    if (delta < 0 && Number(queue.displayed.quantity) + delta < 0) return;
+    queue.pending += 1;
+    queue.displayed = optimisticQuantity(queue.displayed, delta);
+    adjustmentQueue.current.set(item.public_id, queue);
+    applyLocalItem(queue.displayed);
     setPendingItems((current) => new Set(current).add(item.public_id));
-    if (queued.timer !== null) window.clearTimeout(queued.timer);
-    queued.timer = window.setTimeout(() => {
-      queued.timer = null;
-      void flushAdjustment(item.public_id);
-    }, 120);
+    let operation: Awaited<ReturnType<typeof persistQuantityChange>> | undefined;
+    try {
+      operation = await persistQuantityChange(item, delta);
+      const updated = await applyQuantityOperation(operation);
+      if (queue.pending === 1) {
+        applyLocalItem(updated);
+        notify(`${updated.name}: quantity updated`, { label: "Undo", action: async () => quickAdjust(updated, -delta) });
+      }
+    } catch (error) {
+      if (operation) {
+        await setOfflineOperationError(operation.id, "Not yet confirmed. Synchronize to retry safely.").catch(() => undefined);
+        notify(`${item.name}: change saved on this device · waiting to sync`);
+      } else {
+        queue.displayed = optimisticQuantity(queue.displayed, -delta);
+        applyLocalItem(queue.displayed);
+        notify("Could not save this quantity change on your device. Please try again.");
+      }
+    } finally {
+      queue.pending -= 1;
+      const remaining = await listOfflineOperations().catch(() => null);
+      if (remaining) setOfflineOperations(remaining);
+      if (!queue.pending) {
+        adjustmentQueue.current.delete(item.public_id);
+        if (remaining && !remaining.some((entry) => entry.kind === "adjust_quantity" && entry.payload.item_public_id === item.public_id)) {
+          setPendingItems((current) => { const next = new Set(current); next.delete(item.public_id); return next; });
+          scheduleInventoryRefresh();
+        }
+      }
+    }
   }
 
   async function moveItemFast(item: Item, destinationPublicId: string) {
@@ -900,7 +835,7 @@ function App() {
         try {
           const item = operation.kind === "create_item"
             ? await applyCapture(operation)
-            : (await api.syncOfflineOperation(operation.id, operation.kind, operation.payload)).result;
+            : await applyQuantityOperation(operation);
           if (operation.kind === "create_item") {
             setItems((current) => [
               item,
@@ -1198,6 +1133,7 @@ function App() {
         )}
         {selectedItem && view !== "inventory" && (
           <ItemDetail
+            key={selectedItem.public_id}
             item={selectedItem}
             allItems={items}
             locations={locations}
@@ -1219,7 +1155,7 @@ function App() {
             run={run}
           />
         )}
-        {globalSearchOpen && <GlobalSearch items={items} locations={locations} categories={categories} onClose={() => setGlobalSearchOpen(false)} onOpenItem={(item) => { setGlobalSearchOpen(false); setSelectedItem(item); }} onOpenLocation={(id) => { setGlobalSearchOpen(false); setSelectedLocationId(id); setPlacesSection("locations"); navigate("places"); }} onOpenCategory={(id) => { setGlobalSearchOpen(false); setSelectedCategoryId(id); navigate("category"); }} onNavigate={(next) => { setGlobalSearchOpen(false); navigate(next); }} onCapture={(mode) => { setGlobalSearchOpen(false); openCapture(mode); }} />}
+        {globalSearchOpen && <GlobalSearch onOpenProject={(id) => { setGlobalSearchOpen(false); openProject(id); }} items={items} locations={locations} categories={categories} onClose={() => setGlobalSearchOpen(false)} onOpenItem={(item) => { setGlobalSearchOpen(false); setSelectedItem(item); }} onOpenLocation={(id) => { setGlobalSearchOpen(false); setSelectedLocationId(id); setPlacesSection("locations"); navigate("places"); }} onOpenCategory={(id) => { setGlobalSearchOpen(false); setSelectedCategoryId(id); navigate("category"); }} onNavigate={(next) => { setGlobalSearchOpen(false); navigate(next); }} onCapture={(mode) => { setGlobalSearchOpen(false); openCapture(mode); }} />}
         {printQueueOpen && <PrintQueueDialog
           queue={printQueue}
           settings={printSettings}

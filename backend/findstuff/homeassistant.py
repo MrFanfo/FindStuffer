@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from . import __version__
 from .db import connect
@@ -13,7 +16,7 @@ from .service_config import MQTTServiceConfig, get_mqtt_config
 
 LOGGER = logging.getLogger(__name__)
 
-SENSORS: tuple[dict[str, str], ...] = (
+SENSORS: tuple[dict[str, Any], ...] = (
     {
         "key": "item_count",
         "name": "Items",
@@ -39,6 +42,82 @@ SENSORS: tuple[dict[str, str], ...] = (
         "name": "Needs Details",
         "icon": "mdi:clipboard-edit-outline",
     },
+    {
+        "key": "total_quantity",
+        "name": "Total Quantity",
+        "attributes": "quantity_by_unit",
+        "icon": "mdi:counter",
+    },
+    {
+        "key": "container_count",
+        "name": "Containers",
+        "icon": "mdi:archive-outline",
+    },
+    {
+        "key": "category_count",
+        "name": "Categories",
+        "icon": "mdi:shape-outline",
+    },
+    {
+        "key": "archived_count",
+        "name": "Archived",
+        "icon": "mdi:archive-cancel-outline",
+    },
+    {
+        "key": "photo_count",
+        "name": "Photos",
+        "icon": "mdi:image-multiple-outline",
+    },
+    {
+        "key": "photo_storage_mb",
+        "name": "Photo Storage",
+        "icon": "mdi:harddisk",
+        "unit": "MB",
+        "device_class": "data_size",
+    },
+    {
+        "key": "loans_out_count",
+        "name": "On Loan",
+        "icon": "mdi:hand-extended-outline",
+    },
+    {
+        "key": "shopping_list_count",
+        "name": "Shopping List",
+        "icon": "mdi:cart-outline",
+    },
+    {
+        "key": "maintenance_due_count",
+        "name": "Maintenance Due",
+        "icon": "mdi:wrench-clock",
+    },
+    {
+        "key": "added_last_7_days",
+        "name": "Added Last 7 Days",
+        "icon": "mdi:playlist-plus",
+    },
+    {
+        "key": "events_last_24h",
+        "name": "Changes Last 24 Hours",
+        "icon": "mdi:history",
+    },
+    {
+        "key": "last_activity",
+        "name": "Last Activity",
+        "icon": "mdi:clock-outline",
+        "device_class": "timestamp",
+        "state_class": None,
+        "attributes": "recent_events",
+    },
+    {"key": "out_of_stock_count", "name": "Out of Stock", "icon": "mdi:package-variant-remove"},
+    {"key": "expired_count", "name": "Expired Items", "icon": "mdi:calendar-remove"},
+    {"key": "uncategorized_count", "name": "Uncategorized Items", "icon": "mdi:tag-off-outline"},
+    {"key": "missing_photo_count", "name": "Items Without Photos", "icon": "mdi:image-off-outline"},
+    {"key": "borrowed_count", "name": "Borrowed Items", "icon": "mdi:hand-extended-outline"},
+    {"key": "overdue_loans_count", "name": "Overdue Loans", "icon": "mdi:calendar-clock"},
+    {"key": "active_project_count", "name": "Active Projects", "icon": "mdi:hammer-wrench"},
+    {"key": "reserved_item_count", "name": "Reserved Items", "icon": "mdi:package-variant"},
+    {"key": "document_count", "name": "Documents", "icon": "mdi:file-document-multiple-outline"},
+    {"key": "lot_count", "name": "Stock Lots", "icon": "mdi:layers-triple-outline"},
 )
 
 
@@ -66,10 +145,10 @@ def _device(settings: MQTTServiceConfig) -> dict[str, Any]:
     }
 
 
-def _sensor_config(settings: MQTTServiceConfig, sensor: dict[str, str]) -> dict[str, Any]:
+def _sensor_config(settings: MQTTServiceConfig, sensor: dict[str, Any]) -> dict[str, Any]:
     name = sensor["name"]
     key = sensor["key"]
-    return {
+    config: dict[str, Any] = {
         "name": name,
         "unique_id": f"findstuff_{key}",
         "object_id": f"findstuff_{key}",
@@ -79,9 +158,22 @@ def _sensor_config(settings: MQTTServiceConfig, sensor: dict[str, str]) -> dict[
         "payload_available": "online",
         "payload_not_available": "offline",
         "icon": sensor["icon"],
-        "state_class": "measurement",
         "device": _device(settings),
     }
+    state_class = sensor.get("state_class", "measurement")
+    if state_class:
+        config["state_class"] = state_class
+    if sensor.get("unit"):
+        config["unit_of_measurement"] = sensor["unit"]
+    if sensor.get("device_class"):
+        config["device_class"] = sensor["device_class"]
+    if sensor.get("attributes"):
+        config["json_attributes_topic"] = _topic(settings, "attributes")
+        attribute = sensor["attributes"]
+        config["json_attributes_template"] = (
+            "{{ {'" + attribute + "': value_json." + attribute + "} | tojson }}"
+        )
+    return config
 
 
 def _availability_config(settings: MQTTServiceConfig) -> dict[str, Any]:
@@ -97,13 +189,124 @@ def _availability_config(settings: MQTTServiceConfig) -> dict[str, Any]:
     }
 
 
-def _state_payload() -> dict[str, Any]:
+def _as_utc_isoformat(value: Any) -> str | None:
+    if not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).isoformat()
+
+
+def _extra_counts(connection: sqlite3.Connection) -> dict[str, Any]:
+    items = connection.execute(
+        """
+        SELECT COALESCE(sum(quantity_milli), 0) AS quantity_milli,
+               COALESCE(sum(CASE WHEN is_container = 1 THEN 1 ELSE 0 END), 0) AS container_count,
+               COALESCE(sum(CASE WHEN julianday(created_at) >= julianday('now', '-7 day')
+                                 THEN 1 ELSE 0 END), 0) AS added_last_7_days
+        FROM items
+        WHERE archived_at IS NULL
+        """
+    ).fetchone()
+    photos = connection.execute(
+        "SELECT count(*) AS photo_count, COALESCE(sum(size_bytes), 0) AS bytes FROM photos"
+    ).fetchone()
+
+    def scalar(sql: str) -> int:
+        return connection.execute(sql).fetchone()[0]
+
+    last_event = connection.execute(
+        "SELECT created_at FROM inventory_events "
+        "ORDER BY julianday(created_at) DESC, id DESC LIMIT 1"
+    ).fetchone()
+    return {
+        "total_quantity": round(items["quantity_milli"] / 1000, 3),
+        "container_count": items["container_count"],
+        "added_last_7_days": items["added_last_7_days"],
+        "photo_count": photos["photo_count"],
+        "photo_storage_mb": round(photos["bytes"] / 1_000_000, 2),
+        "category_count": scalar("SELECT count(*) FROM categories"),
+        "archived_count": scalar("SELECT count(*) FROM items WHERE archived_at IS NOT NULL"),
+        "loans_out_count": scalar(
+            "SELECT count(*) FROM loans WHERE returned_at IS NULL AND direction = 'lent'"
+        ),
+        "shopping_list_count": scalar(
+            "SELECT count(*) FROM shopping_list_entries WHERE checked = 0"
+        ),
+        "maintenance_due_count": scalar(
+            """
+            SELECT count(*) FROM maintenance_tasks
+            WHERE archived_at IS NULL
+              AND next_due_at IS NOT NULL
+              AND date(next_due_at) <= date('now')
+              AND EXISTS (SELECT 1 FROM items WHERE items.id = maintenance_tasks.item_id
+                          AND items.archived_at IS NULL)
+            """
+        ),
+        "events_last_24h": scalar(
+            "SELECT count(*) FROM inventory_events "
+            "WHERE julianday(created_at) >= julianday('now', '-1 day')"
+        ),
+        "last_activity": _as_utc_isoformat(last_event["created_at"] if last_event else None),
+        "out_of_stock_count": scalar(
+            "SELECT count(*) FROM items WHERE archived_at IS NULL AND quantity_milli = 0"
+        ),
+        "expired_count": scalar("""
+            SELECT count(*) FROM items WHERE archived_at IS NULL AND (
+                (quantity_milli > 0 AND expiration_date < date('now'))
+                OR EXISTS (SELECT 1 FROM item_lots WHERE item_id = items.id
+                           AND quantity_milli > 0 AND expiration_date < date('now'))
+            )
+        """),
+        "uncategorized_count": scalar(
+            "SELECT count(*) FROM items WHERE archived_at IS NULL AND category_id IS NULL"
+        ),
+        "missing_photo_count": scalar("""
+            SELECT count(*) FROM items WHERE archived_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM photos WHERE item_id = items.id)
+        """),
+        "borrowed_count": scalar(
+            "SELECT count(*) FROM loans WHERE returned_at IS NULL AND direction = 'borrowed'"
+        ),
+        "overdue_loans_count": scalar(
+            "SELECT count(*) FROM loans WHERE returned_at IS NULL AND due_date < date('now')"
+        ),
+        "active_project_count": scalar(
+            "SELECT count(*) FROM projects WHERE status IN ('planned', 'active')"
+        ),
+        "reserved_item_count": scalar("""
+            SELECT count(DISTINCT r.item_id) FROM project_reservations r
+            JOIN projects p ON p.id = r.project_id JOIN items i ON i.id = r.item_id
+            WHERE p.status IN ('planned', 'active') AND i.archived_at IS NULL
+        """),
+        "document_count": scalar("SELECT count(*) FROM item_documents"),
+        "lot_count": scalar("""
+            SELECT count(*) FROM item_lots l JOIN items i ON i.id = l.item_id
+            WHERE l.quantity_milli > 0 AND i.archived_at IS NULL
+        """),
+    }
+
+
+def _payloads() -> tuple[dict[str, Any], dict[str, Any]]:
     connection = connect()
     try:
+        connection.execute("BEGIN")
         state = dashboard(connection)
+        extra = _extra_counts(connection)
+        quantities = {
+            row["unit"]: round(row["quantity_milli"] / 1000, 3)
+            for row in connection.execute(
+                "SELECT unit, sum(quantity_milli) AS quantity_milli FROM items "
+                "WHERE archived_at IS NULL GROUP BY unit ORDER BY unit"
+            )
+        }
     finally:
         connection.close()
-    return {
+    payload = {
         "item_count": state["item_count"],
         "location_count": state["location_count"],
         "low_stock_count": state["low_stock_count"],
@@ -112,6 +315,24 @@ def _state_payload() -> dict[str, Any]:
         "updated_at": datetime.now(UTC).isoformat(),
         "version": __version__,
     }
+    payload.update(extra)
+    attributes = {
+        "quantity_by_unit": quantities,
+        "recent_events": [
+            {
+                "action": event.get("action"),
+                "item": event.get("item_name"),
+                "item_id": event.get("item_public_id"),
+                "at": _as_utc_isoformat(event.get("created_at")),
+            }
+            for event in state.get("recent_events", [])
+        ],
+    }
+    return payload, attributes
+
+
+def _state_payload() -> dict[str, Any]:
+    return _payloads()[0]
 
 
 def _publish(
@@ -122,7 +343,7 @@ def _publish(
     result.wait_for_publish(timeout=5)
 
 
-def _connect_client(settings: MQTTServiceConfig) -> Any:
+def _connect_client(settings: MQTTServiceConfig, *, announce_availability: bool = True) -> Any:
     import paho.mqtt.client as mqtt
 
     kwargs: dict[str, Any] = {"client_id": settings.client_id}
@@ -132,7 +353,8 @@ def _connect_client(settings: MQTTServiceConfig) -> Any:
     client.reconnect_delay_set(min_delay=2, max_delay=60)
     if settings.username:
         client.username_pw_set(settings.username, settings.password or None)
-    client.will_set(_topic(settings, "status"), "offline", qos=0, retain=True)
+    if announce_availability:
+        client.will_set(_topic(settings, "status"), "offline", qos=0, retain=True)
     client.connect(settings.host, settings.port, keepalive=30)
     client.loop_start()
     return client
@@ -156,11 +378,14 @@ def _publish_discovery(client: Any, settings: MQTTServiceConfig) -> None:
 async def test_mqtt_connection(settings: MQTTServiceConfig) -> None:
     if not settings.host:
         raise ValueError("Save an MQTT broker host first")
-    client = await asyncio.to_thread(_connect_client, settings)
+    # A connection test must not evict the running publisher or change its availability.
+    test_settings = replace(settings, client_id=f"findstuff-test-{uuid4().hex[:8]}")
+    client = await asyncio.to_thread(_connect_client, test_settings, announce_availability=False)
     try:
         await asyncio.to_thread(_publish_discovery, client, settings)
-        await asyncio.to_thread(_publish, client, _topic(settings, "status"), "online")
-        await asyncio.to_thread(_publish, client, _topic(settings, "state"), _state_payload())
+        state, attributes = await asyncio.to_thread(_payloads)
+        await asyncio.to_thread(_publish, client, _topic(settings, "state"), state)
+        await asyncio.to_thread(_publish, client, _topic(settings, "attributes"), attributes)
     finally:
         client.loop_stop()
         client.disconnect()
@@ -175,6 +400,17 @@ async def _wait_for_configuration(seconds: int) -> None:
     except TimeoutError:
         pass
     _configuration_event.clear()
+
+
+async def _disconnect_client(client: Any, settings: MQTTServiceConfig | None) -> None:
+    try:
+        if settings is not None:
+            await asyncio.to_thread(_publish, client, _topic(settings, "status"), "offline")
+    except Exception:
+        LOGGER.debug("Could not publish MQTT offline status", exc_info=True)
+    finally:
+        await asyncio.to_thread(client.disconnect)
+        await asyncio.to_thread(client.loop_stop)
 
 
 async def run_home_assistant_mqtt() -> None:
@@ -192,8 +428,7 @@ async def run_home_assistant_mqtt() -> None:
 
             if not settings.enabled or not settings.host:
                 if client is not None:
-                    client.loop_stop()
-                    client.disconnect()
+                    await _disconnect_client(client, active)
                     client = None
                     active = None
                 # Saving MQTT settings signals the event immediately. A long fallback
@@ -204,14 +439,15 @@ async def run_home_assistant_mqtt() -> None:
             try:
                 if client is None or settings != active:
                     if client is not None:
-                        client.loop_stop()
-                        client.disconnect()
+                        await _disconnect_client(client, active)
                     client = await asyncio.to_thread(_connect_client, settings)
-                    await asyncio.to_thread(_publish_discovery, client, settings)
                     active = settings
+                    await asyncio.to_thread(_publish_discovery, client, settings)
                 await asyncio.to_thread(_publish, client, _topic(settings, "status"), "online")
+                state, attributes = await asyncio.to_thread(_payloads)
+                await asyncio.to_thread(_publish, client, _topic(settings, "state"), state)
                 await asyncio.to_thread(
-                    _publish, client, _topic(settings, "state"), _state_payload()
+                    _publish, client, _topic(settings, "attributes"), attributes
                 )
                 await _wait_for_configuration(settings.publish_interval_seconds)
             except asyncio.CancelledError:
@@ -219,20 +455,11 @@ async def run_home_assistant_mqtt() -> None:
             except Exception:
                 LOGGER.exception("Home Assistant MQTT publish failed; retrying")
                 if client is not None:
-                    client.loop_stop()
-                    client.disconnect()
+                    await _disconnect_client(client, active)
                     client = None
                     active = None
                 await _wait_for_configuration(15)
     finally:
         if client is not None:
-            try:
-                if active is not None:
-                    await asyncio.to_thread(
-                        _publish, client, _topic(active, "status"), "offline"
-                    )
-            except Exception:
-                LOGGER.debug("Could not publish MQTT offline status", exc_info=True)
-            client.loop_stop()
-            client.disconnect()
+            await _disconnect_client(client, active)
         _configuration_event = None

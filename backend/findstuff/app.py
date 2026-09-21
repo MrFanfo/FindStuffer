@@ -205,6 +205,7 @@ from .off_categories import (
 )
 from .offline import apply_offline_operation
 from .photos import delete_photo, get_photo, import_photo_from_url, list_photos, store_photo
+from .saved_views import SaveViewRequest
 from .schemas import (
     AdminLogin,
     AdminPasswordUpdate,
@@ -1436,6 +1437,28 @@ async def post_project(payload: ProjectCreate, database: Database) -> dict[str, 
 
     with transaction(database):
         return save_project(database, payload.model_dump())
+
+
+@app.get("/api/v1/saved-views", tags=["preferences"])
+async def get_saved_views(database: Database):
+    from .saved_views import list_saved_views
+
+    return list_saved_views(database)
+
+
+@app.put("/api/v1/saved-views/{public_id}", tags=["preferences"])
+async def put_saved_view(public_id: str, payload: SaveViewRequest, database: Database):
+    from .saved_views import save_view
+
+    return save_view(database, public_id, payload)
+
+
+@app.delete("/api/v1/saved-views/{public_id}", status_code=204, tags=["preferences"])
+async def remove_saved_view(public_id: str, database: Database, revision: int = Query(ge=1)):
+    from .saved_views import delete_view
+
+    delete_view(database, public_id, revision)
+    return Response(status_code=204)
 
 
 @app.get("/api/v1/projects", tags=["projects"])
