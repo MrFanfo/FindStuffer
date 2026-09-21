@@ -312,7 +312,9 @@ def test_framed_tab_keeps_its_session_without_the_cookie(tmp_path: Path, monkeyp
     async def scenario() -> None:
         transport = httpx.ASGITransport(app=app_module.app)
         async with app_module.app.router.lifespan_context(app_module.app):
-            async with httpx.AsyncClient(transport=transport, base_url="https://testserver") as client:
+            async with httpx.AsyncClient(
+                transport=transport, base_url="https://testserver"
+            ) as client:
                 login = await client.post(
                     "/api/v1/auth/login",
                     json={"username": "owner", "password": "correct horse battery staple"},
@@ -343,7 +345,8 @@ def test_framed_tab_keeps_its_session_without_the_cookie(tmp_path: Path, monkeyp
 
                 qr = f"/api/v1/qr/locations/{location_id}.svg"
                 assert (await client.get(qr)).status_code == 401
-                assert (await client.get(qr, params={"media_token": media_token})).status_code == 200
+                with_token = await client.get(qr, params={"media_token": media_token})
+                assert with_token.status_code == 200
                 label = await client.get(
                     f"/api/v1/labels/locations/{location_id}", params={"media_token": media_token}
                 )
@@ -355,7 +358,9 @@ def test_framed_tab_keeps_its_session_without_the_cookie(tmp_path: Path, monkeyp
                     await client.get("/api/v1/dashboard", params={"media_token": media_token})
                 ).status_code == 401
                 assert (
-                    await client.delete("/api/v1/photos/anything", params={"media_token": media_token})
+                    await client.delete(
+                        "/api/v1/photos/anything", params={"media_token": media_token}
+                    )
                 ).status_code == 401
                 assert (
                     await client.get(
@@ -370,7 +375,8 @@ def test_framed_tab_keeps_its_session_without_the_cookie(tmp_path: Path, monkeyp
                     )
                 ).status_code == 401
                 # A session token is not accepted in a query string.
-                assert (await client.get(qr, params={"media_token": session_token})).status_code == 401
+                as_query = await client.get(qr, params={"media_token": session_token})
+                assert as_query.status_code == 401
 
     asyncio.run(scenario())
 

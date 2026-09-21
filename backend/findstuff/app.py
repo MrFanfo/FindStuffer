@@ -5,7 +5,6 @@ import base64
 import binascii
 import contextlib
 import html
-from urllib.parse import quote
 import json
 import logging
 import os
@@ -18,6 +17,7 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import quote
 
 import httpx
 import segno
@@ -53,8 +53,8 @@ from .ai_scans import (
     update_scan,
 )
 from .auth_config import (
-    SESSION_COOKIE_NAME,
     MEDIA_PATH_PREFIXES,
+    SESSION_COOKIE_NAME,
     SESSION_MAX_AGE_SECONDS,
     create_media_token,
     create_session_token,
@@ -396,7 +396,8 @@ async def protect_api(request: Request, call_next):
             authenticated = session_token_is_valid(authorization.removeprefix("Bearer ").strip())
         elif not authorization:
             authenticated = session_token_is_valid(request.cookies.get(SESSION_COOKIE_NAME, ""))
-            if not authenticated and request.method in {"GET", "HEAD"} and path.startswith(MEDIA_PATH_PREFIXES):
+            media_read = request.method in {"GET", "HEAD"} and path.startswith(MEDIA_PATH_PREFIXES)
+            if not authenticated and media_read:
                 authenticated = media_token_is_valid(request.query_params.get("media_token", ""))
         if not authenticated:
             return JSONResponse(

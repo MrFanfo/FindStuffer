@@ -125,7 +125,8 @@ def create_media_token() -> tuple[str, int]:
     if secret is None:
         raise OSError("Could not create the session secret")
     expires_at = int(time.time()) + MEDIA_TOKEN_MAX_AGE_SECONDS
-    return f"{MEDIA_TOKEN_SCOPE}.{expires_at}.{_session_signature(expires_at, secret, MEDIA_TOKEN_SCOPE)}", expires_at
+    signature = _session_signature(expires_at, secret, MEDIA_TOKEN_SCOPE)
+    return f"{MEDIA_TOKEN_SCOPE}.{expires_at}.{signature}", expires_at
 
 
 def media_token_is_valid(token: str) -> bool:
