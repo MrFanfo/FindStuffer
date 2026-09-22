@@ -2555,7 +2555,8 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .inv-row button:not(.inv-row-open), .inv-row a { pointer-events: auto; }
 .inv-check { display: grid; flex: 0 0 auto; width: 22px; height: 22px; place-items: center; border: 1.5px solid var(--line-strong); border-radius: 7px; color: var(--on-accent); }
 .inv-row.selected .inv-check { border-color: var(--accent); background: var(--accent); }
-.inv-thumb { display: grid; flex: 0 0 auto; width: 38px; height: 38px; place-items: center; overflow: hidden; border-radius: 11px; color: var(--ink-soft); background: var(--sage-soft); }
+.inv-thumb { display: grid; flex: 0 0 auto; width: 42px; height: 42px; place-items: center; overflow: hidden; border-radius: 11px; color: var(--ink-soft); background: var(--sage-soft); }
+.inv-compact .inv-thumb { width: 36px; height: 36px; border-radius: 10px; }
 .inv-thumb.has-photo { background: #e7e2d6; }
 .inv-thumb img { width: 100%; height: 100%; object-fit: cover; }
 /* basis 0, so a long name shrinks the text column instead of wrapping the stepper away */
@@ -2578,11 +2579,8 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .inv-chip.quiet { flex: 0 1 auto; overflow: hidden; padding: 1px 5px; font-size: .72rem; text-overflow: ellipsis; }
 .inv-chip.plain { pointer-events: none; }
 .inv-marker { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; border-radius: 6px; padding: 1px 5px; color: var(--ink-soft); background: var(--card-alt); font-size: .68rem; font-weight: 750; }
-.inv-stepper { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-left: auto; }
-.inv-stepper > button:not(.inv-quantity) { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); }
-.inv-stepper > button:not(.inv-quantity):disabled { color: #9caaa2; background: var(--card-alt); }
-.inv-quantity { display: grid; min-width: 46px; height: 34px; align-content: center; justify-items: center; border: 0; border-radius: 8px; padding: 2px 4px; color: inherit; background: transparent; line-height: 1.05; }
-.inv-quantity strong { font-size: .95rem; font-variant-numeric: tabular-nums; }
+.inv-quantity { display: grid; flex: 0 0 auto; min-width: 52px; height: 36px; align-content: center; justify-items: end; margin-left: auto; border: 0; border-radius: 8px; padding: 2px 6px; color: inherit; background: transparent; line-height: 1.05; }
+.inv-quantity strong { font-size: 1rem; font-variant-numeric: tabular-nums; }
 .inv-quantity small { color: var(--muted); font-size: .6rem; font-weight: 700; }
 .inv-quantity:hover { background: var(--card-alt); }
 .inv-expand { display: grid; flex: 0 0 auto; width: 30px; height: 34px; place-items: center; border: 0; border-radius: 9px; color: var(--muted); background: transparent; }
@@ -2600,8 +2598,9 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .inv-row.inv-grid .inv-chip.quiet { display: none; }
 .inv-row.inv-grid .inv-name { flex-wrap: wrap; font-size: .85rem; }
 .inv-row.inv-grid .inv-name > span { overflow: hidden; display: -webkit-box; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.inv-row.inv-grid .inv-stepper { justify-content: flex-start; margin-left: 0; }
+.inv-row.inv-grid .inv-quantity { margin-left: 0; }
 .inv-row.inv-grid .inv-quantity { justify-items: start; min-width: 0; height: auto; padding-left: 0; }
+.inv-strip .strip-step { min-width: 58px; justify-content: center; gap: 2px; }
 
 /* Saved views and pinned places, one tap from the list they filter. */
 .inventory-quick-chips { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding: 1px 1px 4px; scrollbar-width: none; }
@@ -2655,10 +2654,12 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
   .inv-row.inv-comfortable { padding: 8px 10px; }
   .inv-name { font-size: .88rem; }
   .inv-meta { font-size: .74rem; }
-  .inv-stepper > button:not(.inv-quantity) { width: 36px; height: 36px; }
-  .inv-quantity { min-width: 42px; }
+  .inv-quantity { min-width: 48px; }
   .inventory-group { gap: 6px; }
-  .inv-strip .shopping-action { flex: 1 1 100%; }
+  .inv-strip { gap: 5px; }
+  .inv-strip button { min-height: 36px; padding: 0 10px; font-size: .73rem; }
+  .inv-strip .strip-step { min-width: 50px; }
+  .inv-strip .shopping-action { flex: 1 1 auto; }
   .inventory-display-menu { position: fixed; top: auto; right: 12px; bottom: calc(86px + env(safe-area-inset-bottom)); left: 12px; width: auto; }
   .inventory-jump-bar { top: 8px; right: 10px; left: 10px; }
 }

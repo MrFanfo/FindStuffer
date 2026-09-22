@@ -503,10 +503,13 @@ test("a row holds its actions, its chips filter, and the quantity can be counted
   });
   const row = page.locator(".inv-row").filter({ hasText: "Phillips driver" }).first();
 
-  // The row shows one line: name, place, quantity. Move waits behind the chevron.
+  // The row shows one line: photo, name, place, amount. Changing stock waits behind the chevron.
+  await expect(row.locator(".inv-thumb")).toBeVisible();
   await expect(row.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: /^(Add|Remove) one/ })).toHaveCount(0);
   await row.getByRole("button", { name: "More actions for Phillips driver" }).click();
   await expect(row.getByRole("button", { name: "Move", exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Add one Phillips driver" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
   await row.getByRole("button", { name: "More actions for Phillips driver" }).click();
   await expect(row.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);

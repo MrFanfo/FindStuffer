@@ -44,7 +44,6 @@ export function InventoryItemRow({
   const held = heldQuantity(item);
   const contents = item.contents_count || 0;
   const category = categoryLabel(item);
-  const showPhoto = display.show_photo && density !== "compact";
   const quantity = display.show_quantity && !bulkMode;
   return (
     <article
@@ -64,7 +63,7 @@ export function InventoryItemRow({
         onClick={actions.onOpen}
       />
       {bulkMode && <span className="inv-check" aria-hidden="true">{selected ? <Icon name="check" size={16} /> : null}</span>}
-      {showPhoto && (
+      {display.show_photo && (
         <div className={`inv-thumb ${item.primary_photo_url ? "has-photo" : ""}`} aria-hidden="true">
           {item.primary_photo_url ? <img src={item.primary_photo_url} alt="" loading="lazy" /> : <Icon name="box" size={density === "grid" ? 26 : 20} />}
         </div>
@@ -92,17 +91,9 @@ export function InventoryItemRow({
         </p>
       </div>
       {quantity && (
-        <div className="inv-stepper">
-          {density !== "grid" && (
-            <button type="button" aria-label={`Remove one ${item.name}`} disabled={Number(item.quantity) <= 0} onClick={() => actions.onAdjust(-1)}><Icon name="minus" size={15} /></button>
-          )}
-          <button type="button" className="inv-quantity" aria-label={`Set quantity for ${item.name}, currently ${item.quantity} ${item.unit}`} onClick={actions.onEditQuantity}>
-            <strong>{item.quantity}</strong><small>{item.unit}</small>
-          </button>
-          {density !== "grid" && (
-            <button type="button" aria-label={`Add one ${item.name}`} onClick={() => actions.onAdjust(1)}><Icon name="plus" size={15} /></button>
-          )}
-        </div>
+        <button type="button" className="inv-quantity" aria-label={`Set quantity for ${item.name}, currently ${item.quantity} ${item.unit}`} onClick={actions.onEditQuantity}>
+          <strong>{item.quantity}</strong><small>{item.unit}</small>
+        </button>
       )}
       {!bulkMode && density !== "grid" && (
         <button type="button" className="inv-expand" aria-expanded={expanded} aria-label={`More actions for ${item.name}`} onClick={actions.onToggleExpand}>
@@ -111,6 +102,9 @@ export function InventoryItemRow({
       )}
       {expanded && !bulkMode && (
         <div className="inv-strip">
+          <button type="button" className="strip-step" aria-label={`Remove one ${item.name}`} disabled={busy || Number(item.quantity) <= 0} onClick={() => actions.onAdjust(-1)}><Icon name="minus" size={15} />1</button>
+          <button type="button" className="strip-step" aria-label={`Add one ${item.name}`} disabled={busy} onClick={() => actions.onAdjust(1)}><Icon name="plus" size={15} />1</button>
+          <button type="button" disabled={busy} onClick={actions.onEditQuantity}>Set amount</button>
           <button type="button" disabled={busy} onClick={actions.onMove}><Icon name="pin" size={15} />Move</button>
           {low && <button type="button" className="shopping-action" onClick={actions.onAddShopping}><Icon name="plus" size={15} />List {restockQuantity(item)} {item.unit}</button>}
           <button type="button" disabled={busy} onClick={actions.onArchive}>Archive</button>
