@@ -1,4 +1,15 @@
 import { useSavedViews } from "./useSavedViews";
+import { usePreferences } from "../shell/usePreferences";
+import { InventoryDisplayMenu } from "./InventoryDisplayMenu";
+import { InventoryItemRow, type InventoryDensity } from "./InventoryItemRow";
+import { InventoryQuickChips } from "./InventoryQuickChips";
+import { QuantityEditor } from "./QuantityEditor";
+import {
+  expirationDays,
+  expirationTime,
+  isLowStock,
+  itemNeedsDetails,
+} from "./itemStatus";
 import type { InventoryQueryOptions } from "../../api";
 import { type FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api, flattenLocations, type Category, type InventoryDisplaySettings, type Item, type LocationNode } from "../../api";
@@ -23,7 +34,7 @@ import {
 type InventorySearchOptions = { showBusy?: boolean };
 type RefreshScope = "all" | "inventory" | "none";
 type ActionOptions = { progress?: string; undo?: () => Promise<void> };
-type InventoryViewPrefs = { groupBy: InventoryGroup; sortBy: InventorySort };
+type InventoryViewPrefs = { groupBy: InventoryGroup; sortBy: InventorySort; density: InventoryDensity };
 
 const INVENTORY_PREFS_KEY = "findstuff.inventoryPrefs.v1";
 const INITIAL_RESULT_WINDOW = 120;
@@ -36,29 +47,6 @@ const DEFAULT_DISPLAY: InventoryDisplaySettings = {
   show_brand: false,
   show_model: false,
 };
-
-function isLowStock(item: Item): boolean {
-  return item.low_stock_threshold !== null && Number(item.quantity) <= Number(item.low_stock_threshold);
-}
-
-function expirationDays(item: Item): number | null {
-  if (!item.expiration_date) return null;
-  return Math.ceil((new Date(`${item.expiration_date}T23:59:59`).getTime() - Date.now()) / 86400000);
-}
-
-function expirationCopy(item: Item): string {
-  const days = expirationDays(item);
-  if (days === null) return "";
-  if (days < 0) return `${Math.abs(days)}d overdue`;
-  if (days === 0) return "today";
-  if (days === 1) return "tomorrow";
-  return `${days}d left`;
-}
-
-function expirationTime(item: Item): number {
-  if (!item.expiration_date) return Number.POSITIVE_INFINITY;
-  return new Date(`${item.expiration_date}T23:59:59`).getTime();
-}
 
 function inventoryFilterLabel(filter: InventoryFilter): string {
   const labels: Record<InventoryFilter, string> = {
@@ -74,26 +62,8 @@ function inventoryFilterLabel(filter: InventoryFilter): string {
   return labels[filter];
 }
 
-function itemNeedsDetails(item: Item): boolean {
-  return item.location_public_id === "unassigned";
-}
-
-function restockQuantity(item: Item): string {
-  const current = Number(item.quantity);
-  const threshold = item.low_stock_threshold === null ? current : Number(item.low_stock_threshold);
-  return String(Math.max(1, Math.ceil(threshold - current)));
-}
-
 function firstLocationPart(item: Item): string {
   return item.location_path.split(">").map((part) => part.trim()).filter(Boolean)[0] || "Unassigned";
-}
-
-/** Most specific place first, so truncation trims the broad end of the path. */
-function PlaceLine({ item }: { item: Item }) {
-  if (item.containment_path) return <p className="location-line"><Icon name="pin" size={13} /><span>{item.containment_path}</span></p>;
-  const parts = item.location_path.split(">").map((part) => part.trim()).filter(Boolean);
-  const leaf = parts.pop() || "Unassigned";
-  return <p className="location-line" title={item.location_path}><Icon name="pin" size={13} /><span><b>{leaf}</b>{parts.length > 0 && <> · {parts.join(" › ")}</>}</span></p>;
 }
 
 function groupLabel(item: Item, groupBy: InventoryGroup): string {
@@ -119,17 +89,24 @@ function categoryDescendantIds(categories: Category[], rootId: number): Set<numb
   return result;
 }
 
+/** Phones start compact, where the gain is largest; wider screens keep the photo. */
+function defaultDensity(): InventoryDensity {
+  return window.matchMedia("(max-width: 699px)").matches ? "compact" : "comfortable";
+}
+
 function loadInventoryPrefs(): InventoryViewPrefs {
   try {
     const parsed = JSON.parse(localStorage.getItem(INVENTORY_PREFS_KEY) || "null") as Partial<InventoryViewPrefs> | null;
     const groups: InventoryGroup[] = ["none", "room", "location", "category", "tag", "unit"];
     const sorts: InventorySort[] = ["updated", "name", "location", "quantity-asc", "quantity-desc", "expiration"];
+    const densities: InventoryDensity[] = ["compact", "comfortable", "grid"];
     return {
       groupBy: parsed?.groupBy && groups.includes(parsed.groupBy) ? parsed.groupBy : "none",
       sortBy: parsed?.sortBy && sorts.includes(parsed.sortBy) ? parsed.sortBy : "updated",
+      density: parsed?.density && densities.includes(parsed.density) ? parsed.density : defaultDensity(),
     };
   } catch {
-    return { groupBy: "none", sortBy: "updated" };
+    return { groupBy: "none", sortBy: "updated", density: defaultDensity() };
   }
 }
 
@@ -205,6 +182,7 @@ export function InventoryView({
   pendingItems: Set<string>;
 }) {
   const [display, setDisplay] = useState<InventoryDisplaySettings>(DEFAULT_DISPLAY);
+  const [displayError, setDisplayError] = useState("");
   useEffect(() => {
     let active = true;
     void api.settings().then((settings) => {
@@ -212,6 +190,13 @@ export function InventoryView({
     }).catch(() => undefined);
     return () => { active = false; };
   }, []);
+  async function changeDisplayField(key: keyof InventoryDisplaySettings, value: boolean) {
+    const next = { ...display, [key]: value };
+    setDisplay(next);
+    setDisplayError("");
+    try { setDisplay({ ...DEFAULT_DISPLAY, ...await api.saveInventoryDisplaySettings(next) }); }
+    catch { setDisplay(display); setDisplayError("That row setting could not be saved. Reconnect and try again."); }
+  }
   const initialPrefs = useMemo(loadInventoryPrefs, []);
   const urlScope = useMemo(() => new URLSearchParams(location.search), []);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -232,9 +217,15 @@ export function InventoryView({
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkSelection, setBulkSelection] = useState<Set<string>>(() => new Set());
   const [bulkPicker, setBulkPicker] = useState<"category" | "location" | "remove-tag" | null>(null);
+  const [density, setDensity] = useState<InventoryDensity>(initialPrefs.density);
+  const [displayMenuOpen, setDisplayMenuOpen] = useState(false);
+  const [expandedRow, setExpandedRow] = useState("");
+  const [quantityItem, setQuantityItem] = useState<Item | null>(null);
+  const { preferences, save: savePreferences } = usePreferences();
   const [renderLimit, setRenderLimit] = useState(() => Math.max(INITIAL_RESULT_WINDOW, Number(window.history.state?.inventory?.rows) || 0));
   const [showBackToTop, setShowBackToTop] = useState(false);
   const listEndRef = useRef<HTMLDivElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const deferredQuery = useDeferredValue(query);
   const lastBackgroundSearch = useRef(query.trim());
   useEffect(() => { if (initialFilter !== "all") setFilter(initialFilter); }, [initialFilter]);
@@ -263,8 +254,8 @@ export function InventoryView({
     }
   }, [categories, categoryFilter]);
   useEffect(() => {
-    saveInventoryPrefs({ groupBy, sortBy });
-  }, [groupBy, sortBy]);
+    saveInventoryPrefs({ groupBy, sortBy, density });
+  }, [density, groupBy, sortBy]);
   useEffect(() => {
     const trimmed = query.trim();
     const nextSearch = trimmed.length >= 2 ? trimmed : "";
@@ -432,6 +423,18 @@ export function InventoryView({
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => { window.removeEventListener("scroll", onScroll); cancelAnimationFrame(frame); };
   }, []);
+  const pinnedPlaces = useMemo(() => (
+    preferences.pinned_places.map((id) => flatInventoryLocations.find((place) => place.public_id === id)).filter((place) => place !== undefined)
+  ), [flatInventoryLocations, preferences.pinned_places]);
+  const activeViewName = useMemo(() => (
+    savedViews.find((view) => (
+      view.query === query && view.filter === filter && view.categoryFilter === categoryFilter
+      && view.locationFilter === locationFilter && view.tagFilter === tagFilter && view.formula.source === formula.source
+    ))?.name || ""
+  ), [categoryFilter, filter, formula.source, locationFilter, query, savedViews, tagFilter]);
+  function backToTop() {
+    window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
   function requestSearch(value: string, options: InventorySearchOptions = {}) {
     const nextSearch = value.trim();
     lastBackgroundSearch.current = nextSearch.length >= 2 ? nextSearch : "";
@@ -537,6 +540,7 @@ export function InventoryView({
         <form className="search search-large" onSubmit={submitSearch}>
           <Icon name="search" size={21} />
           <input
+            ref={searchInput}
             type="search"
             name="inventory-search"
             value={query}
@@ -554,6 +558,16 @@ export function InventoryView({
         <button className={filter === "expiring" ? "active" : ""} onClick={() => setFilter("expiring")}>Expiring <span>{expiringCount}</span></button>
         <button className={filter === "details" ? "active" : ""} onClick={() => setFilter("details")}>Missing place <span>{displayedDetailsCount}</span></button>
       </div>
+      <InventoryQuickChips
+        views={savedViews}
+        places={pinnedPlaces}
+        activePlace={locationFilter}
+        activeViewName={activeViewName}
+        onApplyView={applySavedView}
+        onChoosePlace={setLocationFilter}
+        onPinPlace={() => void savePreferences({ pinned_places: [...preferences.pinned_places, locationFilter] })}
+        canPinActivePlace={Boolean(selectedLocation) && !preferences.pinned_places.includes(locationFilter)}
+      />
       {/* One filter entry point at every width: the panel below holds the controls,
           and the active-filter chips underneath report whatever they set. */}
       <div className="inventory-command-row">
@@ -561,6 +575,10 @@ export function InventoryView({
           <button type="button" className={`filters-trigger ${filtersOpen ? "open" : ""} ${refinementCount ? "active" : ""}`} aria-expanded={filtersOpen} aria-controls="inventory-filters" onClick={() => setFiltersOpen(!filtersOpen)}>
             <Icon name="filter" size={16} />Filters{refinementCount > 0 && <b>{refinementCount}</b>}<Icon name="chevron" size={15} />
           </button>
+          <div className="display-trigger-wrap">
+            <button type="button" className={displayMenuOpen ? "active" : ""} aria-expanded={displayMenuOpen} onClick={() => setDisplayMenuOpen(!displayMenuOpen)}><Icon name="settings" size={16} />Display</button>
+            {displayMenuOpen && <InventoryDisplayMenu density={density} display={display} onDensity={setDensity} onField={(key, value) => void changeDisplayField(key, value)} onClose={() => setDisplayMenuOpen(false)} />}
+          </div>
           <button type="button" className={bulkMode ? "active" : ""} onClick={() => { if (bulkMode) leaveBulkMode(); else { onBulkStart(); setBulkMode(true); } }}><Icon name={bulkMode ? "close" : "check"} size={16} />{bulkMode ? "Exit bulk" : "Bulk mode"}</button>
         </div>
         <span className="inventory-result-count">{showingSearchPlaceholder ? "Loading…" : <>{visibleItems.length}<span className="count-long"> shown ·</span><span className="count-short"> of</span> {offline ? sortedEntries.length : matchingTotal ?? "…"}<span className="count-long">{offline ? " cached matches" : " matches"}</span></>}</span>
@@ -606,6 +624,7 @@ export function InventoryView({
         <h2>{query ? "Search results" : filter === "all" ? "Everything" : inventoryFilterLabel(filter)}</h2>
       </div>
       {formulaValidation.error && <p role="alert" className="error-banner">{formulaValidation.error} <button onClick={() => setFormulaOpen(true)}>Edit formula</button></p>}
+      {displayError && <p role="alert" className="error-banner">{displayError}</p>}
       {error && <div className="error-banner" role="alert">{error} <button onClick={() => requestSearch(query, { showBusy: true })}>Retry</button></div>}
       {offline && <p role="status" className="muted">Offline · {items.length} items available on this device. Results may be incomplete.</p>}
       <div className="item-list">
@@ -614,36 +633,50 @@ export function InventoryView({
           : visibleItems.length === 0 && !error && query.trim()
             ? <SearchFeedback query={query.trim()} onAdd={onAdd} onFindLost={onFindLost} />
             : visibleItems.length === 0 && !error && <EmptyState icon={hasScope ? "box" : "search"} title={hasScope ? "No matching items" : "No items in this view"} text={offline ? "This searches only the items available on this device." : "Try changing your filters or add an item."} action={items.length === 0 ? { label: "Add first Item", onClick: onAdd } : undefined} />}
-        {!showingSearchPlaceholder && (groupBy === "none" ? [["", visibleItems] as [string, Item[]]] : groupedItems).map(([group, groupItems]) => <div className="inventory-group" key={group || "all"}>{group && <h3>{group}<span>{groupItems.length}</span></h3>}{groupItems.map((item) => (
-          <article className={`item-card ${!display.show_photo ? "without-photo" : ""} ${expirationState(item) === "expired" || isLowStock(item) ? "needs-attention" : ""} ${pendingItems.has(item.public_id) ? "syncing" : ""} ${bulkMode ? "bulk-selectable" : ""} ${bulkSelection.has(item.public_id) ? "selected" : ""}`} key={item.public_id}>
-            <button className="item-main" onClick={() => bulkMode ? toggleBulkItem(item.public_id) : onOpen(item)} aria-pressed={bulkMode ? bulkSelection.has(item.public_id) : undefined}>
-              {bulkMode && <span className="bulk-check" aria-hidden="true">{bulkSelection.has(item.public_id) ? <Icon name="check" size={17} /> : null}</span>}
-              {display.show_photo && <div className={`item-icon ${item.primary_photo_url ? "item-photo" : ""}`} aria-hidden="true">{item.primary_photo_url ? <img src={item.primary_photo_url} alt="" loading="lazy" /> : <Icon name="box" size={21} />}</div>}
-              <div className="item-copy">
-                <div className="item-name-line"><h3>{item.name}</h3>{isLowStock(item) && <span className="status-badge warning">Low</span>}{expirationState(item) && <span className={`status-badge ${expirationState(item)}`}>{expirationState(item) === "expired" ? "Expired" : expirationCopy(item)}</span>}</div>
-                {display.show_location && <PlaceLine item={item} />}
-                {display.show_category && categoryLabel(item) && <p className="item-category">{categoryLabel(item)}</p>}
-                {((display.show_brand && item.brand) || (display.show_model && item.model)) && <p className="muted">{[display.show_brand ? item.brand : "", display.show_model ? item.model : ""].filter(Boolean).join(" · ")}</p>}
-              </div>
-              {display.show_quantity && <span className="quantity"><strong>{item.quantity}</strong><small>{item.unit}</small></span>}
-              <Icon name="chevron" size={17} />
-            </button>
-            {!bulkMode && <div className={`quick-actions ${isLowStock(item) ? "has-shopping" : ""}`}>
-              <button aria-label={`Remove one ${item.name}`} disabled={Number(item.quantity) <= 0} onClick={() => void onQuickAdjust(item, -1)}><Icon name="minus" size={16} /> <span>1</span></button>
-              {display.show_quantity && <span className="quick-quantity"><strong>{item.quantity}</strong><small>{item.unit}</small></span>}
-              <button aria-label={`Add one ${item.name}`} onClick={() => void onQuickAdjust(item, 1)}><Icon name="plus" size={16} /> <span>1</span></button>
-              <button className="move-action" disabled={busy} onClick={() => setMoveItem(item)}><Icon name="pin" size={15} />Move</button>
-              <button className="archive-action" disabled={busy} onClick={() => archiveItem(item)}>Archive</button><details className="card-overflow"><summary aria-label={`More actions for ${item.name}`}>•••</summary><div className="card-overflow-menu"><button className="overflow-archive" disabled={busy} onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); archiveItem(item); }}>Archive</button><button className="danger" disabled={busy} onClick={() => void onDeleteItem(item)}>Delete permanently</button></div></details>
-              {isLowStock(item) && <button className="shopping-action" onClick={() => void onAddShopping(item)}><Icon name="plus" size={15} />List {restockQuantity(item)} {item.unit}</button>}
-            </div>}
-          </article>
+        {!showingSearchPlaceholder && (groupBy === "none" ? [["", visibleItems] as [string, Item[]]] : groupedItems).map(([group, groupItems]) => <div className={`inventory-group ${density === "grid" ? "as-grid" : ""}`} key={group || "all"}>{group && <h3>{group}<span>{groupItems.length}</span></h3>}{groupItems.map((item) => (
+          <InventoryItemRow
+            key={item.public_id}
+            item={item}
+            display={display}
+            density={density}
+            busy={busy}
+            syncing={pendingItems.has(item.public_id)}
+            bulkMode={bulkMode}
+            selected={bulkSelection.has(item.public_id)}
+            expanded={expandedRow === item.public_id}
+            actions={{
+              onOpen: () => bulkMode ? toggleBulkItem(item.public_id) : onOpen(item),
+              onAdjust: (delta) => void onQuickAdjust(item, delta),
+              onEditQuantity: () => setQuantityItem(item),
+              onFilterPlace: () => setLocationFilter(item.direct_location_public_id || item.location_public_id),
+              onFilterCategory: () => setCategoryFilter(item.category_id === null ? "" : String(item.category_id)),
+              onFilterLow: () => setFilter("low"),
+              onFilterExpiring: () => setFilter(expirationState(item) === "expired" ? "expired" : "expiring"),
+              onMove: () => setMoveItem(item),
+              onArchive: () => archiveItem(item),
+              onDelete: () => void onDeleteItem(item),
+              onAddShopping: () => void onAddShopping(item),
+              onToggleExpand: () => setExpandedRow((current) => current === item.public_id ? "" : item.public_id),
+            }}
+          />
         ))}</div>)}
         {canRevealMore && <button type="button" className="load-more-results" onClick={revealMore}>Show {Math.min(RESULT_WINDOW_STEP, hiddenResultCount)} more</button>}
         {canFetchMore && <button type="button" className="load-more-results" disabled={isLoadingMore} onClick={fetchMore}>{isLoadingMore ? "Loading more…" : "Load more from Findstuff"}</button>}
         {!showingSearchPlaceholder && !canRevealMore && !canFetchMore && visibleItems.length > 20 && <p className="inventory-list-end">That's everything · {visibleItems.length} items</p>}
         <div ref={listEndRef} className="inventory-list-sentinel" aria-hidden="true" />
       </div>
-      {showBackToTop && !(bulkMode && bulkSelection.size > 0) && <button type="button" className="back-to-top" onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })}><Icon name="chevron" size={18} />Top</button>}
+      {showBackToTop && !(bulkMode && bulkSelection.size > 0) && (
+        <div className="inventory-jump-bar">
+          <button type="button" className="jump-search" onClick={() => { backToTop(); searchInput.current?.focus(); }}>
+            <Icon name="search" size={15} />{query.trim() || "Search inventory"}
+          </button>
+          <button type="button" className={`jump-filters ${refinementCount ? "active" : ""}`} onClick={() => { backToTop(); setFiltersOpen(true); }}>
+            <Icon name="filter" size={15} />Filters{refinementCount > 0 && <b>{refinementCount}</b>}
+          </button>
+          <button type="button" className="jump-top" aria-label="Top" onClick={backToTop}><Icon name="chevron" size={17} /></button>
+        </div>
+      )}
+      {quantityItem && <QuantityEditor item={quantityItem} onApply={(delta) => void onQuickAdjust(quantityItem, delta)} onClose={() => setQuantityItem(null)} />}
       {moveItem && <SearchableFilterPicker title={`Move ${moveItem.name}`} icon="pin" selectedId={moveItem.location_public_id} emptyLabel="Cancel" options={flatInventoryLocations.map((place) => ({ id: place.public_id, label: place.name, detail: place.path }))} onChoose={(id) => { if (id) void run(() => api.move(moveItem, id), "Item moved", "inventory", { undo: async () => { const current = await api.item(moveItem.public_id); await api.move(current, moveItem.location_public_id); } }); }} onClose={() => setMoveItem(null)} />}
       {filterPicker === "category" && <SearchableFilterPicker title="Filter by category" icon="tag" selectedId={categoryFilter} emptyLabel="Any category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: `${category.path} · ${category.total_item_count} item${category.total_item_count === 1 ? "" : "s"}` }))} onChoose={setCategoryFilter} onClose={() => setFilterPicker(null)} />}
       {filterPicker === "location" && <SearchableFilterPicker title="Filter by Place" icon="pin" selectedId={locationFilter} emptyLabel="Any Place" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: `${location.path} · ${location.total_item_count ?? location.item_count ?? 0} Items inside` }))} onChoose={setLocationFilter} onClose={() => setFilterPicker(null)} />}

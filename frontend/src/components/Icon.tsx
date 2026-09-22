@@ -3,7 +3,7 @@ import { ReactNode } from "react";
 export type IconName =
   | "home" | "search" | "plus" | "scan" | "more" | "pin" | "box"
   | "camera" | "mic" | "spark" | "chevron" | "close" | "user"
-  | "settings" | "qr" | "minus" | "check" | "filter" | "tag";
+  | "settings" | "qr" | "minus" | "check" | "filter" | "tag" | "lock";
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -18,6 +18,7 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     mic: <><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></>,
     spark: <><path d="m12 2 1.6 5.4L19 9l-5.4 1.6L12 16l-1.6-5.4L5 9l5.4-1.6L12 2Z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></>,
     chevron: <path d="m9 18 6-6-6-6"/>,
+    lock: <><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>,
     close: <path d="m6 6 12 12M18 6 6 18"/>,
     user: <><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.8-1.8.9-2-2.1-2.1-2 .9-1.8-.8L10.5 2h-3l-.7 2-1.8.8-2-.9L.9 6l.9 2-.8 1.8-2 .7v3l2 .7.8 1.8-.9 2L3 20.1l2-.9 1.8.8.7 2h3l.7-2 1.8-.8 2 .9 2.1-2.1-.9-2 .8-1.8 2-.7Z" transform="translate(2) scale(.83)"/></>,

@@ -230,7 +230,7 @@ test("cursor pagination and document ownership", async ({ page }) => {
     page.waitForResponse((response) => (
       new URL(response.url()).pathname === `/api/v1/items/${item.public_id}/detail`
     )),
-    page.getByRole("button", { name: /Phillips driver Drawer A/ }).click(),
+    page.getByRole("button", { name: "Open Phillips driver" }).click(),
   ]);
   await page.getByRole("tab", { name: "Details" }).click();
   await expect(page.getByRole("link", { name: "Driver warranty" })).toBeVisible();
@@ -271,7 +271,7 @@ test("inventory has no serious accessibility violations", async ({ page }) => {
 
 test("empty item sections stay hidden and editors respect category capabilities", async ({ page }) => {
   await page.route(`**/api/v1/items/${item.public_id}/detail`, (route) => route.fulfill({ json: { item, history: [], photos: [], documents: [], lots: [], maintenance: [], reservations: [], related: [], enrichment: { product: null, candidates: [], jobs: [] } } }));
-  await page.getByRole("button", { name: /Phillips driver Drawer A/ }).click();
+  await page.getByRole("button", { name: "Open Phillips driver" }).click();
   await page.getByRole("tab", { name: "Details" }).click();
   for (const name of ["Documents & warranties", "Links", "Properties", "Related", "Maintenance", "Expiration batches"]) {
     await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
@@ -422,12 +422,12 @@ test("saved views persist on the server with compatibility filters", async ({ pa
   await page.getByLabel("Compatible with").fill("Camera");
   await page.getByLabel("Save this view").fill("Camera stock");
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Camera stock", exact: true })).toBeVisible();
+  await expect(page.locator(".inventory-quick-chips").getByRole("button", { name: "Camera stock" })).toBeVisible();
   expect(saved).toMatchObject({ compatibilityFilter: "Camera", revision: 1 });
   await page.reload();
   await page.getByRole("button", { name: /^Filters/ }).click();
   await page.getByLabel("Compatible with").fill("");
-  await page.getByRole("button", { name: "Camera stock", exact: true }).click();
+  await page.locator(".inventory-quick-chips").getByRole("button", { name: "Camera stock" }).click();
   await expect(page.getByLabel("Compatible with")).toHaveValue("Camera");
 });
 
@@ -493,4 +493,45 @@ test("scrolling loads more items in place and does not flood history", async ({ 
   }));
   await page.waitForTimeout(500);
   expect(await page.evaluate(() => (window as unknown as { replaceCalls: number }).replaceCalls)).toBeLessThan(20);
+});
+
+test("a row holds its actions, its chips filter, and the quantity can be counted", async ({ page }) => {
+  let adjusted: Record<string, unknown> | null = null;
+  await page.route("**/api/v1/offline/sync", async (route) => {
+    adjusted = route.request().postDataJSON().payload;
+    return route.fulfill({ json: { operation_id: "op", status: "applied", result: { ...item, quantity: "7" } } });
+  });
+  const row = page.locator(".inv-row").filter({ hasText: "Phillips driver" }).first();
+
+  // The row shows one line: name, place, quantity. Move waits behind the chevron.
+  await expect(row.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);
+  await row.getByRole("button", { name: "More actions for Phillips driver" }).click();
+  await expect(row.getByRole("button", { name: "Move", exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
+  await row.getByRole("button", { name: "More actions for Phillips driver" }).click();
+  await expect(row.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);
+
+  // Counting sets an exact amount, sent as the change that reaches it.
+  await row.getByRole("button", { name: /Set quantity for Phillips driver/ }).click();
+  await page.getByRole("textbox", { name: "Quantity in pcs" }).fill("7");
+  await expect(page.getByText("Adds 6 pcs", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Save quantity" }).click();
+  await expect.poll(() => (adjusted as { delta?: number } | null)?.delta).toBe(6);
+
+  // The place chip narrows the list to that place instead of opening the item.
+  await row.getByRole("button", { name: /Drawer A/ }).click();
+  await expect(page.getByRole("button", { name: /Drawer A \+ inside/ })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("density is a choice the list remembers", async ({ page }) => {
+  await page.getByRole("button", { name: "Display" }).click();
+  await page.getByRole("radio", { name: /Photo grid/ }).click();
+  await expect(page.locator(".inventory-group.as-grid")).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.reload();
+  await expect(page.locator(".inventory-group.as-grid")).toBeVisible();
+  await page.getByRole("button", { name: "Display" }).click();
+  await page.getByRole("radio", { name: /Compact/ }).click();
+  await expect(page.locator(".inv-row.inv-compact").first()).toBeVisible();
 });
