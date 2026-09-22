@@ -1786,8 +1786,8 @@ async def get_application_settings(database: Database) -> dict[str, Any]:
 
 
 @app.get("/api/v1/admin/software-update", tags=["administration"])
-async def get_software_update_status() -> dict[str, Any]:
-    status = software_update_status()
+async def get_software_update_status(refresh: bool = False) -> dict[str, Any]:
+    status = software_update_status(refresh=refresh)
     status["enabled"] = get_settings().software_update_enabled
     return status
 

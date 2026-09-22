@@ -1387,7 +1387,8 @@ export const api = {
         new_password: newPassword,
       }),
     }),
-  softwareUpdateStatus: () => request<SoftwareUpdateStatus>("/api/v1/admin/software-update"),
+  softwareUpdateStatus: (options: { refresh?: boolean } = {}) =>
+    request<SoftwareUpdateStatus>(`/api/v1/admin/software-update${options.refresh ? "?refresh=true" : ""}`),
   requestSoftwareUpdate: () =>
     request<SoftwareUpdateStatus>("/api/v1/admin/software-update", { method: "POST" }),
   restoreBackup: (file: File) =>

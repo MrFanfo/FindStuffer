@@ -66,11 +66,19 @@ def _version_key(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in re.findall(r"\d+", value)[:3])
 
 
-def _latest_release() -> dict[str, Any]:
+def _latest_release(force: bool = False) -> dict[str, Any]:
+    """Return the latest GitHub release, cached so page loads stay under GitHub's
+    anonymous rate limit. ``force`` is for an explicit "Check again"."""
     global _release_cache
     now = time.monotonic()
-    if _release_cache and now - _release_cache[0] < RELEASE_CACHE_SECONDS:
+    if not force and _release_cache and now - _release_cache[0] < RELEASE_CACHE_SECONDS:
         return _release_cache[1]
+    result = _fetch_latest_release()
+    _release_cache = (now, result)
+    return result
+
+
+def _fetch_latest_release() -> dict[str, Any]:
     result: dict[str, Any] = {
         "latest_version": None,
         "release_url": None,
@@ -98,11 +106,10 @@ def _latest_release() -> dict[str, Any]:
             result["release_url"] = url
     except (httpx.HTTPError, json.JSONDecodeError, ValueError):
         result["release_check_error"] = "Could not check GitHub releases."
-    _release_cache = (now, result)
     return result
 
 
-def software_update_status() -> dict[str, Any]:
+def software_update_status(refresh: bool = False) -> dict[str, Any]:
     request_path, status_path, log_path = _paths()
     status: dict[str, Any] = {
         "status": "idle",
@@ -137,7 +144,7 @@ def software_update_status() -> dict[str, Any]:
     status["log_tail"] = _log_tail(log_path)
     status.pop("commit", None)
     if get_settings().software_update_enabled:
-        release = _latest_release()
+        release = _latest_release(force=refresh)
         status.update(release)
         latest = release["latest_version"]
         if isinstance(latest, str):

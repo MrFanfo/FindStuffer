@@ -51,7 +51,7 @@ def test_software_update_status_compares_release_versions(
     monkeypatch.setattr(
         updater,
         "_latest_release",
-        lambda: {
+        lambda force=False: {
             "latest_version": "99.0.0",
             "release_url": "https://github.com/MrFanfo/FindStuffer/releases/tag/v99.0.0",
             "release_check_error": None,
@@ -63,3 +63,24 @@ def test_software_update_status_compares_release_versions(
     assert status["current_version"]
     assert status["latest_version"] == "99.0.0"
     assert status["update_available"] is True
+
+
+def test_release_check_is_cached_unless_refreshed(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def fetch() -> dict[str, object]:
+        calls.append(1)
+        return {
+            "latest_version": f"1.0.{len(calls)}",
+            "release_url": None,
+            "release_check_error": None,
+        }
+
+    monkeypatch.setattr(updater, "_fetch_latest_release", fetch)
+    monkeypatch.setattr(updater, "_release_cache", None)
+
+    assert updater._latest_release()["latest_version"] == "1.0.1"
+    assert updater._latest_release()["latest_version"] == "1.0.1"
+    assert updater._latest_release(force=True)["latest_version"] == "1.0.2"
+    assert updater._latest_release()["latest_version"] == "1.0.2"
+    assert len(calls) == 2
