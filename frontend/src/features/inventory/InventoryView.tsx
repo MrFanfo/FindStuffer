@@ -88,6 +88,14 @@ function firstLocationPart(item: Item): string {
   return item.location_path.split(">").map((part) => part.trim()).filter(Boolean)[0] || "Unassigned";
 }
 
+/** Most specific place first, so truncation trims the broad end of the path. */
+function PlaceLine({ item }: { item: Item }) {
+  if (item.containment_path) return <p className="location-line"><Icon name="pin" size={13} /><span>{item.containment_path}</span></p>;
+  const parts = item.location_path.split(">").map((part) => part.trim()).filter(Boolean);
+  const leaf = parts.pop() || "Unassigned";
+  return <p className="location-line" title={item.location_path}><Icon name="pin" size={13} /><span><b>{leaf}</b>{parts.length > 0 && <> · {parts.join(" › ")}</>}</span></p>;
+}
+
 function groupLabel(item: Item, groupBy: InventoryGroup): string {
   if (groupBy === "room") return firstLocationPart(item);
   if (groupBy === "location") return item.location_path || "Unassigned";
@@ -143,6 +151,7 @@ export function InventoryView({
   run,
   busy,
   isSearchBusy,
+  isLoadingMore,
   onOpen,
   onBulkStart,
   onAdd,
@@ -178,6 +187,7 @@ export function InventoryView({
   run: (action: () => Promise<unknown>, success: string, scope?: RefreshScope, options?: ActionOptions) => Promise<void>;
   busy: boolean;
   isSearchBusy: boolean;
+  isLoadingMore: boolean;
   onOpen: (item: Item) => void;
   onBulkStart: () => void;
   onAdd: () => void;
@@ -223,6 +233,8 @@ export function InventoryView({
   const [bulkSelection, setBulkSelection] = useState<Set<string>>(() => new Set());
   const [bulkPicker, setBulkPicker] = useState<"category" | "location" | "remove-tag" | null>(null);
   const [renderLimit, setRenderLimit] = useState(() => Math.max(INITIAL_RESULT_WINDOW, Number(window.history.state?.inventory?.rows) || 0));
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const listEndRef = useRef<HTMLDivElement>(null);
   const deferredQuery = useDeferredValue(query);
   const lastBackgroundSearch = useRef(query.trim());
   useEffect(() => { if (initialFilter !== "all") setFilter(initialFilter); }, [initialFilter]);
@@ -377,6 +389,49 @@ export function InventoryView({
     }
     return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
   }, [groupBy, visibleItems]);
+  const canRevealMore = !showingSearchPlaceholder && hiddenResultCount > 0;
+  const canFetchMore = !showingSearchPlaceholder && hiddenResultCount === 0 && hasMore && !offline;
+  function revealMore() {
+    setRenderLimit((current) => current + RESULT_WINDOW_STEP);
+  }
+  function fetchMore() {
+    setRenderLimit((current) => Math.max(current, sortedEntries.length + RESULT_WINDOW_STEP));
+    void onLoadMore();
+  }
+  const revealMoreRef = useRef(revealMore);
+  revealMoreRef.current = revealMore;
+  const fetchMoreRef = useRef(fetchMore);
+  fetchMoreRef.current = fetchMore;
+  // Keep extending the list while its end is near the viewport. The observer is
+  // rebuilt after every page, so it fires again if the new rows still don't fill
+  // the screen. A failed page stops it until the user presses the button or Retry.
+  useEffect(() => {
+    const end = listEndRef.current;
+    if (!end || typeof IntersectionObserver === "undefined" || error || isLoadingMore || (!canRevealMore && !canFetchMore)) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      if (canRevealMore) revealMoreRef.current(); else fetchMoreRef.current();
+    }, { rootMargin: "0px 0px 900px 0px" });
+    observer.observe(end);
+    return () => observer.disconnect();
+  }, [canFetchMore, canRevealMore, error, isLoadingMore, visibleItems.length]);
+  // Offered only while heading back up a long list, so it never covers the row being tapped.
+  useEffect(() => {
+    let frame = 0;
+    let lastY = window.scrollY;
+    const update = () => {
+      frame = 0;
+      const y = window.scrollY;
+      if (y < 1400) setShowBackToTop(false);
+      else if (y < lastY - 6) setShowBackToTop(true);
+      else if (y > lastY + 6) setShowBackToTop(false);
+      if (Math.abs(y - lastY) > 6) lastY = y;
+    };
+    const onScroll = () => { frame ||= requestAnimationFrame(update); };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); cancelAnimationFrame(frame); };
+  }, []);
   function requestSearch(value: string, options: InventorySearchOptions = {}) {
     const nextSearch = value.trim();
     lastBackgroundSearch.current = nextSearch.length >= 2 ? nextSearch : "";
@@ -400,6 +455,9 @@ export function InventoryView({
     onIncludeZeroChange(false);
     setQuery("");
     requestSearch("", { showBusy: true });
+  }
+  function archiveItem(item: Item) {
+    void run(() => api.archive(item), `${item.name} archived`, "inventory", { undo: async () => { await api.restoreItem(item.public_id); } });
   }
   function toggleBulkItem(publicId: string) {
     setBulkSelection((current) => {
@@ -505,7 +563,7 @@ export function InventoryView({
           </button>
           <button type="button" className={bulkMode ? "active" : ""} onClick={() => { if (bulkMode) leaveBulkMode(); else { onBulkStart(); setBulkMode(true); } }}><Icon name={bulkMode ? "close" : "check"} size={16} />{bulkMode ? "Exit bulk" : "Bulk mode"}</button>
         </div>
-        <span className="inventory-result-count">{showingSearchPlaceholder ? "Loading…" : `${visibleItems.length} shown · ${offline ? `${sortedEntries.length} cached matches` : `${matchingTotal ?? "…"} matches`}`}</span>
+        <span className="inventory-result-count">{showingSearchPlaceholder ? "Loading…" : <>{visibleItems.length}<span className="count-long"> shown ·</span><span className="count-short"> of</span> {offline ? sortedEntries.length : matchingTotal ?? "…"}<span className="count-long">{offline ? " cached matches" : " matches"}</span></>}</span>
       </div>
       {bulkMode && <div className="bulk-mode-banner" role="status"><span><Icon name="check" size={18} /><strong>Bulk action mode</strong><small>Items select instead of opening.</small></span><button type="button" onClick={() => setBulkSelection(new Set(visibleItems.map((item) => item.public_id)))}>Select visible</button><button type="button" onClick={() => setBulkSelection(new Set())}>Clear</button></div>}
       {filtersOpen && <div className="inventory-filter-panel" id="inventory-filters">
@@ -544,7 +602,7 @@ export function InventoryView({
         {groupBy !== "none" && <button type="button" onClick={() => setGroupBy("none")}>Grouped by {groupBy}</button>}
         <button type="button" className="clear-all-filter" onClick={clearAllScope}>Clear all</button>
       </div>}
-      <div className="section-heading">
+      <div className="section-heading inventory-heading">
         <h2>{query ? "Search results" : filter === "all" ? "Everything" : inventoryFilterLabel(filter)}</h2>
       </div>
       {formulaValidation.error && <p role="alert" className="error-banner">{formulaValidation.error} <button onClick={() => setFormulaOpen(true)}>Edit formula</button></p>}
@@ -563,7 +621,7 @@ export function InventoryView({
               {display.show_photo && <div className={`item-icon ${item.primary_photo_url ? "item-photo" : ""}`} aria-hidden="true">{item.primary_photo_url ? <img src={item.primary_photo_url} alt="" loading="lazy" /> : <Icon name="box" size={21} />}</div>}
               <div className="item-copy">
                 <div className="item-name-line"><h3>{item.name}</h3>{isLowStock(item) && <span className="status-badge warning">Low</span>}{expirationState(item) && <span className={`status-badge ${expirationState(item)}`}>{expirationState(item) === "expired" ? "Expired" : expirationCopy(item)}</span>}</div>
-                {display.show_location && <p className="location-line"><Icon name="pin" size={13} />{item.containment_path || item.location_path}</p>}
+                {display.show_location && <PlaceLine item={item} />}
                 {display.show_category && categoryLabel(item) && <p className="item-category">{categoryLabel(item)}</p>}
                 {((display.show_brand && item.brand) || (display.show_model && item.model)) && <p className="muted">{[display.show_brand ? item.brand : "", display.show_model ? item.model : ""].filter(Boolean).join(" · ")}</p>}
               </div>
@@ -572,16 +630,20 @@ export function InventoryView({
             </button>
             {!bulkMode && <div className={`quick-actions ${isLowStock(item) ? "has-shopping" : ""}`}>
               <button aria-label={`Remove one ${item.name}`} disabled={Number(item.quantity) <= 0} onClick={() => void onQuickAdjust(item, -1)}><Icon name="minus" size={16} /> <span>1</span></button>
+              {display.show_quantity && <span className="quick-quantity"><strong>{item.quantity}</strong><small>{item.unit}</small></span>}
               <button aria-label={`Add one ${item.name}`} onClick={() => void onQuickAdjust(item, 1)}><Icon name="plus" size={16} /> <span>1</span></button>
               <button className="move-action" disabled={busy} onClick={() => setMoveItem(item)}><Icon name="pin" size={15} />Move</button>
-              <button disabled={busy} onClick={() => void run(() => api.archive(item), `${item.name} archived`, "inventory", { undo: async () => { await api.restoreItem(item.public_id); } })}>Archive</button><details className="card-overflow"><summary aria-label={`More actions for ${item.name}`}>•••</summary><button className="danger" disabled={busy} onClick={() => void onDeleteItem(item)}>Delete permanently</button></details>
+              <button className="archive-action" disabled={busy} onClick={() => archiveItem(item)}>Archive</button><details className="card-overflow"><summary aria-label={`More actions for ${item.name}`}>•••</summary><div className="card-overflow-menu"><button className="overflow-archive" disabled={busy} onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); archiveItem(item); }}>Archive</button><button className="danger" disabled={busy} onClick={() => void onDeleteItem(item)}>Delete permanently</button></div></details>
               {isLowStock(item) && <button className="shopping-action" onClick={() => void onAddShopping(item)}><Icon name="plus" size={15} />List {restockQuantity(item)} {item.unit}</button>}
             </div>}
           </article>
         ))}</div>)}
-        {!showingSearchPlaceholder && hiddenResultCount > 0 && <button type="button" className="load-more-results" onClick={() => setRenderLimit((current) => current + RESULT_WINDOW_STEP)}>Show {Math.min(RESULT_WINDOW_STEP, hiddenResultCount)} more</button>}
-        {!showingSearchPlaceholder && hiddenResultCount === 0 && hasMore && !offline && <button type="button" className="load-more-results" disabled={isSearchBusy} onClick={() => void onLoadMore()}>{isSearchBusy ? "Loading…" : "Load more from Findstuff"}</button>}
+        {canRevealMore && <button type="button" className="load-more-results" onClick={revealMore}>Show {Math.min(RESULT_WINDOW_STEP, hiddenResultCount)} more</button>}
+        {canFetchMore && <button type="button" className="load-more-results" disabled={isLoadingMore} onClick={fetchMore}>{isLoadingMore ? "Loading more…" : "Load more from Findstuff"}</button>}
+        {!showingSearchPlaceholder && !canRevealMore && !canFetchMore && visibleItems.length > 20 && <p className="inventory-list-end">That's everything · {visibleItems.length} items</p>}
+        <div ref={listEndRef} className="inventory-list-sentinel" aria-hidden="true" />
       </div>
+      {showBackToTop && !(bulkMode && bulkSelection.size > 0) && <button type="button" className="back-to-top" onClick={() => window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })}><Icon name="chevron" size={18} />Top</button>}
       {moveItem && <SearchableFilterPicker title={`Move ${moveItem.name}`} icon="pin" selectedId={moveItem.location_public_id} emptyLabel="Cancel" options={flatInventoryLocations.map((place) => ({ id: place.public_id, label: place.name, detail: place.path }))} onChoose={(id) => { if (id) void run(() => api.move(moveItem, id), "Item moved", "inventory", { undo: async () => { const current = await api.item(moveItem.public_id); await api.move(current, moveItem.location_public_id); } }); }} onClose={() => setMoveItem(null)} />}
       {filterPicker === "category" && <SearchableFilterPicker title="Filter by category" icon="tag" selectedId={categoryFilter} emptyLabel="Any category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: `${category.path} · ${category.total_item_count} item${category.total_item_count === 1 ? "" : "s"}` }))} onChoose={setCategoryFilter} onClose={() => setFilterPicker(null)} />}
       {filterPicker === "location" && <SearchableFilterPicker title="Filter by Place" icon="pin" selectedId={locationFilter} emptyLabel="Any Place" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: `${location.path} · ${location.total_item_count ?? location.item_count ?? 0} Items inside` }))} onChoose={setLocationFilter} onClose={() => setFilterPicker(null)} />}

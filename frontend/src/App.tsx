@@ -180,6 +180,8 @@ function App() {
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [matchingTotal, setMatchingTotal] = useState<number | null>(null);
   const [inventoryError, setInventoryError] = useState("");
+  // Separate from searchBusy so appending a page keeps the rendered list (and scroll position).
+  const [inventoryLoadingMore, setInventoryLoadingMore] = useState(false);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [view, setView] = useState<View>(() => viewFromParameter(new URLSearchParams(location.search).get("view")) || "dashboard");
   const {
@@ -440,9 +442,9 @@ function App() {
   }, [inventoryIncludeZero, inventoryScope, notify, offlineMode, query]);
 
   const loadMoreInventory = useCallback(async () => {
-    if (!inventoryNextCursor || inventorySearchBusy) return;
+    if (!inventoryNextCursor || inventorySearchBusy || inventoryLoadingMore) return;
     const generation = inventoryRefreshGeneration.current;
-    setInventorySearchBusy(true);
+    setInventoryLoadingMore(true);
     try {
       const page = await api.inventoryQuery(query, inventoryScope, inventoryIncludeZero, inventoryNextCursor);
       if (generation !== inventoryRefreshGeneration.current) return;
@@ -458,9 +460,9 @@ function App() {
     } catch (error) {
       if (generation === inventoryRefreshGeneration.current) setInventoryError(friendlyErrorMessage(error, "Could not load more items. Try again."));
     } finally {
-      if (generation === inventoryRefreshGeneration.current) setInventorySearchBusy(false);
+      setInventoryLoadingMore(false);
     }
-  }, [inventoryIncludeZero, inventoryScope, inventoryNextCursor, inventorySearchBusy, query]);
+  }, [inventoryIncludeZero, inventoryLoadingMore, inventoryScope, inventoryNextCursor, inventorySearchBusy, query]);
 
   const searchInventory = useCallback((value: string, options: InventorySearchOptions = {}) => {
     void refreshInventory(value, { showBusy: options.showBusy ?? true });
@@ -959,6 +961,7 @@ function App() {
             run={run}
             busy={busy}
             isSearchBusy={inventorySearchBusy}
+            isLoadingMore={inventoryLoadingMore}
             onOpen={setSelectedItem}
             onBulkStart={() => setSelectedItem(null)}
             onAdd={() => openCapture("quick")}

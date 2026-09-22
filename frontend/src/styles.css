@@ -2569,3 +2569,60 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
   .project-card { flex-wrap: wrap; }
   .project-card-progress { width: 100%; justify-items: start; }
 }
+
+/* Inventory list: auto-loading end, back-to-top, and the card overflow menu. */
+.inventory-list-sentinel { grid-column: 1 / -1; height: 1px; }
+.inventory-list-end { grid-column: 1 / -1; margin: 10px 0 4px; color: var(--muted); font-size: .78rem; text-align: center; }
+.back-to-top { position: fixed; z-index: 45; right: 20px; bottom: 24px; display: flex; min-height: 44px; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 999px; padding: 0 16px 0 12px; color: var(--ink); background: var(--card); box-shadow: var(--shadow); font-size: .8rem; font-weight: 800; animation: toast-in .18s ease-out; }
+.back-to-top .icon { transform: rotate(-90deg); }
+.card-overflow-menu { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 3; display: grid; width: 180px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); }
+.quick-actions .card-overflow[open] .card-overflow-menu button { position: static; width: 100%; min-height: 44px; justify-content: flex-start; border: 0; border-radius: 0; padding: 0 14px; box-shadow: none; background: transparent; }
+.quick-actions .card-overflow-menu button + button { border-top: 1px solid var(--line); }
+.quick-actions .card-overflow-menu .danger { color: var(--danger); }
+.overflow-archive { display: none !important; }
+.item-card:has(.card-overflow[open]) { position: relative; z-index: 4; overflow: visible; }
+@media (max-width: 699px) {
+  /* Phones: one slim action row per card, with Archive tucked into the ••• menu. */
+  .back-to-top { right: 14px; bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .item-card .item-main { min-height: 0; padding: 11px 13px 9px; }
+  .item-card .quick-actions, .item-card .quick-actions.has-shopping { grid-template-columns: 52px 52px minmax(0, 1fr) 44px; gap: 6px; padding: 7px 11px 9px; }
+  .item-card .quick-actions button, .item-card .card-overflow summary { min-height: 38px; }
+  .item-card .quick-actions .archive-action { display: none; }
+  .overflow-archive { display: flex !important; }
+  .card-overflow summary { display: grid; place-items: center; height: 100%; }
+}
+
+/* Inventory rows: place leaf first, and a quantity readout that only phones show inside the stepper. */
+.location-line > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.location-line b { color: var(--ink-soft); font-weight: 750; }
+.quick-quantity, .count-short { display: none; }
+.item-card.syncing .quick-quantity strong::after { display: inline-block; width: .55em; color: var(--gold); content: "•"; animation: pulse-dot .75s infinite alternate; }
+@media (max-width: 699px) {
+  /* Header: search, status chips, and one line of Filters · Bulk · count. */
+  .inventory-page .search-hero { margin-bottom: 10px; border-radius: 18px; padding: 5px; }
+  .inventory-page .search-large input { height: 50px; }
+  .inventory-page .inventory-command-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; margin: 4px 0 10px; }
+  .inventory-page .inventory-mode-actions { display: flex; width: auto; flex-wrap: nowrap; }
+  .inventory-page .inventory-mode-actions button { flex: 0 0 auto; min-height: 40px; padding: 0 12px; }
+  .inventory-page .inventory-result-count { margin-left: auto; font-size: .74rem; }
+  .count-long { display: none; }
+  .count-short { display: inline; }
+  /* The active chip and the "Showing" row already name the view; keep the heading for screen readers only. */
+  .inventory-page .inventory-heading { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .inventory-page .active-filter-row { margin-bottom: 10px; }
+
+  /* Cards: the quantity moves into the stepper, freeing the full width for the name and place. */
+  .item-card:not(.bulk-selectable) .item-main { grid-template-columns: 44px minmax(0, 1fr); gap: 12px; }
+  .item-card.without-photo:not(.bulk-selectable) .item-main { grid-template-columns: minmax(0, 1fr); }
+  .item-card:not(.bulk-selectable) .item-main > .quantity { display: none; }
+  .item-card .item-copy { align-self: center; }
+  .item-card .item-name-line { flex-wrap: wrap; align-items: center; gap: 4px 7px; }
+  .item-card .item-name-line h3 { display: -webkit-box; width: auto; flex: 0 1 auto; overflow: hidden; font-size: .95rem; line-height: 1.25; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .item-card .item-copy .location-line { margin-top: 4px; font-size: .78rem; }
+  .item-card .item-copy .item-category { margin-top: 2px; font-size: .72rem; }
+  .item-card .quick-actions, .item-card .quick-actions.has-shopping { grid-template-columns: 42px minmax(56px, auto) 42px minmax(0, 1fr) 42px; align-items: center; }
+  .item-card .quick-quantity { display: grid; min-width: 56px; justify-items: center; line-height: 1.05; }
+  .item-card .quick-quantity strong { font-size: 1rem; font-variant-numeric: tabular-nums; }
+  .item-card .quick-quantity small { color: var(--muted); font-size: .62rem; font-weight: 700; }
+  .item-card .quick-actions > button:first-child span, .item-card .quick-quantity + button span { display: none; }
+}

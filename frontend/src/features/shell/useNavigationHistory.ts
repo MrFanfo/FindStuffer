@@ -35,10 +35,13 @@ export function useNavigationHistory(route: Route, apply: (route: Route, item: I
     };
     if (!initialized.current) { initialized.current = true; void read(); }
     const pop = () => void read();
-    const scroll = () => { if (!applying.current) window.history.replaceState({ ...window.history.state, scroll: window.scrollY, treeScroll: document.querySelector('.places-tree-pane')?.scrollTop || 0 }, ''); };
+    // Browsers cap history.replaceState (Safari: 100 calls per 10s), so save the latest scroll at most every 400ms.
+    let scrollTimer: number | null = null;
+    const saveScroll = () => { scrollTimer = null; if (!applying.current) window.history.replaceState({ ...window.history.state, scroll: window.scrollY, treeScroll: document.querySelector('.places-tree-pane')?.scrollTop || 0 }, ''); };
+    const scroll = () => { scrollTimer ??= window.setTimeout(saveScroll, 400); };
     window.addEventListener('popstate', pop);
     window.addEventListener('scroll', scroll, { passive: true, capture: true });
-    return () => { generation++; window.history.scrollRestoration = previousScrollRestoration; window.removeEventListener('popstate', pop); window.removeEventListener('scroll', scroll, true); };
+    return () => { generation++; if (scrollTimer !== null) window.clearTimeout(scrollTimer); window.history.scrollRestoration = previousScrollRestoration; window.removeEventListener('popstate', pop); window.removeEventListener('scroll', scroll, true); };
   }, [enabled]);
   useEffect(() => {
     if (!enabled || applying.current || !initialized.current) return;

@@ -223,19 +223,14 @@ test("human search and no-result actions", async ({ page }) => {
 });
 
 test("cursor pagination and document ownership", async ({ page }) => {
-  await Promise.all([
-    page.waitForResponse((response) => (
-      new URL(response.url()).pathname === "/api/v1/items/query"
-    )),
-    page.getByRole("button", { name: /Load more from Findstuff/ }).click(),
-  ]);
+  // The first page doesn't fill the screen, so the next one loads without a click.
   await expect(page.getByRole("heading", { name: "Flathead driver" })).toBeVisible();
 
   await Promise.all([
     page.waitForResponse((response) => (
       new URL(response.url()).pathname === `/api/v1/items/${item.public_id}/detail`
     )),
-    page.getByRole("button", { name: /Phillips driver Workshop/ }).click(),
+    page.getByRole("button", { name: /Phillips driver Drawer A/ }).click(),
   ]);
   await page.getByRole("tab", { name: "Details" }).click();
   await expect(page.getByRole("link", { name: "Driver warranty" })).toBeVisible();
@@ -276,7 +271,7 @@ test("inventory has no serious accessibility violations", async ({ page }) => {
 
 test("empty item sections stay hidden and editors respect category capabilities", async ({ page }) => {
   await page.route(`**/api/v1/items/${item.public_id}/detail`, (route) => route.fulfill({ json: { item, history: [], photos: [], documents: [], lots: [], maintenance: [], reservations: [], related: [], enrichment: { product: null, candidates: [], jobs: [] } } }));
-  await page.getByRole("button", { name: /Phillips driver Workshop/ }).click();
+  await page.getByRole("button", { name: /Phillips driver Drawer A/ }).click();
   await page.getByRole("tab", { name: "Details" }).click();
   for (const name of ["Documents & warranties", "Links", "Properties", "Related", "Maintenance", "Expiration batches"]) {
     await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
@@ -447,4 +442,55 @@ test("item detail fits laptop and desktop widths", async ({ page }) => {
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
   }
+});
+
+test("scrolling loads more items in place and does not flood history", async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.history.replaceState.bind(window.history);
+    (window as unknown as { replaceCalls: number }).replaceCalls = 0;
+    window.history.replaceState = (...args: Parameters<History["replaceState"]>) => {
+      (window as unknown as { replaceCalls: number }).replaceCalls += 1;
+      return original(...args);
+    };
+  });
+  await page.route("**/api/v1/items/query**", (route) => {
+    const cursor = Number(new URL(route.request().url()).searchParams.get("cursor") || 0);
+    const items = Array.from({ length: 100 }, (_, index) => ({
+      ...item, public_id: `itm_${cursor + index}`, name: `Bulk item ${String(cursor + index).padStart(3, "0")}`,
+    }));
+    const more = cursor + 100 < 300;
+    return route.fulfill({ json: { query: "", normalized_query: "", count: 300, total: 300, items,
+      next_cursor: more ? String(cursor + 100) : null, has_more: more, matched_by: [], fuzzy: false, can_add: false, can_mark_lost: false } });
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Bulk item 000" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Bulk item 100" })).toHaveCount(0);
+
+  await page.getByRole("heading", { name: "Bulk item 099" }).scrollIntoViewIfNeeded();
+  const before = await page.evaluate(() => window.scrollY);
+  expect(before).toBeGreaterThan(1000);
+  await expect(page.getByRole("heading", { name: "Bulk item 199" })).toBeAttached();
+  await page.waitForTimeout(300);
+  expect(Math.abs(await page.evaluate(() => window.scrollY) - before)).toBeLessThan(50);
+  await expect(page.getByRole("button", { name: /Show \d+ more/ })).toHaveCount(0);
+
+  await page.getByRole("heading", { name: "Bulk item 199" }).scrollIntoViewIfNeeded();
+  await expect(page.getByText("That's everything · 300 items")).toBeVisible();
+  await page.mouse.wheel(0, -400);
+  await page.getByRole("button", { name: "Top" }).click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(10);
+
+  // Browsers throttle replaceState (Safari: 100 per 10s); a 3s scroll burst must not come close.
+  await page.evaluate(() => { (window as unknown as { replaceCalls: number }).replaceCalls = 0; });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    let frame = 0;
+    const tick = () => {
+      window.scrollBy(0, frame % 60 < 30 ? 40 : -40);
+      frame += 1;
+      if (frame < 180) requestAnimationFrame(tick); else resolve();
+    };
+    requestAnimationFrame(tick);
+  }));
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => (window as unknown as { replaceCalls: number }).replaceCalls)).toBeLessThan(20);
 });
