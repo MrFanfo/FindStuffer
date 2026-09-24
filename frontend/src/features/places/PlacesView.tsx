@@ -117,7 +117,7 @@ export function CategoryDetailView({ categoryId, categories, hideEmpty = false, 
       <details className="detail-section defaults-section"><summary><span><Icon name="settings" size={16} />Defaults here</span><Icon name="chevron" size={16} /></summary><div className="defaults-section-body"><div className="defaults-grid"><div><strong>Default location</strong><p className="default-chip"><span>{currentCategory.default_location?.name || "Inherited"}</span></p></div><div><strong>Items</strong><small>{currentCategory.item_count} directly here · {currentCategory.total_item_count} including children</small></div></div><CategoryConsolidation key={categoryId} categories={categories} categoryId={categoryId} /></div></details>
       {showFields && <CategoryFieldsPanel category={categoryId} name={currentCategory.path} onClose={() => setShowFields(false)} />}
       {visibleChildren.length > 0 && <section className="detail-section"><div className="section-heading"><div><h2>Inside this category</h2></div></div><div className="child-location-grid">{visibleChildren.map((child) => <button type="button" key={child.id} onClick={() => onOpenCategory(child.id)}><strong>{child.name}</strong><small>{child.total_item_count} item{child.total_item_count === 1 ? "" : "s"}</small></button>)}</div></section>}
-      <DetailItemsBrowser items={contents.items} groupMode="category" emptyText="Items assigned to this category or its children will appear here." onOpenItem={onOpenItem} busy={busy} />
+      <DetailItemsBrowser items={contents.items} groupMode="category" scopePath={currentCategory.path} emptyText="Items assigned to this category or its children will appear here." onOpenItem={onOpenItem} busy={busy} />
       {quickPhotos && <QuickPhotoSession title={currentCategory.name} items={missingPhotoItems} onDone={async () => { setQuickPhotos(false); await load(); }} onClose={() => setQuickPhotos(false)} />}
     </section>
   );
@@ -282,7 +282,7 @@ export function LocationDetailView({ locationId, locations, hideEmpty = false, c
       {showCreateChild && <form className="inline-detail-create" onSubmit={createChildLocation}><label>New Place<input required autoFocus value={childName} onChange={(event) => setChildName(event.target.value)} placeholder={`Inside ${currentLocation.name}`} /></label><label>Type<select value={childKind} onChange={(event) => setChildKind(event.target.value)}>{locationTypes.map((entry) => <option value={entry.name} key={entry.name}>{entry.name}</option>)}</select></label><div className="button-row"><button type="button" onClick={() => { setShowCreateChild(false); setChildName(""); }}>Cancel</button><button className="secondary" disabled={busy || !childName.trim()}>Create Place</button></div></form>}
       <details className="detail-section defaults-section"><summary><span><Icon name="settings" size={16} />Defaults here</span><Icon name="chevron" size={16} /></summary><div className="defaults-section-body"><div className="defaults-grid"><div><strong>Categories</strong>{categoryDefaults.length ? categoryDefaults.map(defaultRuleRow) : <small>No category defaults</small>}</div><div><strong>Items and barcodes</strong>{itemDefaults.length ? itemDefaults.map(defaultRuleRow) : <small>No item defaults</small>}</div></div><form className="default-rule-form" onSubmit={addDefault}><label>Default type<select value={defaultType} onChange={(event) => setDefaultType(event.target.value as "category" | "name" | "barcode")}><option value="category">Category</option><option value="name">Item name contains</option><option value="barcode">Exact barcode</option></select></label>{defaultType === "category" ? <label>Category<select required value={defaultCategoryId} onChange={(event) => setDefaultCategoryId(event.target.value)}><option value="">Choose category</option>{categories.map((category) => <option key={category.id} value={category.id}>{categoryOptionLabel(category)}</option>)}</select></label> : <label>Match<input required inputMode={defaultType === "barcode" ? "numeric" : "text"} value={defaultMatch} onChange={(event) => setDefaultMatch(event.target.value)} placeholder={defaultType === "barcode" ? "8023263000534" : "SanBenedetto"} /></label>}<button className="secondary" disabled={defaultType === "category" ? !defaultCategoryId : !defaultMatch.trim()}>Add default</button></form></div></details>
       {visibleChildren.length > 0 && <section className="detail-section"><div className="section-heading"><div><h2>Inside this place</h2></div></div><div className="child-location-grid">{visibleChildren.map((child) => <button type="button" key={child.public_id} onClick={() => onOpenLocation(child.public_id)}><strong>{child.name}</strong><small>{child.kind} · {totals.get(child.public_id) ?? 0} item{totals.get(child.public_id) === 1 ? "" : "s"}</small></button>)}</div></section>}
-      <DetailItemsBrowser items={contents.items} groupMode="location" emptyText="Scan this Place’s QR later to add Items directly here." onOpenItem={onOpenItem} busy={busy} />
+      <DetailItemsBrowser items={contents.items} groupMode="location" scopePath={currentLocation.path} emptyText="Scan this Place’s QR later to add Items directly here." onOpenItem={onOpenItem} busy={busy} />
       {quickPhotos && <QuickPhotoSession title={currentLocation.name} items={missingPhotoItems} onDone={async () => { setQuickPhotos(false); await load(); }} onClose={() => setQuickPhotos(false)} />}
       {aiScanOpen && <AIScanSession location={currentLocation} onClose={() => setAiScanOpen(false)} />}
     </section>
@@ -354,9 +354,11 @@ function pathTail(path: string): string {
   return parts.length > 2 ? `… > ${parts.slice(-2).join(" > ")}` : path;
 }
 
-function DetailItemsBrowser({ items, groupMode, emptyText, onOpenItem, busy }: {
+function DetailItemsBrowser({ items, groupMode, scopePath, emptyText, onOpenItem, busy }: {
   items: Item[];
   groupMode: "category" | "location";
+  /** The category or place being viewed; group headings are written relative to it. */
+  scopePath: string;
   emptyText: string;
   onOpenItem: (item: Item) => void;
   busy: boolean;
@@ -380,12 +382,18 @@ function DetailItemsBrowser({ items, groupMode, emptyText, onOpenItem, busy }: {
       const label = groupMode === "category" ? categoryLabel(item) || "Uncategorised" : item.location_path || "Unassigned";
       groups.set(label, [...(groups.get(label) || []), item]);
     }
-    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
-  }, [groupMode, sortedItems]);
+    // Items filed directly here come first, then each branch below it by name.
+    return Array.from(groups.entries()).sort(([left], [right]) => Number(right === scopePath) - Number(left === scopePath) || left.localeCompare(right));
+  }, [groupMode, scopePath, sortedItems]);
+  // Inside Electronics a group reads "Computer Electronics > Keyboards", not the whole path;
+  // what is filed directly here keeps the name, and anything from elsewhere its full path.
+  const groupHeading = (label: string) => label === scopePath
+    ? scopePath.split(" > ").pop() || label
+    : label.startsWith(`${scopePath} > `) ? label.slice(scopePath.length + 3) : label;
   return (
     <section className="detail-section">
       <div className="section-heading detail-items-heading"><div><h2>Items here</h2><span>{items.length} item{items.length === 1 ? "" : "s"} including nested levels</span></div><div className="detail-item-controls"><select value={sort} onChange={(event) => setSort(event.target.value as DetailItemSort)} aria-label="Sort items"><option value="name">Name</option><option value="quantity-asc">Quantity low</option><option value="quantity-desc">Quantity high</option><option value="location">Location</option><option value="category">Category</option></select><div><button type="button" className={view === "grid" ? "active" : ""} onClick={() => setView("grid")}>Grid</button><button type="button" className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button></div></div></div>
-      {items.length === 0 ? <EmptyState icon="box" title="No items here" text={emptyText} /> : grouped.map(([group, groupItems]) => <div className="detail-item-group" key={group}><h3>{group}<span>{groupItems.length}</span></h3><div className={view === "grid" ? "location-item-grid" : "location-item-list"}>{groupItems.map((item) => <button type="button" className={`${view === "grid" ? "location-item-card" : "location-item-row"}${item.is_container ? " is-container" : ""}`} key={item.public_id} onClick={() => onOpenItem(item)} disabled={busy}>{item.primary_photo_url ? <img src={item.primary_photo_url} alt="" loading="lazy" /> : <span><Icon name="box" size={view === "grid" ? 24 : 18} /></span>}<strong title={item.name}>{item.name}</strong>{(() => { const other = groupMode === "category" ? item.location_path : categoryLabel(item) || "Uncategorised"; return <small title={other}>{pathTail(other)}</small>; })()}<em>{item.is_container ? `${item.contained_matches ?? item.contents_count ?? 0} inside` : `${item.quantity} ${item.unit}`}</em></button>)}</div></div>)}
+      {items.length === 0 ? <EmptyState icon="box" title="No items here" text={emptyText} /> : grouped.map(([group, groupItems]) => <div className="detail-item-group" key={group}><h3 title={group}>{groupHeading(group)}<span>{groupItems.length}</span></h3><div className={view === "grid" ? "location-item-grid" : "location-item-list"}>{groupItems.map((item) => <button type="button" className={`${view === "grid" ? "location-item-card" : "location-item-row"}${item.is_container ? " is-container" : ""}`} key={item.public_id} onClick={() => onOpenItem(item)} disabled={busy}>{item.primary_photo_url ? <img src={item.primary_photo_url} alt="" loading="lazy" /> : <span><Icon name="box" size={view === "grid" ? 24 : 18} /></span>}<strong title={item.name}>{item.name}</strong>{(() => { const other = groupMode === "category" ? item.location_path : categoryLabel(item) || "Uncategorised"; return <small title={other}>{pathTail(other)}</small>; })()}<em>{item.is_container ? `${item.contained_matches ?? item.contents_count ?? 0} inside` : `${item.quantity} ${item.unit}`}</em></button>)}</div></div>)}
     </section>
   );
 }
