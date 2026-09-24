@@ -2758,7 +2758,10 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .action-rows button.danger { border-color: #e0b4aa; color: var(--danger); }
 .action-rows button.danger small { color: #a4675b; }
 .action-group.is-lost { border-color: #e3ba9e; }
-.more-panel .qr-section { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.more-panel .qr-section { display: grid; justify-content: center; justify-items: center; gap: 8px; text-align: center; }
+/* The older danger zone was a flex row; here it is a group like the others, heading above its rows. */
+.more-panel .danger-zone { display: block; margin-top: 13px; padding: 12px; }
+.more-panel .danger-zone .section-heading { display: flex; }
 .more-panel .qr-section img { width: min(200px, 60vw); height: auto; }
 
 /* ---------------------------------------------------------------------------
@@ -2800,9 +2803,10 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
    document's delete stays quiet beside its title. */
 @media (max-width: 699px) {
   .detail-tab-panel .section-heading { align-items: baseline; gap: 8px; }
-  .detail-tab-panel .section-heading > div { display: flex; align-items: baseline; gap: 8px; }
+  .detail-tab-panel .section-heading > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
   .detail-tab-panel .section-heading h2 { font-size: .96rem; }
-  .detail-tab-panel .section-heading span { flex: 0 0 auto; border-radius: 999px; padding: 1px 7px; background: var(--card-alt); font-size: .64rem; font-weight: 750; }
+  /* A chip too long for the line drops under the title rather than running off the card. */
+  .detail-tab-panel .section-heading span { flex: 0 1 auto; max-width: 100%; border-radius: 999px; padding: 1px 7px; background: var(--card-alt); font-size: .64rem; font-weight: 750; }
   .link-list a { min-height: 46px; gap: 9px; }
   .link-list a > span { display: grid; min-width: 0; gap: 0; }
   .link-list a strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
