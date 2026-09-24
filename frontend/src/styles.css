@@ -2263,6 +2263,20 @@ input[type="file"] { max-width: 100%; min-width: 0; }
 .contents-item span { min-width:0; overflow-wrap:anywhere; }
 .contents-item small { display:block; color:var(--muted); font-size:.75rem; }
 .item-contents button { min-height:32px; padding:5px 9px; font-size:.8rem; }
+/* Storage while editing: two rows in the More tab's style, the first with a switch. */
+.item-contents .section-heading { margin-top: 0; }
+.storage-rows { margin-bottom: 8px; }
+.storage-rows .storage-toggle { display: grid; align-items: center; gap: 10px; grid-template-columns: auto minmax(0, 1fr) auto; min-height: 56px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; color: var(--ink); background: var(--card); cursor: pointer; }
+.storage-rows .storage-toggle > span { display: grid; min-width: 0; gap: 1px; }
+.storage-rows input[role="switch"] { position: relative; width: 42px; min-width: 42px; height: 24px; min-height: 24px; margin: 0; border: 0; border-radius: 999px; background: var(--line-strong); cursor: pointer; appearance: none; -webkit-appearance: none; transition: background .15s; }
+.storage-rows input[role="switch"]::before { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0003; content: ""; transition: transform .15s; }
+.storage-rows input[role="switch"]:checked { background: var(--accent); }
+.storage-rows input[role="switch"]:checked::before { transform: translateX(18px); }
+.storage-rows input[role="switch"]:focus-visible { box-shadow: 0 0 0 3px #d9683540; }
+/* iPhone Safari gives date fields a minimum width wider than a phone card; let them fit. */
+@supports (-webkit-touch-callout: none) {
+  input[type="date"], input[type="datetime-local"] { min-width: 0; max-width: 100%; appearance: none; -webkit-appearance: none; }
+}
 .compact-actions { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
 .contents-choice { display:block; width:100%; text-align:left; margin:4px 0; }
 
