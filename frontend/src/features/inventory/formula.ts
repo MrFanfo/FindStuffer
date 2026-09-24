@@ -3,7 +3,8 @@ import { Item } from "../../api";
 const SAVED_INVENTORY_VIEWS_KEY = "findstuff.savedInventoryViews.v1";
 
 function isLowStock(item: Item): boolean {
-  return item.low_stock_threshold !== null
+  return item.low_stock_enabled !== false
+    && item.low_stock_threshold !== null
     && Number(item.quantity) <= Number(item.low_stock_threshold);
 }
 

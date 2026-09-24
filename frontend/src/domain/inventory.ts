@@ -15,6 +15,7 @@ const OPEN_CAPABILITIES: CategoryCapabilities = {
   price: true,
   links: true,
   shopping_list: true,
+  low_stock: true,
   override: false,
   inherited_from: null,
   inherited_label: "uncategorised defaults",

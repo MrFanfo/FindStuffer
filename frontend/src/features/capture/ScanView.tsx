@@ -372,7 +372,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
         location_public_id: inbox ? "unassigned" : entry.location_public_id || "unassigned",
         category_id: inbox ? null : entry.category_id ? Number(entry.category_id) : null,
         custom_fields: inbox ? {} : entry.custom_fields,
-        low_stock_threshold: entry.low_stock_threshold || null,
+        low_stock_threshold: entryCapabilities.low_stock ? entry.low_stock_threshold || null : null,
         expiration_date: entryCapabilities.expiration ? entry.expiration_date || null : null,
         tags: inbox ? ["inbox"] : [],
       }, entry.save_image && entry.image_url ? entry.image_url : undefined, entry.photo_file || undefined);
@@ -514,7 +514,7 @@ export function ScanView({ items, locations, categories, units, busy, initialMod
               <div className="picker-field"><span>Put it in</span><button type="button" onClick={() => setPicker({ id: entry.id, type: "location" })}><Icon name="pin" size={15} /><strong>{entryLocation?.path || "Choose location"}</strong></button></div>
               {recentLocations.length > 0 && mode !== "putaway" && <div className="recent-location-row capture-recents"><small>Recent locations</small>{recentLocations.map((location) => <button type="button" key={location.public_id} onClick={() => changeScannedEntry(entry.id, { location_public_id: location.public_id })}>{location.name}</button>)}</div>}
               {entryCapabilities.expiration && <label>Expiration <small>(optional)</small><input type="date" value={entry.expiration_date} onChange={(event) => changeScannedEntry(entry.id, { expiration_date: event.target.value })} /></label>}
-              <label>Low stock at<input inputMode="decimal" value={entry.low_stock_threshold} onChange={(event) => changeScannedEntry(entry.id, { low_stock_threshold: event.target.value })} placeholder="Optional" /></label>
+              {entryCapabilities.low_stock && <label>Low stock at<input inputMode="decimal" value={entry.low_stock_threshold} onChange={(event) => changeScannedEntry(entry.id, { low_stock_threshold: event.target.value })} placeholder="Optional" /></label>}
               <label className="capture-description">Description<textarea rows={2} value={entry.description} onChange={(event) => changeScannedEntry(entry.id, { description: event.target.value })} placeholder="Notes, identifying details, condition…" /></label>
               {entryCapabilities.links && <label className="capture-description">Links<textarea rows={2} value={entry.links_value} onChange={(event) => changeScannedEntry(entry.id, { links_value: event.target.value })} placeholder="Manual | https://example.com/manual.pdf" /></label>}
             </div>;

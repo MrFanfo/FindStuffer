@@ -109,6 +109,7 @@ export type CategoryCapabilities = {
   price: boolean;
   links: boolean;
   shopping_list: boolean;
+  low_stock: boolean;
   override: boolean;
   inherited_from: number | null;
   inherited_label: string;
@@ -152,6 +153,8 @@ export type Item = {
   serial_number: string;
   expiration_date: string | null;
   low_stock_threshold: string | null;
+  /** False when the item's category does not track low stock; the threshold is kept. */
+  low_stock_enabled?: boolean;
   fullness_percent: number | null;
   barcode: string;
   links: Array<{ label: string; url: string }>;

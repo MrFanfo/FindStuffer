@@ -2,7 +2,7 @@ import type { Item } from "../../api";
 
 /** Status helpers shared by the inventory list, its rows and its filters. */
 export function isLowStock(item: Item): boolean {
-  return item.low_stock_threshold !== null && Number(item.quantity) <= Number(item.low_stock_threshold);
+  return item.low_stock_enabled !== false && item.low_stock_threshold !== null && Number(item.quantity) <= Number(item.low_stock_threshold);
 }
 
 export function expirationDays(item: Item): number | null {

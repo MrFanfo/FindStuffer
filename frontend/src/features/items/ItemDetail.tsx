@@ -377,7 +377,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
       ...(editCapabilities.specs ? { model } : {}),
       unit,
       ...(editCapabilities.expiration ? { expiration_date: expiration || null } : {}),
-      low_stock_threshold: threshold || null,
+      ...(editCapabilities.low_stock ? { low_stock_threshold: threshold || null } : {}),
       ...(editCapabilities.fullness ? { fullness_percent: fullness } : {}),
       category_id: category ? Number(category) : null,
       ...(Object.keys(customFieldEdits).length ? { custom_fields: customFieldEdits } : {}),
@@ -550,7 +550,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     ["Worth", money(item.estimated_price_minor, item.estimated_price_currency)],
     ["Size", size],
     ["Weight", item.weight_g === null ? "" : `${item.weight_g} g`],
-    ["Low stock at", item.low_stock_threshold === null ? "" : `${item.low_stock_threshold} ${item.unit}`],
+    ["Low stock at", !detailCapabilities.low_stock || item.low_stock_threshold === null ? "" : `${item.low_stock_threshold} ${item.unit}`],
     ["Expires", item.expiration_date ? new Date(`${item.expiration_date}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""],
     ["Added", new Date(`${item.created_at}Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })],
   ] as Array<[string, string]>).filter(([, value]) => value);
@@ -588,7 +588,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             <label>Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
             {(editCapabilities.identity || editCapabilities.specs) && <div className="form-row">{editCapabilities.identity && <label>Brand<input value={brand} onChange={(event) => setBrand(event.target.value)} /></label>}{editCapabilities.specs && <label>Model<input value={model} onChange={(event) => setModel(event.target.value)} /></label>}</div>}
             {editCapabilities.identity && <label>Serial number<input value={serial} onChange={(event) => setSerial(event.target.value)} /></label>}
-            <div className="form-row">{editCapabilities.expiration && <label>Expiration<input type="date" value={expiration} onChange={(event) => setExpiration(event.target.value)} /></label>}<label>Low stock at<input ref={thresholdInput} inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label></div>
+            <div className="form-row">{editCapabilities.expiration && <label>Expiration<input type="date" value={expiration} onChange={(event) => setExpiration(event.target.value)} /></label>}{editCapabilities.low_stock && <label>Low stock at<input ref={thresholdInput} inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label>}</div>
             {editCapabilities.fullness && <label className="fullness-editor"><span>Fullness <strong>{fullness}%</strong></span><input type="range" min="0" max="100" step="5" value={fullness} onChange={(event) => setFullness(Number(event.target.value))} /></label>}
             <label>Unit<select value={unit} onChange={(event) => setUnit(event.target.value)}>{units.includes(unit) ? null : <option value={unit}>{unit}</option>}{units.map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select></label>
             <div className="picker-field"><span>Category</span><button type="button" onClick={() => setPicker("editCategory")}><Icon name="tag" size={16} /><strong>{editingCategory ? categoryOptionLabel(editingCategory) : "No category"}</strong></button>{category && <button type="button" className="text-button" onClick={() => setCategory("")}>Clear category</button>}</div>
@@ -674,13 +674,13 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
                   : <button type="button" disabled={busy} onClick={() => void setItemDefault()}><Icon name="pin" size={17} /><span><strong>Set default place</strong><small>Put future items like this one here</small></span></button>}
               </div>
             </section>
-            <section className="detail-section action-group">
+            {(detailCapabilities.shopping_list || detailCapabilities.low_stock) && <section className="detail-section action-group">
               <div className="section-heading"><div><h2>Stock</h2><span>Restocking and low-stock warnings</span></div></div>
               <div className="action-rows">
                 {detailCapabilities.shopping_list && <button type="button" disabled={busy} onClick={() => void onAddShopping(item)}><Icon name="plus" size={17} /><span><strong>Add to shopping list</strong><small>Buy more of this</small></span></button>}
-                <button type="button" disabled={busy} onClick={() => { setThreshold(item.low_stock_threshold ?? "1"); setFocusThreshold(true); setEditing(true); }}><Icon name="minus" size={17} /><span><strong>{item.low_stock_threshold === null ? "Set low stock warning" : "Change low stock warning"}</strong><small>{item.low_stock_threshold === null ? "Warn when stock runs down" : `Warns at ${item.low_stock_threshold} ${item.unit}`}</small></span></button>
+                {detailCapabilities.low_stock && <button type="button" disabled={busy} onClick={() => { setThreshold(item.low_stock_threshold ?? "1"); setFocusThreshold(true); setEditing(true); }}><Icon name="minus" size={17} /><span><strong>{item.low_stock_threshold === null ? "Set low stock warning" : "Change low stock warning"}</strong><small>{item.low_stock_threshold === null ? "Warn when stock runs down" : `Warns at ${item.low_stock_threshold} ${item.unit}`}</small></span></button>}
               </div>
-            </section>
+            </section>}
             <section className={`detail-section action-group ${lost ? "is-lost" : ""}`}>
               <div className="section-heading"><div><h2>Finding it</h2><span>{lost ? "Marked lost" : "When it is not where it should be"}</span></div></div>
               <div className="action-rows">

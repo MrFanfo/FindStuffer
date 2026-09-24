@@ -23,7 +23,7 @@ const CATEGORY_DATA_FIELD_LABELS: Record<keyof Omit<CategoryCapabilities, "overr
   expiration: "Expiration", batches: "Batches", maintenance: "Maintenance",
   reservation: "Reservations", enrichment: "Enrichment", photos: "Photos",
   identity: "Identity", specs: "Specs", price: "Prices", links: "Links",
-  shopping_list: "Shopping list", documents: "Documents and warranties", related: "Related items and compatibility",
+  shopping_list: "Shopping list", low_stock: "Low stock warning", documents: "Documents and warranties", related: "Related items and compatibility",
 };
 function buildCategoryTree(categories: Category[]): CategoryNode[] {
   const nodes = new Map<number, CategoryNode>(categories.map((category) => [category.id, { ...category, children: [] }]));

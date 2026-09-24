@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Item } from "../../api";
-import { heldQuantity, placeParts, quantityDelta } from "./itemStatus";
+import { heldQuantity, isLowStock, placeParts, quantityDelta } from "./itemStatus";
 
 const item = {
   public_id: "itm", name: "M3 screws", quantity: "240", unit: "pcs",
@@ -56,4 +56,10 @@ describe("heldQuantity", () => {
     expect(heldQuantity(held)).toBe(5);
     expect(heldQuantity(item)).toBe(0);
   });
+});
+
+it("an item whose category does not track low stock is never low", () => {
+  const base = { quantity: "1", low_stock_threshold: "2" } as unknown as Item;
+  expect(isLowStock(base)).toBe(true);
+  expect(isLowStock({ ...base, low_stock_enabled: false })).toBe(false);
 });

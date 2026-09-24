@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from .human_search import _fuzzy_score, _variants, normalize_query
-from .inventory import _fts_expression, serialize_item_rows
+from .inventory import _fts_expression, low_stock_scope_sql, serialize_item_rows
 from .inventory_formula import compile_formula
 
 SOURCE = """
@@ -33,8 +33,8 @@ records AS (
         (SELECT json_group_array(tags.name) FROM tags
           JOIN item_tags t ON t.tag_id = tags.id WHERE t.item_id = items.id) AS tags_json,
         CASE WHEN items.low_stock_milli IS NOT NULL
-          AND items.quantity_milli <= items.low_stock_milli THEN 'true' ELSE 'false'
-          END AS low_stock_text,
+          AND items.quantity_milli <= items.low_stock_milli/*low_stock_scope*/ THEN 'true'
+          ELSE 'false' END AS low_stock_text,
         CASE WHEN EXISTS(SELECT 1 FROM photos WHERE photos.item_id = items.id)
           THEN 'true' ELSE 'false' END AS has_photo_text,
         CASE WHEN l.public_id = 'unassigned' THEN 'true' ELSE 'false'
@@ -46,6 +46,13 @@ records AS (
     LEFT JOIN category_paths cp ON cp.id = c.id
 )
 """
+
+
+def _source(connection: sqlite3.Connection) -> str:
+    """The records query, with low stock left out where a category does not track it."""
+    return SOURCE.replace("/*low_stock_scope*/", low_stock_scope_sql(connection))
+
+
 SORTS = {
     "updated": ("i.updated_at", "DESC"),
     "name": ("lower(i.name)", "ASC"),
@@ -228,13 +235,13 @@ def query_inventory(
     values.extend(search_values)
     where = " AND ".join(conditions)
     total = connection.execute(
-        SOURCE + f"SELECT count(*) FROM records i WHERE {where}", values
+        _source(connection) + f"SELECT count(*) FROM records i WHERE {where}", values
     ).fetchone()[0]
     sort_expression, direction = SORTS[sort]
     rank_expression = (
         "CASE WHEN instr(lower(i.name), (SELECT needle FROM search_input))>0 THEN 0 ELSE 1 END"
     )
-    ranked_source = SOURCE.replace(
+    ranked_source = _source(connection).replace(
         "WITH RECURSIVE", "WITH RECURSIVE search_input(needle) AS (VALUES (?)),", 1
     )
     if cursor:

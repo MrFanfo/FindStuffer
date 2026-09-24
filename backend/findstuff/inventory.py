@@ -464,7 +464,10 @@ def serialize_item(
     primary_photo_url: str | None = None,
     containment: dict | None = None,
     project_holds: list | None = None,
+    low_stock_off: set[int] | None = None,
 ) -> dict[str, Any]:
+    if low_stock_off is None:
+        low_stock_off = categories_with_capability_off(connection, "low_stock")
     if tags is None:
         tags = [
             tag["name"]
@@ -522,6 +525,8 @@ def serialize_item(
         "brand": row["brand"],
         "expiration_date": row["expiration_date"],
         "low_stock_threshold": from_milli(row["low_stock_milli"]),
+        # False when the item's category does not track low stock; the threshold is kept.
+        "low_stock_enabled": row["category_id"] not in low_stock_off,
         "fullness_percent": row["fullness_percent"],
         "barcode": row["barcode"],
         "links": links,
@@ -563,6 +568,7 @@ def serialize_item_rows(
 
     containment_by_item = batch_containment(connection, rows, paths_by_location)
     holds_by_item = batch_project_holds(connection, item_ids)
+    low_stock_off = categories_with_capability_off(connection, "low_stock")
     primary_photos = {
         row["item_id"]: row["public_id"]
         for row in connection.execute(
@@ -585,6 +591,7 @@ def serialize_item_rows(
             tags=tags_by_item[row["id"]],
             containment=containment_by_item[row["id"]],
             project_holds=holds_by_item.get(row["id"], []),
+            low_stock_off=low_stock_off,
             item_location_path=paths_by_location[row["location_id"]],
             item_category_path=paths_by_category.get(row["category_id"])
             if row["category_id"] is not None
@@ -1118,6 +1125,7 @@ def _item_rows(
     if low_stock:
         conditions.append(
             "items.low_stock_milli IS NOT NULL AND items.quantity_milli <= items.low_stock_milli"
+            + low_stock_scope_sql(connection)
         )
     if needs_details:
         conditions.append("locations.public_id = 'unassigned'")
@@ -1667,6 +1675,7 @@ CATEGORY_DATA_FIELDS = (
     "shopping_list",
     "documents",
     "related",
+    "low_stock",
 )
 
 
@@ -1704,6 +1713,7 @@ def _category_capability_defaults(category: dict[str, Any]) -> dict[str, bool]:
         "shopping_list": food_like,
         "documents": True,
         "related": True,
+        "low_stock": True,
     }
 
 
@@ -1768,6 +1778,52 @@ def _resolve_category_capabilities(
     for category in categories:
         resolve(int(category["id"]))
     return resolved
+
+
+def categories_with_capability_off(connection: sqlite3.Connection, field: str) -> set[int]:
+    """Categories where a data field resolves to off, following the same inheritance.
+
+    The nearest category with an override for the field decides; a branch without
+    one falls back to its root's defaults, exactly as _resolve_category_capabilities.
+    """
+    rows = {
+        int(row["id"]): row
+        for row in connection.execute("SELECT id, parent_id, name, slug FROM categories")
+    }
+    overrides = _read_category_data_overrides(connection)
+    resolved: dict[int, bool] = {}
+
+    def enabled(category_id: int, seen: frozenset[int]) -> bool:
+        if category_id in resolved:
+            return resolved[category_id]
+        override = overrides.get(str(category_id), {})
+        parent_id = rows[category_id]["parent_id"]
+        if field in override:
+            value = bool(override[field])
+        elif parent_id in rows and category_id not in seen:
+            value = enabled(int(parent_id), seen | {category_id})
+        else:
+            root = rows[category_id]
+            value = _category_capability_defaults(
+                {"name": root["name"], "slug": root["slug"], "path": root["name"]}
+            )[field]
+        resolved[category_id] = value
+        return value
+
+    return {category_id for category_id in rows if not enabled(category_id, frozenset())}
+
+
+def low_stock_scope_sql(connection: sqlite3.Connection, column: str = "items.category_id") -> str:
+    """An SQL condition leaving out items whose category does not track low stock.
+
+    It starts with AND so it can follow any condition, and is empty when every
+    category tracks it. The IDs are this database's own integers, never user text.
+    """
+    off = sorted(categories_with_capability_off(connection, "low_stock"))
+    if not off:
+        return ""
+    listed = ", ".join(str(int(category_id)) for category_id in off)
+    return f" AND ({column} IS NULL OR {column} NOT IN ({listed}))"
 
 
 def category_data_settings(connection: sqlite3.Connection) -> dict[str, Any]:
@@ -2596,11 +2652,12 @@ def set_item_tags(
 def dashboard(connection: sqlite3.Connection) -> dict[str, Any]:
     today = date.today()
     horizon = today + timedelta(days=14)
+    low_stock_scope = low_stock_scope_sql(connection)
     counts = connection.execute(
-        """
+        f"""
         SELECT count(*) AS item_count,
                COALESCE(sum(CASE WHEN low_stock_milli IS NOT NULL
-                                      AND quantity_milli <= low_stock_milli
+                                      AND quantity_milli <= low_stock_milli{low_stock_scope}
                                  THEN 1 ELSE 0 END), 0) AS low_stock_count,
                COALESCE(sum(CASE WHEN (
                     (expiration_date IS NOT NULL AND expiration_date <= ?)
@@ -2712,15 +2769,19 @@ def analytics(
         if quantity <= 0:
             zero_stock += 1
             stock_counts["Empty"] += 1
-        elif item.get("low_stock_threshold") is not None and quantity <= Decimal(
-            str(item["low_stock_threshold"])
+        elif (
+            item.get("low_stock_enabled", True)
+            and item.get("low_stock_threshold") is not None
+            and quantity <= Decimal(str(item["low_stock_threshold"]))
         ):
             stock_counts["Low"] += 1
         else:
             stock_counts["In stock"] += 1
-        if item.get("low_stock_threshold") is not None and Decimal(
-            str(item["quantity"])
-        ) <= Decimal(str(item["low_stock_threshold"])):
+        if (
+            item.get("low_stock_enabled", True)
+            and item.get("low_stock_threshold") is not None
+            and Decimal(str(item["quantity"])) <= Decimal(str(item["low_stock_threshold"]))
+        ):
             low_stock += 1
         expiration_date = item.get("expiration_date")
         if not expiration_date:

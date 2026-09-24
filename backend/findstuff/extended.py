@@ -42,10 +42,12 @@ from .operations_contract import validate_item_values, validate_revision, valida
 
 
 def generate_low_stock_shopping(connection: sqlite3.Connection) -> int:
+    from .inventory import low_stock_scope_sql
+
     rows = connection.execute(
-        """
+        f"""
         SELECT * FROM items WHERE archived_at IS NULL AND low_stock_milli IS NOT NULL
-          AND quantity_milli <= low_stock_milli
+          AND quantity_milli <= low_stock_milli{low_stock_scope_sql(connection)}
         """
     ).fetchall()
     created = 0
