@@ -2930,6 +2930,6 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .contents-move-out label { flex: 1 1 180px; font-size: .74rem; }
 .contents-move-out select { min-height: 38px; padding: 6px 9px; font-size: .8rem; }
 .contents-none { margin: 6px 0; color: var(--muted); font-size: .76rem; }
-.item-contents .compact-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.item-contents .compact-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 .item-contents .compact-actions button, .contents-move-out button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); font-size: .78rem; font-weight: 750; }
 .contents-move-out button:not([type="button"]) { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
