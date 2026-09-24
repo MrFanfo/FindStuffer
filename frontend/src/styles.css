@@ -2902,3 +2902,13 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .location-item-row small { align-self: start; font-size: .7rem; }
 .location-item-row em { align-self: center; white-space: nowrap; }
 .location-item-card strong { display: -webkit-box; overflow: hidden; line-height: 1.25; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+
+/* Sub-places and sub-categories inside a place or category: plain one-line rows, name on
+   the left and what it holds on the right, so many fit on a screen. */
+.child-location-grid { grid-template-columns: 1fr; gap: 4px; }
+.child-location-grid button { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 10px; border-radius: 10px; padding: 8px 12px; }
+.child-location-grid strong { min-width: 0; overflow: hidden; font-size: .86rem; text-overflow: ellipsis; white-space: nowrap; }
+.child-location-grid small { flex: 0 0 auto; font-size: .7rem; text-transform: none; }
+.child-location-grid small::first-letter { text-transform: uppercase; }
+@media (min-width: 700px) { .child-location-grid { grid-template-columns: 1fr 1fr; gap: 6px; } }
