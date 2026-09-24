@@ -170,6 +170,22 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   const [saveError, setSaveError] = useState("");
   const [savingDetails, setSavingDetails] = useState(false);
   const [editing, setEditing] = useState(false);
+  // An action that opens the editor for one field lands on that field, not the top of the form.
+  const thresholdInput = useRef<HTMLInputElement | null>(null);
+  const [focusThreshold, setFocusThreshold] = useState(false);
+  useEffect(() => {
+    if (!editing || !focusThreshold) return;
+    const frame = window.requestAnimationFrame(() => {
+      const input = thresholdInput.current;
+      if (input) {
+        input.scrollIntoView({ behavior: "smooth", block: "center" });
+        input.focus({ preventScroll: true });
+        input.select();
+      }
+      setFocusThreshold(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editing, focusThreshold]);
   const [detailTab, setDetailTab] = useState<"overview" | "details" | "activity" | "more">("overview");
   const [picker, setPicker] = useState<"move" | "category" | "editCategory" | null>(null);
   const itemDraft = useDeviceDraft(`item:${item.public_id}`, {
@@ -572,7 +588,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             <label>Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
             {(editCapabilities.identity || editCapabilities.specs) && <div className="form-row">{editCapabilities.identity && <label>Brand<input value={brand} onChange={(event) => setBrand(event.target.value)} /></label>}{editCapabilities.specs && <label>Model<input value={model} onChange={(event) => setModel(event.target.value)} /></label>}</div>}
             {editCapabilities.identity && <label>Serial number<input value={serial} onChange={(event) => setSerial(event.target.value)} /></label>}
-            <div className="form-row">{editCapabilities.expiration && <label>Expiration<input type="date" value={expiration} onChange={(event) => setExpiration(event.target.value)} /></label>}<label>Low stock at<input inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label></div>
+            <div className="form-row">{editCapabilities.expiration && <label>Expiration<input type="date" value={expiration} onChange={(event) => setExpiration(event.target.value)} /></label>}<label>Low stock at<input ref={thresholdInput} inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label></div>
             {editCapabilities.fullness && <label className="fullness-editor"><span>Fullness <strong>{fullness}%</strong></span><input type="range" min="0" max="100" step="5" value={fullness} onChange={(event) => setFullness(Number(event.target.value))} /></label>}
             <label>Unit<select value={unit} onChange={(event) => setUnit(event.target.value)}>{units.includes(unit) ? null : <option value={unit}>{unit}</option>}{units.map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select></label>
             <div className="picker-field"><span>Category</span><button type="button" onClick={() => setPicker("editCategory")}><Icon name="tag" size={16} /><strong>{editingCategory ? categoryOptionLabel(editingCategory) : "No category"}</strong></button>{category && <button type="button" className="text-button" onClick={() => setCategory("")}>Clear category</button>}</div>
@@ -662,7 +678,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
               <div className="section-heading"><div><h2>Stock</h2><span>Restocking and low-stock warnings</span></div></div>
               <div className="action-rows">
                 {detailCapabilities.shopping_list && <button type="button" disabled={busy} onClick={() => void onAddShopping(item)}><Icon name="plus" size={17} /><span><strong>Add to shopping list</strong><small>Buy more of this</small></span></button>}
-                <button type="button" disabled={busy} onClick={() => { setThreshold(item.low_stock_threshold ?? "1"); setEditing(true); }}><Icon name="minus" size={17} /><span><strong>{item.low_stock_threshold === null ? "Set low stock warning" : "Change low stock warning"}</strong><small>{item.low_stock_threshold === null ? "Warn when stock runs down" : `Warns at ${item.low_stock_threshold} ${item.unit}`}</small></span></button>
+                <button type="button" disabled={busy} onClick={() => { setThreshold(item.low_stock_threshold ?? "1"); setFocusThreshold(true); setEditing(true); }}><Icon name="minus" size={17} /><span><strong>{item.low_stock_threshold === null ? "Set low stock warning" : "Change low stock warning"}</strong><small>{item.low_stock_threshold === null ? "Warn when stock runs down" : `Warns at ${item.low_stock_threshold} ${item.unit}`}</small></span></button>
               </div>
             </section>
             <section className={`detail-section action-group ${lost ? "is-lost" : ""}`}>
