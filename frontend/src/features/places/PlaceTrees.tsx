@@ -80,6 +80,12 @@ export function LocationsView({ locations: allLocations, locationTypes, hideEmpt
   const [parent, setParent] = useState("");
   const [newType, setNewType] = useState("");
   const [iconFor, setIconFor] = useState<LocationNode | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (publicId: string) => setExpanded((current) => {
+    const next = new Set(current);
+    if (next.has(publicId)) next.delete(publicId); else next.add(publicId);
+    return next;
+  });
   const icons = useMemo(() => placeIcons(allLocations), [allLocations]);
   const [editingId, setEditingId] = useState("");
   const [editName, setEditName] = useState("");
@@ -139,13 +145,13 @@ export function LocationsView({ locations: allLocations, locationTypes, hideEmpt
           </div>
           <button className="primary wide button-with-icon" disabled={busy || !name.trim()}><Icon name="plus" size={17} />Create location</button>
         </form><form className="inline-create-type" onSubmit={submitType}><label>Add a custom type<input value={newType} onChange={(event) => setNewType(event.target.value)} placeholder="e.g. crate, suitcase, rack" /></label><button className="secondary" disabled={!newType.trim()}>Add type</button></form></details>
-      <div className="location-tree">{locations.length ? locations.map((node) => <LocationBranch key={node.public_id} node={node} locationTypes={locationTypes} editParentOptions={editParentOptions} editingId={editingId} editName={editName} editKind={editKind} editParent={editParent} icons={icons} busy={busy} depth={0} onMark={setIconFor} onOpen={onOpen} onQueuePrint={onQueuePrint} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} onSaveEdit={saveEdit} onCancelEdit={() => setEditingId("")} onEditName={setEditName} onEditKind={setEditKind} onEditParent={setEditParent} />) : <EmptyState icon="pin" title="No locations yet" text="Create your first room, shelf, box, or drawer." />}</div>
+      <div className="location-tree">{locations.length ? locations.map((node) => <LocationBranch key={node.public_id} node={node} locationTypes={locationTypes} editParentOptions={editParentOptions} editingId={editingId} editName={editName} editKind={editKind} editParent={editParent} icons={icons} busy={busy} depth={0} expanded={expanded} onToggle={toggle} onMark={setIconFor} onOpen={onOpen} onQueuePrint={onQueuePrint} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} onSaveEdit={saveEdit} onCancelEdit={() => setEditingId("")} onEditName={setEditName} onEditKind={setEditKind} onEditParent={setEditParent} />) : <EmptyState icon="pin" title="No locations yet" text="Create your first room, shelf, box, or drawer." />}</div>
       {iconFor && <CategoryIconPicker subject="place" categoryPath={iconFor.path} selected={iconFor.icon || ""} onChoose={(icon) => void onUpdate(iconFor.public_id, { icon })} onClose={() => setIconFor(null)} />}
     </section>
   );
 }
 
-function LocationBranch({ node, locationTypes, editParentOptions, editingId, editName, editKind, editParent, icons, busy, depth = 0, onMark, onOpen, onQueuePrint, onEdit, onDelete, onDeleteTree, onSaveEdit, onCancelEdit, onEditName, onEditKind, onEditParent }: {
+function LocationBranch({ node, locationTypes, editParentOptions, editingId, editName, editKind, editParent, icons, busy, depth = 0, expanded, onToggle, onMark, onOpen, onQueuePrint, onEdit, onDelete, onDeleteTree, onSaveEdit, onCancelEdit, onEditName, onEditKind, onEditParent }: {
   node: LocationNode;
   locationTypes: LocationType[];
   editParentOptions: LocationNode[];
@@ -156,6 +162,8 @@ function LocationBranch({ node, locationTypes, editParentOptions, editingId, edi
   icons: Map<string, string>;
   busy: boolean;
   depth?: number;
+  expanded: Set<string>;
+  onToggle: (publicId: string) => void;
   onMark: (location: LocationNode) => void;
   onOpen: (publicId: string) => void;
   onQueuePrint: (location: LocationNode) => void;
@@ -169,12 +177,16 @@ function LocationBranch({ node, locationTypes, editParentOptions, editingId, edi
   onEditParent: (value: string) => void;
 }) {
   const isEditing = editingId === node.public_id;
+  const isOpen = expanded.has(node.public_id);
+  const branchProps = { locationTypes, editParentOptions, editingId, editName, editKind, editParent, icons, busy, expanded, onToggle, onMark, onOpen, onQueuePrint, onEdit, onDelete, onDeleteTree, onSaveEdit, onCancelEdit, onEditName, onEditKind, onEditParent };
   const isSystem = node.public_id === "unassigned";
   const directItems = node.item_count ?? 0;
   const totalItems = node.total_item_count ?? directItems;
   const itemText = `${totalItems} item${totalItems === 1 ? "" : "s"}${directItems && directItems !== totalItems ? ` · ${directItems} here` : ""}`;
   const placeText = node.children.length ? `${node.children.length} place${node.children.length === 1 ? "" : "s"} inside` : "exact spot";
-  return <div className="location-branch" style={{ "--depth": depth } as CSSProperties}><div className="location-node"><span className="hierarchy-rail" aria-hidden="true" /><button type="button" className="category-mark place-mark" title={`Icon for ${node.name}${node.icon ? "" : " (suggested)"}`} aria-label={`Change the icon for ${node.name}`} disabled={isSystem} onClick={() => onMark(node)}><CategoryMark name={icons.get(node.public_id) || "boxes"} size={18} /></button><button type="button" className="location-open" onClick={() => onOpen(node.public_id)}><span><strong>{node.name}</strong><small>{node.kind} · {itemText} · {placeText}</small><em>{node.path}</em></span></button><details className="category-row-menu location-row-menu"><summary aria-label={`Actions for ${node.name}`} title="Place actions"><Icon name="more" size={18} /></summary><div onClick={(event) => { if ((event.target as HTMLElement).closest("button:not(:disabled)")) event.currentTarget.closest("details")?.removeAttribute("open"); }}><button type="button" disabled={isSystem || busy} onClick={() => onEdit(node)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={isSystem || busy || node.children.length > 0} title={node.children.length > 0 ? "Move or delete child locations first" : "Delete location"} onClick={() => onDelete(node)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" disabled={isSystem || busy} onClick={() => onDeleteTree(node)}><Icon name="close" size={14} /><span>Subtree</span></button><button type="button" className="qr-link" disabled={isSystem} onClick={() => onQueuePrint(node)} aria-label={`Print QR for ${node.name}`}><Icon name="qr" size={18} /><span>Print QR</span></button></div></details></div>{isEditing && <form className="location-edit-form" onSubmit={onSaveEdit}><label>Name<input required value={editName} onChange={(event) => onEditName(event.target.value)} /></label><label>Type<select value={editKind} onChange={(event) => onEditKind(event.target.value)}>{locationTypes.map((entry) => <option key={entry.name} value={entry.name}>{entry.name}</option>)}</select></label><label>Inside<select value={editParent} onChange={(event) => onEditParent(event.target.value)}><option value="">Top level</option>{editParentOptions.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label><div className="button-row"><button type="button" onClick={onCancelEdit}>Cancel</button><button className="secondary" disabled={!editName.trim() || busy}>Save location</button></div></form>}</div>;
+  return <div className="location-branch" style={{ "--depth": depth } as CSSProperties}><div className="location-node"><span className="hierarchy-rail" aria-hidden="true" />{node.children.length > 0
+  ? <button type="button" className={`category-mark place-mark expandable ${isOpen ? "open" : ""}`} aria-expanded={isOpen} aria-label={`${isOpen ? "Collapse" : "Expand"} ${node.name}`} onClick={() => onToggle(node.public_id)}><CategoryMark name={icons.get(node.public_id) || "boxes"} size={18} /><span className="mark-expand" aria-hidden="true"><Icon name="chevron" size={10} /></span></button>
+  : <span className="category-mark place-mark" aria-hidden="true"><CategoryMark name={icons.get(node.public_id) || "boxes"} size={18} /></span>}<button type="button" className="location-open" onClick={() => onOpen(node.public_id)}><span><strong>{node.name}</strong><small>{node.kind} · {itemText} · {placeText}</small><em>{node.path}</em></span></button><details className="category-row-menu location-row-menu"><summary aria-label={`Actions for ${node.name}`} title="Place actions"><Icon name="more" size={18} /></summary><div onClick={(event) => { if ((event.target as HTMLElement).closest("button:not(:disabled)")) event.currentTarget.closest("details")?.removeAttribute("open"); }}><button type="button" disabled={isSystem || busy} onClick={() => onMark(node)}><Icon name="spark" size={14} /><span>Change icon</span></button><button type="button" disabled={isSystem || busy} onClick={() => onEdit(node)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={isSystem || busy || node.children.length > 0} title={node.children.length > 0 ? "Move or delete child locations first" : "Delete location"} onClick={() => onDelete(node)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" disabled={isSystem || busy} onClick={() => onDeleteTree(node)}><Icon name="close" size={14} /><span>Subtree</span></button><button type="button" className="qr-link" disabled={isSystem} onClick={() => onQueuePrint(node)} aria-label={`Print QR for ${node.name}`}><Icon name="qr" size={18} /><span>Print QR</span></button></div></details></div>{isEditing && <form className="location-edit-form" onSubmit={onSaveEdit}><label>Name<input required value={editName} onChange={(event) => onEditName(event.target.value)} /></label><label>Type<select value={editKind} onChange={(event) => onEditKind(event.target.value)}>{locationTypes.map((entry) => <option key={entry.name} value={entry.name}>{entry.name}</option>)}</select></label><label>Inside<select value={editParent} onChange={(event) => onEditParent(event.target.value)}><option value="">Top level</option>{editParentOptions.map((entry) => <option key={entry.public_id} value={entry.public_id}>{entry.path}</option>)}</select></label><div className="button-row"><button type="button" onClick={onCancelEdit}>Cancel</button><button className="secondary" disabled={!editName.trim() || busy}>Save location</button></div></form>}{isOpen && node.children.map((child) => <LocationBranch key={child.public_id} node={child} depth={depth + 1} {...branchProps} />)}</div>;
 }
 
 export function BranchToggle({ hideEmpty, onChange }: { hideEmpty: boolean; onChange: (value: boolean) => void }) {
@@ -202,6 +214,12 @@ export function CategoriesView({ categories, locations, busy, hideEmpty: control
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
   const [markFor, setMarkFor] = useState<Category | null>(null);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const toggle = (categoryId: number) => setExpanded((current) => {
+    const next = new Set(current);
+    if (next.has(categoryId)) next.delete(categoryId); else next.add(categoryId);
+    return next;
+  });
   const marks = useMemo(() => categoryIcons(categories), [categories]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
@@ -279,7 +297,7 @@ export function CategoriesView({ categories, locations, busy, hideEmpty: control
       {editingCategory && <button className="secondary" onClick={() => setFieldCategory(editingCategory)}>Custom fields</button>}
       {fieldCategory && <CategoryFieldsPanel category={fieldCategory.id} name={fieldCategory.path} onClose={() => setFieldCategory(null)} />}
       {editingCategory ? <CategoryEditPanel category={editingCategory} locations={flatLocations} editName={editName} editParent={editParent} editParentOptions={editParentOptions} editDefaultLocation={editDefaultLocation} overrides={capabilityOverrides} busy={busy} onEditName={setEditName} onEditParent={setEditParent} onEditDefaultLocation={setEditDefaultLocation} onCapability={setCapability} onResetCapabilities={resetCapabilities} onCancel={() => setEditingId(null)} onSubmit={saveEdit} /> : <details className="create-panel"><summary><span className="summary-icon"><Icon name="plus" /></span><span><strong>Create a category</strong><small>Nest it under any existing category</small></span><Icon name="chevron" /></summary><form className="form-card" onSubmit={submit}><label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Resistors, batteries, printer parts" /></label><label>Inside<select value={parent} onChange={(event) => setParent(event.target.value)}><option value="">Top level</option>{categories.map((entry) => <option key={entry.id} value={entry.id}>{categoryOptionLabel(entry)}</option>)}</select></label><button className="primary wide button-with-icon" disabled={busy || !name.trim()}><Icon name="plus" size={17} />Create category</button></form></details>}
-      <div className="category-tree">{tree.length ? tree.map((category) => <CategoryBranch key={category.id} category={category} marks={marks} busy={busy} onOpen={onOpen} onMark={setMarkFor} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} />) : <EmptyState icon="tag" title="No categories yet" text="Create your first category." />}</div>
+      <div className="category-tree">{tree.length ? tree.map((category) => <CategoryBranch key={category.id} category={category} marks={marks} busy={busy} expanded={expanded} onToggle={toggle} onOpen={onOpen} onMark={setMarkFor} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} />) : <EmptyState icon="tag" title="No categories yet" text="Create your first category." />}</div>
       {markFor && <CategoryIconPicker subject="category" categoryPath={markFor.path} selected={markFor.icon} onChoose={(icon) => void onUpdate(markFor.id, { icon })} onClose={() => setMarkFor(null)} />}
     </section>
   );
@@ -321,17 +339,22 @@ function CategoryEditPanel({ category, locations, editName, editParent, editPare
   </>;
 }
 
-function CategoryBranch({ category, marks, busy, depth = 0, onOpen, onMark, onEdit, onDelete, onDeleteTree }: {
+function CategoryBranch({ category, marks, busy, depth = 0, expanded, onToggle, onOpen, onMark, onEdit, onDelete, onDeleteTree }: {
   marks: Map<number, string>;
   onMark: (category: Category) => void;
   category: CategoryNode;
   busy: boolean;
   depth?: number;
+  expanded: Set<number>;
+  onToggle: (categoryId: number) => void;
   onOpen: (categoryId: number) => void;
   onEdit: (category: Category) => void;
   onDelete: (category: Category) => void;
   onDeleteTree: (category: Category) => void;
 }) {
   const canDelete = category.children.length === 0 && category.item_count === 0;
-  return <div className="category-branch" style={{ "--depth": depth } as CSSProperties}><div className="category-node"><span className="hierarchy-rail" aria-hidden="true" /><button type="button" className="category-mark" title={`Icon for ${category.name}${category.icon ? "" : " (suggested)"}`} aria-label={`Change the icon for ${category.name}`} onClick={() => onMark(category)}><CategoryMark name={marks.get(category.id) || "tag"} size={18} /></button><button type="button" className="category-open" onClick={() => onOpen(category.id)}><span><strong>{category.name}</strong><small>{category.total_item_count} item{category.total_item_count === 1 ? "" : "s"} · {category.children.length} child{category.children.length === 1 ? "" : "ren"}</small><em>{categoryOptionLabel(category)}</em></span></button><details className="category-row-menu"><summary aria-label={`Actions for ${category.name}`} title="Category actions"><Icon name="more" size={18} /></summary><div><button type="button" aria-label={`Edit ${category.name}`} onClick={() => onEdit(category)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={busy || !canDelete} aria-label={`Delete ${category.name}`} title={canDelete ? "Delete category" : "Move children and items first"} onClick={() => onDelete(category)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" aria-label={`Delete ${category.name} subtree`} disabled={busy} onClick={() => onDeleteTree(category)}><Icon name="close" size={14} /><span>Subtree</span></button></div></details></div></div>;
+  const isOpen = expanded.has(category.id);
+  return <div className="category-branch" style={{ "--depth": depth } as CSSProperties}><div className="category-node"><span className="hierarchy-rail" aria-hidden="true" />{category.children.length > 0
+  ? <button type="button" className={`category-mark expandable ${isOpen ? "open" : ""}`} aria-expanded={isOpen} aria-label={`${isOpen ? "Collapse" : "Expand"} ${category.name}`} onClick={() => onToggle(category.id)}><CategoryMark name={marks.get(category.id) || "tag"} size={18} /><span className="mark-expand" aria-hidden="true"><Icon name="chevron" size={10} /></span></button>
+  : <span className="category-mark" aria-hidden="true"><CategoryMark name={marks.get(category.id) || "tag"} size={18} /></span>}<button type="button" className="category-open" onClick={() => onOpen(category.id)}><span><strong>{category.name}</strong><small>{category.total_item_count} item{category.total_item_count === 1 ? "" : "s"} · {category.children.length} child{category.children.length === 1 ? "" : "ren"}</small><em>{categoryOptionLabel(category)}</em></span></button><details className="category-row-menu"><summary aria-label={`Actions for ${category.name}`} title="Category actions"><Icon name="more" size={18} /></summary><div onClick={(event) => { if ((event.target as HTMLElement).closest("button:not(:disabled)")) event.currentTarget.closest("details")?.removeAttribute("open"); }}><button type="button" aria-label={`Change the icon for ${category.name}`} onClick={() => onMark(category)}><Icon name="spark" size={14} /><span>Change icon</span></button><button type="button" aria-label={`Edit ${category.name}`} onClick={() => onEdit(category)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={busy || !canDelete} aria-label={`Delete ${category.name}`} title={canDelete ? "Delete category" : "Move children and items first"} onClick={() => onDelete(category)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" aria-label={`Delete ${category.name} subtree`} disabled={busy} onClick={() => onDeleteTree(category)}><Icon name="close" size={14} /><span>Subtree</span></button></div></details></div>{isOpen && category.children.map((child) => <CategoryBranch key={child.id} category={child} marks={marks} busy={busy} depth={depth + 1} expanded={expanded} onToggle={onToggle} onOpen={onOpen} onMark={onMark} onEdit={onEdit} onDelete={onDelete} onDeleteTree={onDeleteTree} />)}</div>;
 }

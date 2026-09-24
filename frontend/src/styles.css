@@ -2968,3 +2968,13 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 @supports (-webkit-touch-callout: none) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: max(16px, 1em) !important; }
 }
+
+
+/* Tapping a place's or category's icon opens what is inside it right in the list; the
+   small arrow on the icon says there is something to open and turns when it is. */
+.category-mark.expandable { position: relative; cursor: pointer; }
+.category-mark .mark-expand { position: absolute; right: -4px; bottom: -4px; display: grid; width: 15px; height: 15px; place-items: center; border: 1px solid var(--line); border-radius: 999px; color: var(--accent-dark); background: var(--card); transition: transform .15s; }
+.category-mark.expandable.open .mark-expand { transform: rotate(90deg); }
+.category-mark.expandable.open { border-color: var(--accent); background: var(--accent-soft); }
+span.category-mark { cursor: default; }
+.category-branch .category-branch, .location-branch .location-branch { margin-top: 6px; padding-left: 14px; }
