@@ -1,47 +1,47 @@
 {
-  "_CategoryValueInputs-DeLwXSvd.js": {
-    "file": "assets/CategoryValueInputs-DeLwXSvd.js",
+  "_CategoryValueInputs-CLVDo0z5.js": {
+    "file": "assets/CategoryValueInputs-CLVDo0z5.js",
     "name": "CategoryValueInputs",
     "imports": [
       "index.html",
-      "_extensionApi-BI0i9uKp.js"
+      "_extensionApi-CZkoeJkn.js"
     ]
   },
-  "_HierarchyPicker-CguGt8Ze.js": {
-    "file": "assets/HierarchyPicker-CguGt8Ze.js",
+  "_HierarchyPicker-nI5AgE5T.js": {
+    "file": "assets/HierarchyPicker-nI5AgE5T.js",
     "name": "HierarchyPicker",
     "imports": [
       "index.html"
     ]
   },
-  "_PlaceTrees-BsJ6QCU1.js": {
-    "file": "assets/PlaceTrees-BsJ6QCU1.js",
+  "_PlaceTrees-ApasuNXO.js": {
+    "file": "assets/PlaceTrees-ApasuNXO.js",
     "name": "PlaceTrees",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_extensionApi-BI0i9uKp.js",
+      "_extensionApi-CZkoeJkn.js",
       "_strictJson-CiftuHHs.js",
-      "_HierarchyPicker-CguGt8Ze.js"
+      "_HierarchyPicker-nI5AgE5T.js"
     ]
   },
-  "_TargetChoices-CHdqQ43r.js": {
-    "file": "assets/TargetChoices-CHdqQ43r.js",
+  "_TargetChoices-C2hr_nPW.js": {
+    "file": "assets/TargetChoices-C2hr_nPW.js",
     "name": "TargetChoices",
     "imports": [
       "index.html"
     ]
   },
-  "_TargetEditor-DRsia9r_.js": {
-    "file": "assets/TargetEditor-DRsia9r_.js",
+  "_TargetEditor-C-VqMcLk.js": {
+    "file": "assets/TargetEditor-C-VqMcLk.js",
     "name": "TargetEditor",
     "imports": [
       "index.html",
-      "_HierarchyPicker-CguGt8Ze.js"
+      "_HierarchyPicker-nI5AgE5T.js"
     ]
   },
-  "_extensionApi-BI0i9uKp.js": {
-    "file": "assets/extensionApi-BI0i9uKp.js",
+  "_extensionApi-CZkoeJkn.js": {
+    "file": "assets/extensionApi-CZkoeJkn.js",
     "name": "extensionApi",
     "imports": [
       "index.html"
@@ -51,15 +51,15 @@
     "file": "assets/strictJson-CiftuHHs.js",
     "name": "strictJson"
   },
-  "_useDeviceDraft-YMqKArLA.js": {
-    "file": "assets/useDeviceDraft-YMqKArLA.js",
+  "_useDeviceDraft-I3VIOydI.js": {
+    "file": "assets/useDeviceDraft-I3VIOydI.js",
     "name": "useDeviceDraft",
     "imports": [
       "index.html"
     ]
   },
   "index.html": {
-    "file": "assets/index-BZDHT1Eq.js",
+    "file": "assets/index-BCMfrA_R.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -76,16 +76,16 @@
       "src/features/manage/AIScanInboxView.tsx",
       "src/features/manage/DefaultRulesView.tsx",
       "src/features/manage/OffCategoryMappingsView.tsx",
-      "_PlaceTrees-BsJ6QCU1.js",
+      "_PlaceTrees-ApasuNXO.js",
       "src/features/places/PlacesView.tsx",
       "src/features/places/PlacesView.tsx",
-      "_PlaceTrees-BsJ6QCU1.js",
+      "_PlaceTrees-ApasuNXO.js",
       "src/features/places/PlacesView.tsx",
       "src/features/capture/ScanView.tsx",
       "src/features/printing/PrintQueueDialog.tsx"
     ],
     "css": [
-      "assets/index-Dtl-BOSy.css"
+      "assets/index-CL1rFwM1.css"
     ]
   },
   "node_modules/@zxing/browser/esm/index.js": {
@@ -104,7 +104,7 @@
     "isDynamicEntry": true
   },
   "src/features/analytics/AnalyticsView.tsx": {
-    "file": "assets/AnalyticsView-BvwVU1Y5.js",
+    "file": "assets/AnalyticsView-DyVVg5OJ.js",
     "name": "AnalyticsView",
     "src": "src/features/analytics/AnalyticsView.tsx",
     "isDynamicEntry": true,
@@ -113,16 +113,16 @@
     ]
   },
   "src/features/capture/ScanView.tsx": {
-    "file": "assets/ScanView-C0u3J56y.js",
+    "file": "assets/ScanView-BBdx6JH5.js",
     "name": "ScanView",
     "src": "src/features/capture/ScanView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_useDeviceDraft-YMqKArLA.js",
-      "_CategoryValueInputs-DeLwXSvd.js",
-      "_HierarchyPicker-CguGt8Ze.js",
-      "_extensionApi-BI0i9uKp.js"
+      "_useDeviceDraft-I3VIOydI.js",
+      "_CategoryValueInputs-CLVDo0z5.js",
+      "_HierarchyPicker-nI5AgE5T.js",
+      "_extensionApi-CZkoeJkn.js"
     ],
     "dynamicImports": [
       "node_modules/@zxing/browser/esm/index.js",
@@ -130,7 +130,7 @@
     ]
   },
   "src/features/data-tools/DataView.tsx": {
-    "file": "assets/DataView-CZBlQnYk.js",
+    "file": "assets/DataView-D9a3rSz4.js",
     "name": "DataView",
     "src": "src/features/data-tools/DataView.tsx",
     "isDynamicEntry": true,
@@ -140,24 +140,24 @@
     ]
   },
   "src/features/items/ItemDetail.tsx": {
-    "file": "assets/ItemDetail-BYLN2eRH.js",
+    "file": "assets/ItemDetail-3fge1RHK.js",
     "name": "ItemDetail",
     "src": "src/features/items/ItemDetail.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_useDeviceDraft-YMqKArLA.js",
-      "_CategoryValueInputs-DeLwXSvd.js",
-      "_extensionApi-BI0i9uKp.js",
-      "_TargetChoices-CHdqQ43r.js",
-      "_HierarchyPicker-CguGt8Ze.js",
+      "_useDeviceDraft-I3VIOydI.js",
+      "_CategoryValueInputs-CLVDo0z5.js",
+      "_extensionApi-CZkoeJkn.js",
+      "_TargetChoices-C2hr_nPW.js",
+      "_HierarchyPicker-nI5AgE5T.js",
       "src/features/places/PlacesView.tsx",
-      "_PlaceTrees-BsJ6QCU1.js",
+      "_PlaceTrees-ApasuNXO.js",
       "_strictJson-CiftuHHs.js"
     ]
   },
   "src/features/manage/AIScanInboxView.tsx": {
-    "file": "assets/AIScanInboxView-B2JPCiez.js",
+    "file": "assets/AIScanInboxView-CHUR1UdH.js",
     "name": "AIScanInboxView",
     "src": "src/features/manage/AIScanInboxView.tsx",
     "isDynamicEntry": true,
@@ -166,7 +166,7 @@
     ]
   },
   "src/features/manage/DefaultRulesView.tsx": {
-    "file": "assets/DefaultRulesView-B4-rLYME.js",
+    "file": "assets/DefaultRulesView-AQsG2SfY.js",
     "name": "DefaultRulesView",
     "src": "src/features/manage/DefaultRulesView.tsx",
     "isDynamicEntry": true,
@@ -175,7 +175,7 @@
     ]
   },
   "src/features/manage/InventoryManagementView.tsx": {
-    "file": "assets/InventoryManagementView-DN_UiBSX.js",
+    "file": "assets/InventoryManagementView-BaJZGFfn.js",
     "name": "InventoryManagementView",
     "src": "src/features/manage/InventoryManagementView.tsx",
     "isDynamicEntry": true,
@@ -184,7 +184,7 @@
     ]
   },
   "src/features/manage/ManageView.tsx": {
-    "file": "assets/ManageView-BbJqDvkf.js",
+    "file": "assets/ManageView-DXL8-vfQ.js",
     "name": "ManageView",
     "src": "src/features/manage/ManageView.tsx",
     "isDynamicEntry": true,
@@ -193,79 +193,79 @@
     ]
   },
   "src/features/manage/OffCategoryMappingsView.tsx": {
-    "file": "assets/OffCategoryMappingsView-D3h2ksj7.js",
+    "file": "assets/OffCategoryMappingsView-BRSETZcX.js",
     "name": "OffCategoryMappingsView",
     "src": "src/features/manage/OffCategoryMappingsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_HierarchyPicker-CguGt8Ze.js"
+      "_HierarchyPicker-nI5AgE5T.js"
     ]
   },
   "src/features/places/PlacesView.tsx": {
-    "file": "assets/PlacesView-OsJekuKm.js",
+    "file": "assets/PlacesView-Boj6Bci3.js",
     "name": "PlacesView",
     "src": "src/features/places/PlacesView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_PlaceTrees-BsJ6QCU1.js",
-      "_extensionApi-BI0i9uKp.js",
+      "_PlaceTrees-ApasuNXO.js",
+      "_extensionApi-CZkoeJkn.js",
       "_strictJson-CiftuHHs.js",
-      "_HierarchyPicker-CguGt8Ze.js"
+      "_HierarchyPicker-nI5AgE5T.js"
     ]
   },
   "src/features/planning/CompatibilityView.tsx": {
-    "file": "assets/CompatibilityView-ByBNx20S.js",
+    "file": "assets/CompatibilityView-CJu4vDR1.js",
     "name": "CompatibilityView",
     "src": "src/features/planning/CompatibilityView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_extensionApi-BI0i9uKp.js",
-      "_TargetEditor-DRsia9r_.js",
-      "_HierarchyPicker-CguGt8Ze.js"
+      "_extensionApi-CZkoeJkn.js",
+      "_TargetEditor-C-VqMcLk.js",
+      "_HierarchyPicker-nI5AgE5T.js"
     ]
   },
   "src/features/planning/ProjectDetailView.tsx": {
-    "file": "assets/ProjectDetailView-gGTKEpcs.js",
+    "file": "assets/ProjectDetailView-DGswWBTY.js",
     "name": "ProjectDetailView",
     "src": "src/features/planning/ProjectDetailView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_useDeviceDraft-YMqKArLA.js",
-      "_extensionApi-BI0i9uKp.js",
-      "_TargetChoices-CHdqQ43r.js",
+      "_useDeviceDraft-I3VIOydI.js",
+      "_extensionApi-CZkoeJkn.js",
+      "_TargetChoices-C2hr_nPW.js",
       "_strictJson-CiftuHHs.js"
     ]
   },
   "src/features/planning/ProjectsView.tsx": {
-    "file": "assets/ProjectsView-gsEsh0W7.js",
+    "file": "assets/ProjectsView-DhgOZ58x.js",
     "name": "ProjectsView",
     "src": "src/features/planning/ProjectsView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_useDeviceDraft-YMqKArLA.js",
-      "_extensionApi-BI0i9uKp.js",
-      "_TargetChoices-CHdqQ43r.js"
+      "_useDeviceDraft-I3VIOydI.js",
+      "_extensionApi-CZkoeJkn.js",
+      "_TargetChoices-C2hr_nPW.js"
     ]
   },
   "src/features/planning/TargetDetailView.tsx": {
-    "file": "assets/TargetDetailView-Cuft_NpF.js",
+    "file": "assets/TargetDetailView-CvMB4Mv1.js",
     "name": "TargetDetailView",
     "src": "src/features/planning/TargetDetailView.tsx",
     "isDynamicEntry": true,
     "imports": [
       "index.html",
-      "_extensionApi-BI0i9uKp.js",
-      "_TargetEditor-DRsia9r_.js",
-      "_HierarchyPicker-CguGt8Ze.js"
+      "_extensionApi-CZkoeJkn.js",
+      "_TargetEditor-C-VqMcLk.js",
+      "_HierarchyPicker-nI5AgE5T.js"
     ]
   },
   "src/features/printing/PrintQueueDialog.tsx": {
-    "file": "assets/PrintQueueDialog-BdK44ISw.js",
+    "file": "assets/PrintQueueDialog-BV6mvhj1.js",
     "name": "PrintQueueDialog",
     "src": "src/features/printing/PrintQueueDialog.tsx",
     "isDynamicEntry": true,

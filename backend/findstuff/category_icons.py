@@ -96,7 +96,8 @@ KEYWORD_ICONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     )),
     ("camera", ("photograph", "fotograf", "camera", "lens", "obiettiv")),
     ("pencil", (
-        "stationery", "cancelleria", "pen ", "pencil", "notebook", "quadern", "office", "ufficio"
+        "stationery", "cancelleria", "pen ", "pens", "pencil", "marker", "notebook", "quadern",
+        "office", "ufficio", "highlighter", "evidenziat"
     )),
     ("book", ("book", "libri", "bookbinding", "legatoria", "binding", "manual")),
     ("spool", ("thread", "filo", "yarn", "sewing", "cucito", "wool", "lana", "ribbon")),
@@ -244,7 +245,7 @@ KEYWORD_ICONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("bug", ("pest", "insett", "parassit", "repellent", "trap")),
     ("bulb", ("grow light", "lamp", "lampad", "lighting", "luce", "led strip", "light")),
     ("shovel", ("gardening tool", "spade", "shovel", "pala", "rake", "trowel")),
-    ("tag", ("label", "etichett", "marker", "tagging")),
+    ("tag", ("label", "etichett", "tagging")),
     ("leaf", ("garden", "giardin", "plant", "piant", "flower", "fiori", "outdoor", "herb")),
     # Anything else keeps the neutral mark.
 )

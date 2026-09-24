@@ -14,13 +14,15 @@ import {
   type BackupPreview,
 } from "../../api";
 import { Icon } from "../../components/Icon";
+import { OfflineDownload } from "../shell/OfflineDownload";
 
-export function DataView({ categories, locations, busy, onBack, onChanged, setNotice }: {
+export function DataView({ categories, locations, busy, offline, onBack, onChanged, setNotice }: {
   categories: Category[];
   locations: LocationNode[];
   locationTypes: LocationType[];
   units: string[];
   busy: boolean;
+  offline: boolean;
   onBack: () => void;
   onChanged: () => Promise<void>;
   setNotice: (message: string) => void;
@@ -159,6 +161,7 @@ export function DataView({ categories, locations, busy, onBack, onChanged, setNo
     <header className="workspace-header"><button className="text-button workspace-back" onClick={onBack}><Icon name="chevron" size={16} />More</button><h1 className="eyebrow">DATA</h1></header>
     {loadErrors.map((section) => <p className="error-banner" role="alert" key={section}>{section} could not load. <button onClick={() => void load()}>Retry</button></p>)}
     {activity && <div className="inline-activity" role="status"><span className="activity-spinner" />{activity}</div>}
+    <OfflineDownload offline={offline} />
     <div className="data-overview"><article><Icon name="check" /><span><small>Automatic backups</small><strong>{backup?.enabled ? `${backup.backup_count} saved` : "Not configured"}</strong></span></article><article><Icon name="spark" /><span><small>Last backup</small><strong>{backup?.last_backup_at ? new Date(backup.last_backup_at).toLocaleString() : "None yet"}</strong></span></article><article><Icon name="qr" /><span><small>Undoable imports</small><strong>{batches.filter((entry) => !entry.undone_at).length}</strong></span></article></div>
     <section className="workspace-card recovery-status"><h2>Recovery status</h2><dl><dt>Automatic backup destination</dt><dd>{backup?.destination || "Unavailable"}</dd><dt>Contents</dt><dd>Database, photos and documents. Passwords and external service credentials are excluded.</dd><dt>Off-device recovery copy</dt><dd>Not verified. Download a full backup and keep it on a different device or storage service.</dd><dt>Last recorded restore</dt><dd>{backup?.last_restore?.status === "complete" ? backup.last_restore.message || "Completed" : "No completed restore recorded"}</dd><dt>Host-loss recovery drill</dt><dd>Not recorded. Backup creation does not prove recovery on another machine.</dd></dl></section>
     {restoreError && <p className="error-banner" role="alert">{restoreError}</p>}

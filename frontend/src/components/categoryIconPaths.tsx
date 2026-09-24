@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 /** Line art for category marks: 24×24, stroke only, drawn to read clearly at 20px. */
 export const CATEGORY_ICON_PATHS = {
+  cable: <><rect x="3" y="9.5" width="5" height="5" rx="1"/><path d="M8 12h2.5"/><path d="M10.5 12c2 0 2 -4 4 -4s2 4 4 4"/><circle cx="19.5" cy="12" r="1.6"/><path d="M5.5 9.5v-2M5.5 16.5v-2"/></>,
   battery: <><rect x="3" y="7" width="15" height="10" rx="2"/><path d="M20 10.5v3"/><path d="M6.5 15v-3M9.5 15v-5M12.5 15v-6.5"/><path d="M4.5 7.8h10"/></>,
   flashlight: <><path d="M4 9h6v6H4z"/><path d="M10 8l6-2.5v13L10 16z"/><circle cx="7" cy="12" r="0.9"/><path d="M18 9l2-1.5M18 15l2 1.5M19.5 12h1.5"/><path d="M5.5 10.5h3M5.5 13.5h3"/></>,
   gamepad: <><path d="M6 9h12l2 3v4a2 2 0 0 1-3.5 1.3L15 16H9l-1.5 1.3A2 2 0 0 1 4 14v-4z"/><path d="M8 11v4M6 13h4"/><circle cx="16" cy="11.5" r="1"/><circle cx="18.3" cy="14" r="1"/></>,

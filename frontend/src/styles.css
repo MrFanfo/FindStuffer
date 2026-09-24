@@ -1670,7 +1670,7 @@ kbd { border: 1px solid var(--line-strong); border-radius: 6px; padding: 3px 6px
 .theme-preview.system { background: linear-gradient(120deg, #f6f7f4 0 48%, #111916 48% 62%, #55a9a1 62%); }
 
 /* Frequent controls get forgiving touch targets. */
-.location-node-actions button, .category-actions button, .qr-link, .tree-toggle, .tag-list button, .event button { min-width: 44px; min-height: 44px; }
+.location-node-actions button, .category-actions button, .qr-link, .tree-toggle, .event button { min-width: 44px; min-height: 44px; }
 button, a, summary, label { touch-action: manipulation; }
 button, a, input, select, textarea, summary { transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .12s ease; }
 button:active:not(:disabled) { transform: scale(.98); }
@@ -2731,3 +2731,29 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
   .document-card { padding: 10px; gap: 8px; }
   .document-card .danger, .document-card button:last-child { min-height: 34px; padding: 0 10px; font-size: .72rem; }
 }
+
+/* Tags close the overview rather than interrupting it, so they read as a quiet
+   footer of chips rather than a section of buttons. */
+.tag-section .section-heading h2 { font-size: .74rem; font-family: inherit; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.tag-section .section-heading { margin-bottom: 6px; }
+.tag-list button { min-height: 34px; border-radius: 999px; padding: 0 10px; font-size: .76rem; }
+.tag-list button:hover { transform: none; }
+@media (max-width: 699px) {
+  .tag-list button, .location-node-actions button.tag-chip { min-width: 0; min-height: 34px; }
+  .tag-list { gap: 6px; }
+}
+
+/* The More tab reads as grouped rows of actions rather than a field of buttons. */
+.more-panel .action-group { padding: 12px; }
+.action-rows { display: grid; gap: 6px; }
+.action-rows button { display: grid; align-items: center; gap: 10px; grid-template-columns: auto minmax(0, 1fr) auto; min-height: 56px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; color: var(--ink); text-align: left; background: var(--card); }
+.action-rows button:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.action-rows button:disabled { color: var(--muted); background: var(--card-alt); }
+.action-rows button > span { display: grid; min-width: 0; gap: 1px; }
+.action-rows strong { font-size: .88rem; }
+.action-rows small { overflow: hidden; color: var(--muted); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.action-rows button.danger { border-color: #e0b4aa; color: var(--danger); }
+.action-rows button.danger small { color: #a4675b; }
+.action-group.is-lost { border-color: #e3ba9e; }
+.more-panel .qr-section { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.more-panel .qr-section img { width: min(200px, 60vw); height: auto; }

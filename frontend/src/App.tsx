@@ -1141,7 +1141,7 @@ function App() {
           }}
           onItem={(id) => void api.item(id).then(setSelectedItem)}
         />}
-        {view === "data" && <DataView categories={categories} locations={locations} locationTypes={locationTypes} units={units} busy={busy} onBack={() => navigate("extra")} onChanged={() => refresh()} setNotice={setNotice} />}
+        {view === "data" && <DataView categories={categories} locations={locations} locationTypes={locationTypes} units={units} busy={busy} offline={offlineMode} onBack={() => navigate("extra")} onChanged={() => refresh()} setNotice={setNotice} />}
         {view === "inventory-management" && <InventoryManagementView items={items} categories={categories} busy={busy} onBack={() => navigate("extra")} onChanged={() => refresh()} onOpenItem={setSelectedItem} onMarkFound={(item) => setItemLost(item, false)} onForeverLost={foreverLost} setNotice={setNotice} />}
         {view === "manage" && (
           <ManageView items={items} dashboard={dashboard} locations={locations} categories={categories} locationTypes={locationTypes} units={units} busy={busy} theme={theme} setNotice={setNotice} notify={notify} onBack={() => navigate("extra")} onThemeChange={setTheme} onInventoryChanged={() => refresh()} onLocations={() => { setPlacesSection("locations"); navigate("places"); }} onCategories={() => { setPlacesSection("categories"); navigate("places"); }} onDefaultRules={() => navigate("default-rules")} onOffCategoryMappings={() => navigate("off-category-mappings")} onInbox={() => navigate("ai-inbox")} onUnitsChanged={setUnits} />

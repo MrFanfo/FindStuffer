@@ -44,7 +44,7 @@ export function ItemStructuredData({ item, editing = false, relatedEnabled = tru
     {!editing && properties.length > 0 && <section className="detail-section structured-item-data">
       <div className="section-heading"><div><h2>Properties</h2><span>{properties.length} recorded</span></div></div>
       <dl className="fact-rows">{properties.map(({ field, value }) => <div className="fact-row" key={field.public_id}>
-        <dt>{field.label}{field.inherited && <em title={`Inherited from ${field.source_category_path}`}>inherited</em>}</dt>
+        <dt>{field.label}</dt>
         <dd>{typeof value === 'boolean' ? value ? 'Yes' : 'No' : String(value)}{field.unit ? <small>{field.unit}</small> : null}</dd>
       </div>)}</dl>
     </section>}

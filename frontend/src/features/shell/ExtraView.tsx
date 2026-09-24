@@ -1,4 +1,3 @@
-import { OfflineDownload } from "./OfflineDownload";
 import { OfflineOperation } from "../../offline";
 import { Icon } from "../../components/Icon";
 
@@ -37,7 +36,6 @@ export function ExtraView({
       <button type="button" className="extra-tool-card inventory-management" onClick={onInventoryManagement}><span><Icon name="box" size={24} /></span><div><strong>Archive &amp; loans</strong><small>Lost and archived items, projects, reservations, and borrowed or lent records.</small></div><Icon name="chevron" size={18} /></button>
       <button type="button" className="extra-tool-card" onClick={onSettings}><span><Icon name="settings" size={24} /></span><div><strong>Settings</strong><small>Appearance, security, notifications, integrations, customization, and system information.</small></div><Icon name="chevron" size={18} /></button>
     </div>
-    <OfflineDownload offline={offlineMode} />
     <section className="offline-queue-card">
       <header><div><p className="eyebrow">PWA OFFLINE CAPTURE</p><h2>{offlineOperations.length ? `${offlineOperations.length} change${offlineOperations.length === 1 ? "" : "s"} waiting` : "No pending changes on this device"}</h2></div><b className={offlineMode ? "offline" : "ready"}>{offlineMode ? "Offline" : "Online"}</b></header>
       <p>Add Items—with compressed photos—and adjust quantities while Findstuff is unreachable. This device synchronizes them in order after reconnecting.</p>
