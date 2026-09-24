@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Category, LocationNode } from "../api";
 import { Icon } from "./Icon";
@@ -93,7 +94,9 @@ export function HierarchyPicker({
     onClose();
   }
 
-  return (
+  // Drawn at the top of the page, so nothing on the screen underneath (such as an
+  // item's fixed action bar) can sit above it.
+  return createPortal(
     <div
       className="modal-backdrop picker-backdrop"
       role="dialog"
@@ -179,5 +182,5 @@ export function HierarchyPicker({
         )}
       </article>
     </div>
-  );
+  , document.body);
 }

@@ -292,7 +292,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .picker-field > span { color: var(--ink-soft); font-size: .72rem; font-weight: 800; }
 .picker-field > button:not(.text-button) { display: flex; width: 100%; min-height: 46px; min-width: 0; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 0 11px; color: var(--ink); text-align: left; background: #fff; }
 .picker-field strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
-.picker-backdrop { z-index: 85; align-items: stretch; padding: 0; }
+.picker-backdrop { z-index: 95; align-items: stretch; padding: 0; }
 .searchable-filter-backdrop.top-layer { z-index: 110; }
 .picker-sheet { display: flex; width: 100%; height: 100dvh; max-height: none; flex-direction: column; gap: 14px; overflow: hidden; border-radius: 0; padding: calc(16px + env(safe-area-inset-top)) 18px calc(18px + env(safe-area-inset-bottom)); background: var(--paper); box-shadow: 0 -20px 60px #13241f2d; }
 .picker-sheet header { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; }
@@ -2926,13 +2926,9 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .contents-row .contents-item em { color: var(--accent-dark); font-size: .72rem; font-style: normal; font-weight: 800; white-space: nowrap; }
 .contents-row.is-container .contents-item em { color: color-mix(in srgb, var(--container) 75%, var(--ink)); }
 .item-contents .contents-out { display: grid; width: 32px; min-width: 32px; min-height: 32px; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: var(--card); }
-.contents-move-out { display: flex; flex-wrap: wrap; align-items: end; gap: 6px; margin: 2px 0 8px; padding: 8px; border-radius: 10px; background: var(--card-alt); }
-.contents-move-out label { flex: 1 1 180px; font-size: .74rem; }
-.contents-move-out select { min-height: 38px; padding: 6px 9px; font-size: .8rem; }
 .contents-none { margin: 6px 0; color: var(--muted); font-size: .76rem; }
 .item-contents .compact-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
-.item-contents .compact-actions button, .contents-move-out button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); font-size: .78rem; font-weight: 750; }
-.contents-move-out button:not([type="button"]) { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
+.item-contents .compact-actions button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); font-size: .78rem; font-weight: 750; }
 
 /* Contents toolbar and panels: add and move-in are small icon buttons beside the summary,
    and what they open is a tidy card under it rather than a stack of bare fields. */

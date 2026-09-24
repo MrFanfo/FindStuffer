@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api, request, flattenLocations, type Item, type LocationNode, type Category } from '../../api';
+import { api, request, type Item, type LocationNode, type Category } from '../../api';
 import { CategoryValueInputs } from '../../components/CategoryValueInputs';
+import { HierarchyPicker, locationPickerNodes } from '../../components/HierarchyPicker';
 import { Icon } from '../../components/Icon';
 
 type Contents = { items: Item[]; total: number; quantities_by_unit: Record<string, string> };
@@ -15,7 +16,6 @@ export function ItemContents({ item, editing, locations, categories, onChanged }
   const [fields, setFields] = useState<Record<string, unknown>>({});
   const [movingOut, setMovingOut] = useState<Item | null>(null);
   const [filter, setFilter] = useState('');
-  const [destination, setDestination] = useState(item.location_public_id);
   const reload = () => request<Contents>(`/api/v1/items/${item.public_id}/contents`).then(setContents);
   useEffect(() => { if (item.is_container) void reload().catch(e => setError(String(e))); }, [item.public_id, item.version, item.is_container]);
   useEffect(() => {
@@ -35,7 +35,6 @@ export function ItemContents({ item, editing, locations, categories, onChanged }
   if (!editing && !item.is_container && !item.container_item_id) return null;
   // The chain runs from the immediate container outwards.
   const parent = item.container_chain?.[0];
-  const moveOutForm = movingOut && <form className="contents-move-out" onSubmit={event => { event.preventDefault(); void perform(() => api.updateItem(movingOut, { container_item_id: null, location_public_id: destination })); }}><label>Move {movingOut.name} to<select value={destination} onChange={event => setDestination(event.target.value)}>{flattenLocations(locations).map(location => <option key={location.public_id} value={location.public_id}>{location.path}</option>)}</select></label><button disabled={busy}>Move here</button><button type="button" onClick={() => setMovingOut(null)}>Cancel</button></form>;
   const needle = filter.trim().toLowerCase();
   const shownContents = contents ? contents.items.filter((child) => !needle || `${child.name} ${child.category_path || ''}`.toLowerCase().includes(needle)) : [];
   const panels = <>
@@ -78,13 +77,12 @@ export function ItemContents({ item, editing, locations, categories, onChanged }
               <span className="contents-copy"><strong>{child.name}</strong><small title={category}>{category.split(' > ').pop()}{low && <b> · Low</b>}</small></span>
               <em>{child.is_container ? `${child.contents_count ?? 0} inside` : `${child.quantity} ${child.unit}`}</em>
             </a>
-            <button type="button" className="contents-out" disabled={busy} aria-label={`Move ${child.name} out`} title="Move out" onClick={() => { setMovingOut(movingOut?.public_id === child.public_id ? null : child); setDestination(item.location_public_id); }}><Icon name="pin" size={15} /></button>
+            <button type="button" className="contents-out" disabled={busy} aria-label={`Move ${child.name} out`} title="Move out" onClick={() => setMovingOut(child)}><Icon name="pin" size={15} /></button>
           </article>
-          {movingOut?.public_id === child.public_id && moveOutForm}
         </div>;
       })}{shownContents.length === 0 && <p className="contents-none">Nothing inside matches “{filter}”.</p>}</div>
     </>}
-    {movingOut?.public_id === item.public_id && moveOutForm}
+    {movingOut && <HierarchyPicker title={`Move ${movingOut.name} out`} nodes={locationPickerNodes(locations)} selectedId={item.location_public_id} emptyLabel="No places inside this one" chooseLabel="Move here" currentChooseLabel="Move here" onChoose={(id) => { const leaving = movingOut; setMovingOut(null); void perform(() => api.updateItem(leaving, { container_item_id: null, location_public_id: id })); }} onClose={() => setMovingOut(null)} />}
     {error && <p role="alert">{error}</p>}
   </section>;
 }
