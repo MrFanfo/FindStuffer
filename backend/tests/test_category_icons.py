@@ -36,6 +36,22 @@ def test_suggest_reads_the_category_before_its_ancestors() -> None:
     assert suggest("Garden > Seeds") == "seeds"
 
 
+def test_a_grouping_word_gives_way_to_the_thing_itself() -> None:
+    # "Components" only records that diodes were filed together.
+    assert suggest("Electronics > Electronic Components > Diode Components") == "diode"
+    assert suggest("Electronics > Passive Components > Resistor Components") == "resistor"
+    assert suggest("Home > Raw Materials > Plywood Sheets") == "wood"
+
+
+def test_the_categorys_own_name_outranks_its_branch() -> None:
+    # "Electronics" sits above these, but each name says what it holds.
+    assert suggest("Electronics > Flashlights") == "flashlight"
+    assert suggest("Electronics > Portable Power") == "plug"
+    assert suggest("Electronics > Electronic Boards") == "pcb"
+    # A name that says nothing falls back to the branch.
+    assert suggest("Tools > Bits and bobs") == "wrench"
+
+
 def test_suggest_matches_whole_words_only() -> None:
     # "cord" must not be found inside "Ricordi", nor "pot" inside "potatoes".
     assert suggest("Ricordi di famiglia") == "tag"

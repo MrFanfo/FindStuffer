@@ -82,7 +82,7 @@ KEYWORD_ICONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     )),
     ("plug", ("power", "charger", "adapter", "alimentazione", "psu", "supply", "outlet", "presa")),
     # Hobbies and making
-    ("printer3d", ("3d print", "3d-print", "filament", "resin print", "stampa 3d")),
+    ("printer3d", ("3d print", "3d-print", "resin print", "stampa 3d")),
     ("drone", ("drone", "quadcopter", "rc and", "rc ", "radio control")),
     ("plane", ("model making", "modell", "aeroplane", "airplane", "scale model")),
     ("cube3", ("rubik", "cube", "speedcube", "puzzle")),
@@ -101,6 +101,86 @@ KEYWORD_ICONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("book", ("book", "libri", "bookbinding", "legatoria", "binding", "manual")),
     ("spool", ("thread", "filo", "yarn", "sewing", "cucito", "wool", "lana", "ribbon")),
     ("spark", ("maker project", "hobby", "hobbies", "project")),
+    # Tools: the named tool before the workshop it lives in.
+    ("pliers", ("plier", "pinze", "tronchese", "nipper", "crimper", "crimping")),
+    ("hexkey", ("hex key", "allen", "brugola", "torx")),
+    ("socket", ("socket", "bussol", "ratchet set")),
+    ("ratchet", ("ratchet", "cricchett")),
+    ("mallet", ("mallet", "mazzuol")),
+    ("chisel", ("chisel", "scalpell", "carving")),
+    ("saw", ("saw", "sega", "seghett", "hacksaw", "blade tool")),
+    ("tweezers", ("tweezer", "pinzett", "esd tool")),
+    ("heatgun", ("heat gun", "hot air", "pistola termic")),
+    ("gluegun", ("glue gun", "hot glue", "pistola colla")),
+    ("torch", ("torch tool", "blow torch", "soldering torch", "butane")),
+    ("whetstone", ("sharpen", "affilat", "whetstone", "honing", "strop")),
+    ("oilcan", ("lubricant", "lubrificant", "oil can", "grease", "wd40", "wd-40")),
+    ("caliper", ("caliper", "calibro", "micrometer", "micrometro")),
+    ("tapemeasure", ("tape measure", "metro a nastro", "measuring tape")),
+    ("square", ("set square", "squadra", "try square", "angle tool")),
+    ("level", ("spirit level", "livella", "bubble level")),
+    ("vise", ("vise", "vice tool", "morsa", "bench vise")),
+    ("tapdie", ("tap and die", "threading", "filettat", "tap set")),
+    ("bitset", ("bit set", "driver bits", "inserti", "screwdriver bits")),
+    ("gear", ("gear", "ingranagg", "pulley", "puleggia", "cog")),
+    ("bearing", ("bearing", "cuscinett", "bushing", "boccol")),
+    ("magnet", ("magnet", "magnete", "magnetic")),
+    ("pump", ("pump", "pompa", "compressor", "compressore", "vacuum")),
+    ("valve", ("valve", "valvola", "regulator gas", "fitting")),
+    ("tube", ("tube", "tubo", "hose tool", "pipe", "tubing", "sleeve")),
+    ("nail", ("nail", "chiodo", "brad", "staple", "graffett")),
+    ("anchor", ("anchor", "tassell", "wall plug", "dowel")),
+    ("hinge", ("hinge", "cerniera", "latch", "catch")),
+    ("caster", ("caster", "rotella", "wheel", "ruota")),
+    ("hook", ("hook", "gancio", "eyelet", "occhiell")),
+    ("hanger", ("hanger", "appendi", "rail", "bracket", "staffa", "mount")),
+    ("ziptie", ("zip tie", "cable tie", "fascett", "wire management")),
+    ("velcro", ("velcro", "hook and loop", "strap", "cinghi")),
+    ("rope", ("rope", "corda", "cord tool", "twine", "spago", "paracord")),
+    ("chain", ("chain", "catena", "link chain")),
+    ("sewing", ("sewing machine", "macchina cucir", "stitch")),
+    ("needle", ("needle", "ago", "aghi", "awl needle", "pin ")),
+    ("sponge", ("sponge", "spugna", "scourer", "pad clean")),
+    ("mop", ("mop", "straccio", "swiffer", "floor clean")),
+    # Making, home and materials
+    ("resin", ("resin", "resina", "epoxy resin", "uv resin", "casting")),
+    ("nozzle", ("nozzle", "ugello", "hotend", "hot end", "extruder")),
+    ("airbrush", ("airbrush", "aerograf")),
+    ("fountainpen", ("fountain pen", "stilograf", "nib", "pennino")),
+    ("ink", ("ink", "inchiostro", "toner", "cartridge", "cartucc")),
+    ("sketchbook", ("sketchbook", "notebook", "quadern", "pad paper", "journal")),
+    ("sticker", ("sticker", "adesiv", "decal")),
+    ("stamp", ("stamp", "timbro", "embossing")),
+    ("dice", ("dice", "dadi gioco", "board game", "tabletop")),
+    ("cards", ("card game", "playing card", "carte da gioco", "trading card")),
+    ("tripod", ("tripod", "treppiede", "gimbal", "stand camera")),
+    ("lens", ("lens", "obiettiv", "filter lens", "macro lens")),
+    ("vinyl", ("vinyl", "htv", "transfer sheet", "cutting mat")),
+    ("robot", ("robot", "robotic", "servo arm", "automation kit")),
+    ("memory", ("ram", "memory stick", "dimm", "sodimm")),
+    ("keyboard", ("keyboard", "tastiera", "keycap", "switches key")),
+    ("mouse", ("mouse", "trackpad", "trackball")),
+    ("smokealarm", ("smoke alarm", "smoke detector", "rilevator fumo", "co detector")),
+    ("extension", ("extension lead", "power strip", "multipresa", "ciabatta")),
+    ("trashbag", ("bin bag", "trash bag", "sacchi", "rubbish", "waste")),
+    ("shears", ("shear", "pruner", "cesoi", "forbici giardin", "secateur")),
+    ("gloves", ("glove", "guant")),
+    ("stake", ("stake", "tutore", "plant support", "trellis")),
+    ("greenhouse", ("greenhouse", "serra", "propagator", "cold frame")),
+    ("sprayer", ("sprayer", "spruzzin", "mister", "nebulizz")),
+    ("rice", ("rice", "riso", "grain", "legume", "pasta dry")),
+    ("coffee", ("coffee", "caffè", "caffe", "espresso", "capsule")),
+    ("tea", ("tea", "tè", "the ", "infus", "herbal tea")),
+    ("wood", ("wood", "legno", "plywood", "compensato", "mdf", "timber", "lumber")),
+    ("metalsheet", ("metal", "metall", "aluminium", "alluminio", "steel", "acciaio", "brass")),
+    ("plastic", ("plastic", "plastica", "abs sheet", "pvc", "petg sheet", "polycarbon")),
+    ("foam", ("foam", "gommapiuma", "sponge sheet", "eva sheet", "padding")),
+    ("fabric", ("fabric", "tessuto", "canvas", "tela", "felt", "feltro")),
+    ("acrylic", ("acrylic sheet", "plexiglass", "perspex", "plexi")),
+    ("cardboard", ("cardboard", "cartone", "corrugated", "chipboard")),
+    ("epoxy", ("epoxy", "epossid", "two part", "bicomponente")),
+    ("filament", ("filament", "pla", "petg", "tpu", "abs spool")),
+    ("apron", ("apron", "grembiul", "workwear", "overall")),
     # Tools
     ("clamp", ("clamp", "vise", "vice", "morsett")),
     ("broom", ("cleaning tool", "broom", "brush tool", "scopa", "dust")),
@@ -169,6 +249,14 @@ KEYWORD_ICONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # Anything else keeps the neutral mark.
 )
 
+# Words that name a grouping rather than a thing. "Diode Components" is about
+# diodes; "component" only records that diodes were filed together.
+GENERIC_WORDS = frozenset({
+    "component", "componenti", "part", "parts", "supplies", "accessor", "kit", "kits",
+    "consumable", "misc", "other", "general", "storage", "material", "sheet", "tool",
+    "attrezz", "board",
+})
+
 _ICON_PATTERN = re.compile(r"^[a-z][a-z0-9]{0,31}$")
 _KEYWORD_PATTERNS: dict[str, re.Pattern[str]] = {}
 
@@ -200,26 +288,27 @@ def suggest(path: str) -> str:
     the branch it hangs under: "Electronics > Electronic Connectors" reaches the
     connector rather than the chip, while "Electronics > Portable Power" reaches
     the plug. Within each, the most specific keyword wins, so "Power Tools" reaches
-    the drill rather than the plug it also matches.
+    the drill rather than the plug it also matches, and a word that only names a
+    grouping, such as "Components", gives way to one that names the thing.
     """
     parts = [part.strip().lower() for part in path.split(">") if part.strip()]
     if not parts:
         return "tag"
     leaf, ancestors = parts[-1], " ".join(parts[:-1])
-    best_icon = "tag"
-    best_score = 0
+    # The category's own name decides whenever it says anything at all; only a
+    # name that names nothing falls back to the branch it hangs under.
+    return _best_match(leaf) or _best_match(ancestors) or "tag"
+
+
+def _best_match(text: str) -> str:
+    best_icon = ""
+    best_score = 0.0
     for icon, keywords in KEYWORD_ICONS:
         for keyword in keywords:
-            pattern = _keyword_pattern(keyword)
-            length = len(keyword.strip())
-            # The leaf names the thing; its ancestors only say where it sits.
-            if pattern.search(leaf):
-                score = length * 2
-            elif pattern.search(ancestors):
-                score = length
-            else:
-                score = 0
-            if score > best_score:
+            plain = keyword.strip()
+            # A grouping word counts for less than one naming the thing itself.
+            score = len(plain) * (0.4 if plain in GENERIC_WORDS else 1.0)
+            if score > best_score and _keyword_pattern(keyword).search(text):
                 best_icon, best_score = icon, score
     return best_icon
 
