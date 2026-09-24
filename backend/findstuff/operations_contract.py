@@ -34,8 +34,8 @@ DATA_FIELDS = {
     + CATEGORY_REFERENCES[1:]
     + LOCATION_REFERENCES[1:]
     + QUANTITY_CHANGES,
-    "category": ("name", *CATEGORY_PARENTS, *CATEGORY_DEFAULTS, *CATEGORY_METADATA),
-    "location": ("name", "kind", "description", *LOCATION_PARENTS),
+    "category": ("name", *CATEGORY_PARENTS, *CATEGORY_DEFAULTS, *CATEGORY_METADATA, "icon"),
+    "location": ("name", "kind", "description", *LOCATION_PARENTS, "icon"),
 }
 ALIASES = {
     "item": (CATEGORY_REFERENCES, LOCATION_REFERENCES, ("quantity", *QUANTITY_CHANGES)),
@@ -328,6 +328,19 @@ def _field_definitions() -> dict[str, dict[str, Any]]:
                     "mutually_exclusive_with": list(group),
                     "required_on_add": False,
                 }
+    for entity in ("category", "location"):
+        definitions[entity]["icon"] = {
+            "type": "string",
+            "maxLength": 32,
+            "description": (
+                f"The small icon drawn beside the {entity}. One of _available_category_icons;"
+                " empty string clears it so the app suggests one. Omitted leaves it unchanged."
+            ),
+            "nullable": False,
+            "modifiable": True,
+            "required_on_add": False,
+            "empty_string_allowed": True,
+        }
     from .inventory import CATEGORY_DATA_FIELDS
 
     for entity, group in (
@@ -624,6 +637,7 @@ def operations_template(connection) -> dict[str, Any]:
         ],
         "_available_units": inventory_units(connection),
         "_available_location_kinds": [row["name"] for row in list_location_types(connection)],
+        "_available_category_icons": _category_icon_names(),
         "_location_kind_descriptions": {
             "room": "Physical room",
             "shelf": "Shelf or rack surface",
@@ -663,6 +677,15 @@ def operations_template(connection) -> dict[str, Any]:
     from .import_template import augment_template
 
     return extend_template(connection, augment_template(template))
+
+
+def _category_icon_names() -> list[str]:
+    from .category_marks import list_marks
+
+    try:
+        return list_marks()
+    except OSError:
+        return []
 
 
 def operational_guidelines():

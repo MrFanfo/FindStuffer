@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from .category_icons import is_icon_name
 from .db import transaction
 from .inventory import (
     CATEGORY_DATA_FIELDS,
@@ -1646,6 +1647,15 @@ def _operations_preview(
             preview_connection.close()
 
 
+
+def _sync_category_icon(
+    connection: sqlite3.Connection, category_id: int, data: dict[str, Any]
+) -> None:
+    """Sets the category's icon when the operation names one; omitted leaves it alone."""
+    if "icon" in data:
+        update_category(connection, category_id, {"icon": str(data["icon"] or "")})
+
+
 def _apply_category_operation(
     connection: sqlite3.Connection, op: str, operation: dict[str, Any]
 ) -> bool | int:
@@ -1666,8 +1676,10 @@ def _apply_category_operation(
                     _category_default_location_from_data(connection, data),
                 )
             _sync_category_metadata(connection, int(existing["id"]), data)
+            _sync_category_icon(connection, int(existing["id"]), data)
             return False
         created = create_category(connection, name, parent_id)
+        _sync_category_icon(connection, int(created["id"]), data)
         if _category_default_location_seen(data):
             _sync_category_default_location(
                 connection,
@@ -1687,6 +1699,8 @@ def _apply_category_operation(
         changes["name"] = data["name"]
     if any(key in data for key in ("parent_id", "parent", "parent_path", "parent_name")):
         changes["parent_id"] = _category_parent_from_data(connection, data)
+    if "icon" in data:
+        changes["icon"] = str(data["icon"] or "")
     updated = update_category(connection, category_id, changes)
     if _category_default_location_seen(data):
         _sync_category_default_location(
@@ -1722,12 +1736,16 @@ def _apply_location_operation(
                 "parent_public_id": parent_public_id,
             },
         )
+        if "icon" in data:
+            update_location(connection, created["public_id"], {"icon": str(data["icon"] or "")})
         return str(created["public_id"])
     public_id = _location_public_id_from_match(connection, match)
     if op == "delete":
         delete_location(connection, public_id)
         return True
     changes = {key: data[key] for key in ("name", "kind", "description") if key in data}
+    if "icon" in data:
+        changes["icon"] = str(data["icon"] or "")
     if any(key in data for key in ("parent_public_id", "parent", "parent_path", "parent_name")):
         changes["parent_public_id"] = _parent_location_from_data(connection, data)
     update_location(connection, public_id, changes)
@@ -2106,19 +2124,29 @@ def _apply_import_merge_untracked(
                 existing = connection.execute(
                     "SELECT id FROM categories WHERE slug = ?", (row["slug"],)
                 ).fetchone()
+                exported_icon = str(row.get("icon") or "")
+                if exported_icon and not is_icon_name(exported_icon):
+                    exported_icon = ""
                 if existing:
                     local_id = existing["id"]
+                    # An icon chosen here is kept; one missing here is filled from the file.
+                    if exported_icon:
+                        connection.execute(
+                            "UPDATE categories SET icon = ? WHERE id = ? AND icon = ''",
+                            (exported_icon, local_id),
+                        )
                 else:
                     cursor = connection.execute(
                         """
-                        INSERT INTO categories(parent_id, name, slug, sort_order)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO categories(parent_id, name, slug, sort_order, icon)
+                        VALUES (?, ?, ?, ?, ?)
                         """,
                         (
                             category_ids.get(parent_old),
                             row["name"],
                             row["slug"],
                             row.get("sort_order", 0),
+                            exported_icon,
                         ),
                     )
                     local_id = cursor.lastrowid
@@ -2148,13 +2176,22 @@ def _apply_import_merge_untracked(
                 existing = connection.execute(
                     "SELECT id FROM locations WHERE public_id = ?", (row["public_id"],)
                 ).fetchone()
+                exported_icon = str(row.get("icon") or "")
+                if exported_icon and not is_icon_name(exported_icon):
+                    exported_icon = ""
                 if existing:
                     local_id = existing["id"]
+                    # An icon chosen here is kept; one missing here is filled from the file.
+                    if exported_icon:
+                        connection.execute(
+                            "UPDATE locations SET icon = ? WHERE id = ? AND icon = ''",
+                            (exported_icon, local_id),
+                        )
                 else:
                     cursor = connection.execute(
                         """
-                        INSERT INTO locations(public_id, parent_id, name, kind, description)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO locations(public_id, parent_id, name, kind, description, icon)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (
                             row["public_id"],
@@ -2162,6 +2199,7 @@ def _apply_import_merge_untracked(
                             row["name"],
                             row.get("kind", "location"),
                             row.get("description", ""),
+                            exported_icon,
                         ),
                     )
                     local_id = cursor.lastrowid

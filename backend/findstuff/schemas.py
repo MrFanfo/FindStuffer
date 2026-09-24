@@ -252,6 +252,7 @@ class LocationPatch(StrictModel):
     kind: str | None = Field(default=None, min_length=1, max_length=40)
     description: str | None = Field(default=None, max_length=1000)
     parent_public_id: str | None = None
+    icon: str | None = Field(default=None, max_length=32)
 
 
 class ItemLink(StrictModel):

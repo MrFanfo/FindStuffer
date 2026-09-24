@@ -6,6 +6,8 @@ export type LocationNode = {
   path: string;
   item_count?: number;
   total_item_count?: number;
+  /** The icon chosen for this place; empty means the interface suggests one. */
+  icon?: string;
   children: LocationNode[];
 };
 
@@ -1210,6 +1212,7 @@ export const api = {
     name?: string;
     kind?: string;
     parent_public_id?: string | null;
+    icon?: string;
   }) => request<LocationNode>(`/api/v1/locations/${publicId}`, {
     method: "PATCH",
     body: JSON.stringify(body),

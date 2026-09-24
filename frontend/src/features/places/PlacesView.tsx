@@ -44,7 +44,7 @@ export function PlacesView({ section, onSectionChange, locations, categories, lo
   onOpenItem: (item: Item) => void;
   onCaptureHere: (id: string, mode?: CaptureMode) => void;
   onCreateLocation: (body: { name: string; kind: string; parent_public_id: string | null }) => Promise<void>;
-  onUpdateLocation: (id: string, body: { name: string; kind: string; parent_public_id: string | null }) => Promise<void>;
+  onUpdateLocation: (id: string, body: { name?: string; kind?: string; parent_public_id?: string | null; icon?: string }) => Promise<void>;
   onDeleteLocation: (id: string) => Promise<void>;
   onDeleteLocationTree: (id: string) => Promise<void>;
   onCreateType: (name: string) => Promise<void>;

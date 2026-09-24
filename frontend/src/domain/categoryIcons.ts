@@ -5,7 +5,7 @@ import type { Category } from "../api";
  * Categories are free text and often Italian here, so both languages are matched;
  * anything unrecognised keeps the neutral tag.
  */
-const MARKS: Array<[string, string[]]> = [
+export const MARKS: Array<[string, string[]]> = [
   ["cutlery", ["food", "cibo", "alimentari", "grocer", "spesa", "pantry", "dispensa", "kitchen", "cucina", "pasta", "snack", "baking", "dairy", "latticini"]],
   ["bottle", ["drink", "bevande", "bottle", "bottigli", "liquid", "liquidi", "oil", "olio", "wine", "vino", "beer", "birra", "water", "acqua"]],
   ["chip", ["electronic", "elettronic", "component", "componenti", "circuit", "esp32", "arduino", "sensor", "sensori", "board", "microcontroll"]],
@@ -15,15 +15,15 @@ const MARKS: Array<[string, string[]]> = [
   ["spool", ["thread", "filo", "fili", "yarn", "filat", "sewing", "cucito", "textile", "tessut", "fabric", "stoffa", "wool", "lana"]],
   ["layers", ["leather", "pelle", "cuoio", "material", "materiali", "sheet", "fogli", "board", "cartone", "plywood", "compensato"]],
   ["book", ["book", "libri", "bookbinding", "legatoria", "binding", "notebook", "quaderni", "journal"]],
-  ["sheet", ["paper", "carta", "document", "document", "print", "stampa", "office", "ufficio", "stationery", "cancelleria", "template", "modelli"]],
-  ["brush", ["art", "arte", "paint", "pittura", "vernic", "colour", "color", "craft", "hobby", "glue", "colla", "ink", "inchiostro"]],
+  ["sketchbook", ["paper", "carta", "document", "document", "print", "stampa", "office", "ufficio", "stationery", "cancelleria", "template", "modelli"]],
+  ["palette", ["art", "arte", "paint", "pittura", "vernic", "colour", "color", "craft", "hobby", "glue", "colla", "ink", "inchiostro"]],
   ["leaf", ["garden", "giardin", "plant", "piante", "seed", "semi", "outdoor", "esterno", "flower", "fiori"]],
   ["shirt", ["cloth", "abbigliament", "wear", "vestit", "shoe", "scarpe", "bag", "borse", "accessor"]],
-  ["pill", ["medicine", "medicin", "farmac", "health", "salute", "first aid", "pronto soccorso", "supplement", "integrator"]],
+  ["jar", ["medicine", "medicin", "farmac", "health", "salute", "first aid", "pronto soccorso", "supplement", "integrator"]],
   ["spray", ["clean", "puliz", "detergent", "laundry", "bucato", "chemical", "chimic", "bathroom", "bagno"]],
-  ["ball", ["sport", "game", "giochi", "toy", "giocatt", "fitness", "palestra", "music", "musica"]],
-  ["car", ["car", "auto", "vehicle", "veicol", "bike", "bici", "moto", "travel", "viaggi"]],
-  ["key", ["key", "chiavi", "lock", "serratur", "security", "sicurezza", "document", "documenti"]],
+  ["gamepad", ["sport", "game", "giochi", "toy", "giocatt", "fitness", "palestra", "music", "musica"]],
+  ["gear", ["car", "auto", "vehicle", "veicol", "bike", "bici", "moto", "travel", "viaggi"]],
+  ["shield", ["key", "chiavi", "lock", "serratur", "security", "sicurezza", "document", "documenti"]],
 ];
 
 /**

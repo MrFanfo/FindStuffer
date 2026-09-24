@@ -2695,11 +2695,6 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 /* Category marks: the mark beside each category, the picker, and the set tools. */
 .category-mark { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid var(--line); border-radius: 10px; color: var(--ink-soft); background: var(--card-alt); }
 .category-mark:hover { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
-.category-mark-tools { display: grid; gap: 6px; margin: 4px 2px 12px; }
-.category-mark-tools .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.category-mark-tools button { display: inline-flex; min-height: 40px; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 11px; padding: 0 13px; color: var(--ink); background: var(--card); font-size: .78rem; font-weight: 750; }
-.category-mark-tools button.secondary { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
-.category-mark-tools p { margin: 0; font-size: .78rem; }
 .icon-picker-sheet { display: flex; flex-direction: column; gap: 12px; }
 .icon-picker-search { position: relative; display: flex; align-items: center; gap: 8px; }
 .icon-picker-search .icon { position: absolute; left: 12px; color: var(--muted); }
@@ -2875,15 +2870,15 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .global-search-results .is-container .icon { color: color-mix(in srgb, var(--container) 70%, var(--ink-soft)); }
 
 
-/* Category rows on phones: the mark sits beside the arrow on the same line as the name,
-   rather than wrapping onto a second line of its own. */
+/* Category and place rows: icon, name and menu on one line. There is no expand arrow;
+   opening a row shows what is inside it. */
+.location-node .place-mark:disabled { opacity: .55; }
 @media (max-width: 700px) {
-  .category-node { grid-template-columns: 32px 32px minmax(0, 1fr) 40px; }
-  .category-node .category-mark { grid-column: 2; grid-row: 1; width: 32px; height: 32px; border-radius: 9px; }
-  .category-node .category-open { grid-column: 3; grid-row: 1; }
-  .category-node .category-row-menu { grid-column: 4; grid-row: 1; }
+  .category-node, .location-node { grid-template-columns: 34px minmax(0, 1fr) 40px; }
+  .category-node .category-mark, .location-node .place-mark { grid-column: 1; grid-row: 1; width: 34px; height: 34px; border-radius: 9px; }
+  .category-node .category-open, .location-node .location-open { grid-column: 2; grid-row: 1; }
+  .category-node .category-row-menu, .location-node .location-row-menu { grid-column: 3; grid-row: 1; }
 }
-.data-marks-section > p { margin: 0 0 10px; color: var(--muted); font-size: .8rem; }
 /* The places header fits a narrow phone: the tabs give up width, the switch keeps its label. */
 .compact-places-heading .places-tabs { flex: 1 1 auto; min-width: 0; }
 .compact-places-heading .branch-toggle { flex: 0 0 auto; white-space: nowrap; }

@@ -195,7 +195,7 @@ def location_descendant_ids(connection: sqlite3.Connection, location_id: int) ->
 def list_location_tree(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
-        SELECT id, public_id, parent_id, name, kind, description, sort_order
+        SELECT id, public_id, parent_id, name, kind, description, icon, sort_order
         FROM locations
         WHERE archived_at IS NULL
         ORDER BY sort_order, name COLLATE NOCASE
@@ -209,6 +209,7 @@ def list_location_tree(connection: sqlite3.Connection) -> list[dict[str, Any]]:
             "name": row["name"],
             "kind": row["kind"],
             "description": row["description"],
+            "icon": row["icon"],
             "children": [],
         }
         for row in rows
@@ -241,6 +242,7 @@ def list_location_tree(connection: sqlite3.Connection) -> list[dict[str, Any]]:
             "name": node["name"],
             "kind": node["kind"],
             "description": node["description"],
+            "icon": node["icon"],
             "path": path,
             "item_count": item_count,
             "total_item_count": item_count + sum(child["total_item_count"] for child in children),
@@ -317,6 +319,7 @@ def serialize_location(connection: sqlite3.Connection, row: sqlite3.Row) -> dict
         "name": row["name"],
         "kind": row["kind"],
         "description": row["description"],
+        "icon": row["icon"] if "icon" in row.keys() else "",
         "path": location_path(connection, row["id"]),
         "item_count": item_count,
         "created_at": row["created_at"],
@@ -340,6 +343,12 @@ def update_location(
             parameters.append(changes[field])
             if field == "name":
                 next_name = changes[field]
+    if changes.get("icon") is not None:
+        icon = str(changes["icon"]).strip()
+        if icon and not is_icon_name(icon):
+            raise ConflictError("That icon name is not one this app can draw")
+        assignments.append("icon = ?")
+        parameters.append(icon)
     if "parent_public_id" in changes:
         parent_id = None
         parent_public_id = changes["parent_public_id"]
