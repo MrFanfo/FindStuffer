@@ -354,6 +354,24 @@ function pathTail(path: string): string {
   return parts.length > 2 ? `… > ${parts.slice(-2).join(" > ")}` : path;
 }
 
+// Grid or list, and the sort, are remembered on this device for every place and category.
+const DETAIL_ITEMS_PREFS_KEY = "findstuff.detail-items.v1";
+const DETAIL_SORTS: DetailItemSort[] = ["name", "quantity-asc", "quantity-desc", "location", "category"];
+function readDetailItemPrefs(): { sort: DetailItemSort; view: DetailItemView } {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DETAIL_ITEMS_PREFS_KEY) || "null") as { sort?: string; view?: string } | null;
+    return {
+      sort: DETAIL_SORTS.includes(saved?.sort as DetailItemSort) ? saved!.sort as DetailItemSort : "name",
+      view: saved?.view === "list" ? "list" : "grid",
+    };
+  } catch {
+    return { sort: "name", view: "grid" };
+  }
+}
+function writeDetailItemPrefs(prefs: { sort: DetailItemSort; view: DetailItemView }) {
+  try { localStorage.setItem(DETAIL_ITEMS_PREFS_KEY, JSON.stringify(prefs)); } catch { /* private mode: the choice lasts this visit */ }
+}
+
 function DetailItemsBrowser({ items, groupMode, scopePath, emptyText, onOpenItem, busy }: {
   items: Item[];
   groupMode: "category" | "location";
@@ -363,8 +381,9 @@ function DetailItemsBrowser({ items, groupMode, scopePath, emptyText, onOpenItem
   onOpenItem: (item: Item) => void;
   busy: boolean;
 }) {
-  const [sort, setSort] = useState<DetailItemSort>("name");
-  const [view, setView] = useState<DetailItemView>("grid");
+  const [sort, setSort] = useState<DetailItemSort>(() => readDetailItemPrefs().sort);
+  const [view, setView] = useState<DetailItemView>(() => readDetailItemPrefs().view);
+  useEffect(() => { writeDetailItemPrefs({ sort, view }); }, [sort, view]);
   const sortedItems = useMemo(() => {
     const next = [...items];
     next.sort((left, right) => {
