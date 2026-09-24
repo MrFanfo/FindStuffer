@@ -15,7 +15,6 @@ import { HierarchyPicker, locationPickerNodes } from "../../components/Hierarchy
 import { categoryOptionLabel } from "../../domain/inventory";
 import { categoryIcons } from "../../domain/categoryIcons";
 import { CategoryIconPicker } from "./CategoryIconPicker";
-import { CategoryMarkTools } from "./CategoryMarkTools";
 
 type CategoryNode = Category & { children: CategoryNode[] };
 const CATEGORY_DATA_FIELD_LABELS: Record<keyof Omit<CategoryCapabilities, "override" | "inherited_from" | "inherited_label">, string> = {
@@ -190,7 +189,7 @@ export function BranchToggle({ hideEmpty, onChange }: { hideEmpty: boolean; onCh
   return <button type="button" className={`branch-toggle ${hideEmpty ? "active" : ""}`} aria-pressed={hideEmpty} aria-label={label} title={label} onClick={() => onChange(!hideEmpty)}><Icon name="box" size={15} />{hideEmpty ? "Show all" : "Hide empty"}</button>;
 }
 
-export function CategoriesView({ categories, locations, busy, hideEmpty: controlledHideEmpty, onHideEmptyChange, onOpen, onCreate, onUpdate, onDelete, onDeleteTree, onSaveCapabilities, onSetDefaultLocation, onMarksChanged }: {
+export function CategoriesView({ categories, locations, busy, hideEmpty: controlledHideEmpty, onHideEmptyChange, onOpen, onCreate, onUpdate, onDelete, onDeleteTree, onSaveCapabilities, onSetDefaultLocation }: {
   categories: Category[];
   locations: LocationNode[];
   busy: boolean;
@@ -205,7 +204,6 @@ export function CategoriesView({ categories, locations, busy, hideEmpty: control
   onDeleteTree: (categoryId: number) => Promise<void>;
   onSaveCapabilities: (overrides: ApplicationSettings["category_data"]["overrides"]) => Promise<void>;
   onSetDefaultLocation: (categoryId: number, locationId: string | null) => Promise<void>;
-  onMarksChanged: () => void;
 }) {
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
@@ -296,7 +294,6 @@ export function CategoriesView({ categories, locations, busy, hideEmpty: control
       {editingCategory && <button className="secondary" onClick={() => setFieldCategory(editingCategory)}>Custom fields</button>}
       {fieldCategory && <CategoryFieldsPanel category={fieldCategory.id} name={fieldCategory.path} onClose={() => setFieldCategory(null)} />}
       {editingCategory ? <CategoryEditPanel category={editingCategory} locations={flatLocations} editName={editName} editParent={editParent} editParentOptions={editParentOptions} editDefaultLocation={editDefaultLocation} overrides={capabilityOverrides} busy={busy} onEditName={setEditName} onEditParent={setEditParent} onEditDefaultLocation={setEditDefaultLocation} onCapability={setCapability} onResetCapabilities={resetCapabilities} onCancel={() => setEditingId(null)} onSubmit={saveEdit} /> : <details className="create-panel"><summary><span className="summary-icon"><Icon name="plus" /></span><span><strong>Create a category</strong><small>Nest it under any existing category</small></span><Icon name="chevron" /></summary><form className="form-card" onSubmit={submit}><label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Resistors, batteries, printer parts" /></label><label>Inside<select value={parent} onChange={(event) => setParent(event.target.value)}><option value="">Top level</option>{categories.map((entry) => <option key={entry.id} value={entry.id}>{categoryOptionLabel(entry)}</option>)}</select></label><button className="primary wide button-with-icon" disabled={busy || !name.trim()}><Icon name="plus" size={17} />Create category</button></form></details>}
-      <CategoryMarkTools busy={busy} onChanged={onMarksChanged} />
       <div className="category-tree">{tree.length ? tree.map((category) => <CategoryBranch key={category.id} category={category} marks={marks} expanded={expanded} busy={busy} onToggle={toggle} onOpen={onOpen} onMark={setMarkFor} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} />) : <EmptyState icon="tag" title="No categories yet" text="Create your first category." />}</div>
       {markFor && <CategoryIconPicker categoryPath={markFor.path} selected={markFor.icon} onChoose={(icon) => void onUpdate(markFor.id, { icon })} onClose={() => setMarkFor(null)} />}
     </section>

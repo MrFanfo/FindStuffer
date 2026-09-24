@@ -2873,3 +2873,22 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .contents-list article.is-container { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--container) 45%, transparent); padding-left: 8px; }
 .inv-row.is-container .inv-thumb:not(.has-photo), .location-item-card.is-container > span { color: color-mix(in srgb, var(--container) 65%, var(--ink-soft)); background: color-mix(in srgb, var(--container) 8%, var(--card-alt)); }
 .global-search-results .is-container .icon { color: color-mix(in srgb, var(--container) 70%, var(--ink-soft)); }
+
+
+/* Category rows on phones: the mark sits beside the arrow on the same line as the name,
+   rather than wrapping onto a second line of its own. */
+@media (max-width: 700px) {
+  .category-node { grid-template-columns: 32px 32px minmax(0, 1fr) 40px; }
+  .category-node .category-mark { grid-column: 2; grid-row: 1; width: 32px; height: 32px; border-radius: 9px; }
+  .category-node .category-open { grid-column: 3; grid-row: 1; }
+  .category-node .category-row-menu { grid-column: 4; grid-row: 1; }
+}
+.data-marks-section > p { margin: 0 0 10px; color: var(--muted); font-size: .8rem; }
+/* The places header fits a narrow phone: the tabs give up width, the switch keeps its label. */
+.compact-places-heading .places-tabs { flex: 1 1 auto; min-width: 0; }
+.compact-places-heading .branch-toggle { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 420px) {
+  .compact-places-heading { gap: 8px; }
+  .places-tabs button { gap: 5px; padding: 0 6px; font-size: .9rem; }
+  .compact-places-heading .branch-toggle { padding: 0 9px; }
+}

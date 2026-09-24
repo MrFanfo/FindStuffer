@@ -1093,7 +1093,6 @@ function App() {
             onDeleteTree={(id) => run(() => api.deleteCategoryTree(id), "Category subtree deleted", "all")}
             onSaveCapabilities={(overrides) => run(() => api.saveCategoryDataSettings(overrides), "Required metadata saved", "all")}
             onSetDefaultLocation={(id, locationId) => run(() => api.setCategoryDefaultLocation(id, locationId), "Default Place saved", "all")}
-            onMarksChanged={() => void refresh(query)}
           />
         )}
         {view === "category" && selectedCategoryId && (
