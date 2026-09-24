@@ -48,3 +48,12 @@ test('a physical machine shows compatible parts, inheritance and evidence in Rel
   expect(screen.getAllByRole('heading', { name: 'Related' })).toHaveLength(1);
   expect(screen.queryByRole('heading', { name: 'Works with' })).not.toBeInTheDocument();
 });
+
+test('a long property value reads under its label instead of squeezing it', async () => {
+  const fields = ['Construction', 'Basis'].map((label, index) => ({ public_id: String(index), value_field_id: String(index), label, unit: '', default: null }) as CategoryField);
+  vi.mocked(extensions.item).mockResolvedValue({ ...empty, field_definitions: fields, custom_fields: { '0': 'Sandwich', '1': 'Assigned per owner instruction; the exact factory version is unverified.' } });
+  render(<ItemStructuredData item={item} />);
+  await screen.findByRole('heading', { name: 'Properties' });
+  expect(screen.getByText('Sandwich').closest('.fact-row')).not.toHaveClass('long-value');
+  expect(screen.getByText(/Assigned per owner/).closest('.fact-row')).toHaveClass('long-value');
+});

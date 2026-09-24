@@ -2703,12 +2703,15 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
    and the sections around them lose the weight they did not need on a phone.
    --------------------------------------------------------------------------- */
 .fact-rows { display: grid; margin: 0; gap: 0; }
-.fact-row { display: grid; align-items: baseline; gap: 4px 14px; grid-template-columns: minmax(0, 1fr) auto; border-top: 1px solid var(--line); padding: 10px 0; }
+.fact-row { display: grid; align-items: baseline; gap: 4px 14px; grid-template-columns: minmax(min(7.5rem, 45%), 1fr) minmax(0, max-content); border-top: 1px solid var(--line); padding: 10px 0; }
 .fact-row:first-child { border-top: 0; padding-top: 2px; }
-.fact-row dt { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.fact-row dt { display: flex; min-width: 0; align-items: center; gap: 6px; color: var(--muted); font-size: .8rem; overflow-wrap: break-word; }
 .fact-row dt em { flex: 0 0 auto; border-radius: 999px; padding: 1px 6px; background: var(--card-alt); font-size: .58rem; font-style: normal; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .fact-row dd { margin: 0; color: var(--ink); font-size: .92rem; font-weight: 700; text-align: right; overflow-wrap: anywhere; }
 .fact-row dd small { margin-left: 4px; color: var(--muted); font-size: .7rem; font-weight: 650; }
+/* A long value reads under its label, left-aligned, instead of crushing the label beside it. */
+.structured-item-data .fact-row.long-value { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+.structured-item-data .fact-row.long-value dd { font-weight: 600; line-height: 1.4; text-align: left; }
 
 .detail-header-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px; }
 .detail-header-meta small { color: var(--muted); }
@@ -2785,7 +2788,7 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
   .fact-row dt { font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
   .fact-row dd { font-size: .92rem; text-align: left; }
   .structured-item-data .fact-rows { grid-template-columns: 1fr; }
-  .structured-item-data .fact-row { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
+  .structured-item-data .fact-row { grid-template-columns: minmax(min(7.5rem, 45%), 1fr) minmax(0, max-content); align-items: baseline; }
   .structured-item-data .fact-row:nth-child(2) { border-top: 1px solid var(--line); padding-top: 10px; }
   .structured-item-data .fact-row dd { text-align: right; }
 }

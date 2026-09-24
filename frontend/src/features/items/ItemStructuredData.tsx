@@ -6,6 +6,8 @@ import { TargetParts } from './TargetParts';
 
 export type RelatedDraft = { compatibility: CompatibilityRelation[]; compatibility_targets: string[] };
 
+const LONG_VALUE = 32;
+
 export function ItemStructuredData({ item, editing = false, relatedEnabled = true, children, onDraftChange }: {
   item: Item; editing?: boolean; relatedEnabled?: boolean; children?: ReactNode;
   onDraftChange?: (draft: RelatedDraft) => void;
@@ -43,10 +45,14 @@ export function ItemStructuredData({ item, editing = false, relatedEnabled = tru
     {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(retry + 1)}>Retry related details</button></p>}
     {!editing && properties.length > 0 && <section className="detail-section structured-item-data">
       <div className="section-heading"><div><h2>Properties</h2><span>{properties.length} recorded</span></div></div>
-      <dl className="fact-rows">{properties.map(({ field, value }) => <div className="fact-row" key={field.public_id}>
-        <dt>{field.label}</dt>
-        <dd>{typeof value === 'boolean' ? value ? 'Yes' : 'No' : String(value)}{field.unit ? <small>{field.unit}</small> : null}</dd>
-      </div>)}</dl>
+      <dl className="fact-rows">{properties.map(({ field, value }) => {
+        const text = typeof value === 'boolean' ? value ? 'Yes' : 'No' : String(value);
+        // A sentence beside its label squeezes the label to nothing on a phone; it reads under it instead.
+        return <div className={`fact-row${text.length > LONG_VALUE ? ' long-value' : ''}`} key={field.public_id}>
+          <dt>{field.label}</dt>
+          <dd>{text}{field.unit ? <small>{field.unit}</small> : null}</dd>
+        </div>;
+      })}</dl>
     </section>}
     {showRelated && <section className="detail-section related-section"><h2>Related</h2>
       {(editing || relations.length > 0) && <><h3>Works with</h3>{relations.map((relation, index) => <div className="item-compatibility-row" key={`${index}-${relation.target}`}>
