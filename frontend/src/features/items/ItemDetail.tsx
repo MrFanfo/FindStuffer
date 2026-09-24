@@ -188,7 +188,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   }, [editing, focusThreshold]);
   const [detailTab, setDetailTab] = useState<"overview" | "details" | "activity" | "more">("overview");
   const [picker, setPicker] = useState<"move" | "category" | "editCategory" | null>(null);
-  const itemDraft = useDeviceDraft(`item:${item.public_id}`, {
+  const initialDraft = {
     name: item.name,
     description: item.description,
     notes: item.notes,
@@ -210,7 +210,9 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
       value === null ? "" : String(value),
     ),
     customFieldEdits: {} as Record<string, unknown>, relatedEdits: null as RelatedDraft | null,
-  });
+  };
+  const itemDraft = useDeviceDraft(`item:${item.public_id}`, initialDraft);
+  const draftDirty = JSON.stringify(itemDraft.value) !== JSON.stringify(initialDraft);
   const [name, setName] = draftField(itemDraft, "name");
   const [description, setDescription] = draftField(itemDraft, "description");
   const [notes, setNotes] = draftField(itemDraft, "notes");
@@ -230,7 +232,16 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   const [dimensions, setDimensions] = draftField(itemDraft, "dimensions");
   const [customFieldEdits, setCustomFieldEdits] = draftField(itemDraft, "customFieldEdits");
   const [relatedEdits, setRelatedEdits] = draftField(itemDraft, "relatedEdits");
-  useEffect(() => { if (itemDraft.restored) setEditing(true); }, [itemDraft.restored]);
+  // A draft left from an earlier visit (the app closed before it could save) is saved now;
+  // only a draft the server refuses reopens the editor, so nothing typed is lost.
+  useEffect(() => {
+    if (!itemDraft.restored) return;
+    if (!draftDirty) { void itemDraft.clear(); return; }
+    void persistEdits().catch((reason) => {
+      setSaveError(notSavedMessage(reason));
+      setEditing(true);
+    });
+  }, [itemDraft.restored]);
   const [extrasErrors, setExtrasErrors] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryEvent[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -359,15 +370,13 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     if (embedded && window.matchMedia("(min-width: 1100px)").matches) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") void leaveAction.current(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", closeOnEscape); };
   }, [embedded, onClose]);
 
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    setSaveError(""); setSavingDetails(true);
-    try {
+  /** Writes the editor's changes and clears the device draft; throws when the server refuses. */
+  async function persistEdits(): Promise<void> {
     const updated = await api.updateItem(item, {
       ...(relatedEdits && editCapabilities.related ? relatedEdits : {}),
       name,
@@ -398,10 +407,57 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     const tagged = await api.setTags(updated, tags.split(",").map((tag) => tag.trim()).filter(Boolean));
     await onChanged(tagged);
     await itemDraft.clear({ ...itemDraft.value, customFieldEdits: {}, relatedEdits: null });
-    setEditing(false);
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setSaveError(""); setSavingDetails(true);
+    try {
+      await persistEdits();
+      setEditing(false);
     } catch (reason) { setSaveError(reason instanceof Error ? reason.message : "Could not save changes"); }
     finally { setSavingDetails(false); }
   }
+
+  // Leaving the item while editing keeps what was typed: it is saved rather than left as
+  // a draft that would reopen the editor next time. A refused save keeps the draft.
+  const pendingLeave = useRef<Promise<void> | null>(null);
+  const leftSaved = useRef(false);
+  function saveOnLeave(): Promise<void> {
+    if (!editing || !draftDirty || leftSaved.current) return Promise.resolve();
+    pendingLeave.current ??= persistEdits().finally(() => { pendingLeave.current = null; });
+    return pendingLeave.current;
+  }
+  /** Why a save on leaving failed, in words; an unreachable server is the usual reason. */
+  function notSavedMessage(reason: unknown): string {
+    if (reason instanceof TypeError || !navigator.onLine) return "Not saved: no connection. Your changes are kept on this device and are saved when you open this item again.";
+    return reason instanceof Error ? `Not saved: ${reason.message}` : "Not saved";
+  }
+  async function leave() {
+    setSaveError("");
+    try {
+      await saveOnLeave();
+      leftSaved.current = true;
+      setEditing(false);
+      onClose();
+    } catch (reason) {
+      setSaveError(notSavedMessage(reason));
+    }
+  }
+  const leaveAction = useRef(leave);
+  leaveAction.current = leave;
+  const leaveRef = useRef(saveOnLeave);
+  // Updated after commit, so a cleanup below still sees the item it belonged to.
+  useEffect(() => { leaveRef.current = saveOnLeave; });
+  useEffect(() => { if (editing) leftSaved.current = false; }, [editing]);
+  useEffect(() => {
+    const hide = () => { if (document.visibilityState === "hidden") void leaveRef.current().catch(() => undefined); };
+    document.addEventListener("visibilitychange", hide);
+    return () => {
+      document.removeEventListener("visibilitychange", hide);
+      if (!leftSaved.current) void leaveRef.current().catch(() => undefined);
+    };
+  }, [item.public_id]);
 
   async function upload(file: File) {
     const resized = await resizePhoto(file);
@@ -570,11 +626,11 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
 
   const desktopEmbedded = embedded && window.matchMedia("(min-width: 1100px)").matches;
   return (
-    <div className={embedded ? "embedded-item-detail item-detail-backdrop" : "modal-backdrop item-detail-backdrop"} role="dialog" aria-modal={desktopEmbedded ? undefined : "true"} aria-label={item.name} onMouseDown={(event) => { if (!desktopEmbedded && event.target === event.currentTarget) onClose(); }}>
+    <div className={embedded ? "embedded-item-detail item-detail-backdrop" : "modal-backdrop item-detail-backdrop"} role="dialog" aria-modal={desktopEmbedded ? undefined : "true"} aria-label={item.name} onMouseDown={(event) => { if (!desktopEmbedded && event.target === event.currentTarget) void leave(); }}>
       <article className="detail-sheet">
         {extrasErrors.map((section) => <p className="error-banner" role="alert" key={section}>{section} could not load. <button onClick={() => void loadExtras()}>Retry</button></p>)}
         <div className="sheet-handle" aria-hidden="true" />
-        <DraftNotice draft={itemDraft} onDiscard={() => { void itemDraft.clear(); setEditing(false); }} /><header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><div className="detail-header-meta">{item.project_holds?.map(hold => <small key={hold.public_id}>{hold.quantity} {item.unit} reserved · <a href={`?view=projects&project=${hold.public_id}`}>{hold.name}</a></small>)}{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div></div>{editing && <button className="text-button" onClick={() => { void itemDraft.clear(); setEditing(false); }}>Cancel editing</button>}</header>
+        <DraftNotice draft={itemDraft} onDiscard={() => { void itemDraft.clear(); setEditing(false); }} /><header className="detail-header"><button className="icon-button" onClick={() => void leave()} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><div className="detail-header-meta">{item.project_holds?.map(hold => <small key={hold.public_id}>{hold.quantity} {item.unit} reserved · <a href={`?view=projects&project=${hold.public_id}`}>{hold.name}</a></small>)}{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div></div>{editing && <button className="text-button" onClick={() => { void itemDraft.clear(); setEditing(false); }}>Cancel editing</button>}</header>
         {((editing ? editCapabilities.photos : detailCapabilities.photos) && (editing || photos.length > 0)) && <section className={`detail-photo-hero ${photos.length ? "" : "empty-photo"}`} aria-label="Item photos">
           <div className="detail-photo-rail" ref={photoRail}>
             {photos.map((photo, index) => <figure key={photo.public_id}><img src={photo.url} alt={`${item.name} photo ${index + 1}`} />{editing && <button aria-label={`Delete photo ${index + 1}`} onClick={() => run(() => api.deletePhoto(photo).then(loadExtras), "Photo removed")}><Icon name="close" size={15} /></button>}</figure>)}
@@ -588,7 +644,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             <label>Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
             {(editCapabilities.identity || editCapabilities.specs) && <div className="form-row">{editCapabilities.identity && <label>Brand<input value={brand} onChange={(event) => setBrand(event.target.value)} /></label>}{editCapabilities.specs && <label>Model<input value={model} onChange={(event) => setModel(event.target.value)} /></label>}</div>}
             {editCapabilities.identity && <label>Serial number<input value={serial} onChange={(event) => setSerial(event.target.value)} /></label>}
-            <div className="form-row">{editCapabilities.expiration && <label>Expiration<input type="date" value={expiration} onChange={(event) => setExpiration(event.target.value)} /></label>}{editCapabilities.low_stock && <label>Low stock at<input ref={thresholdInput} inputMode="decimal" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label>}</div>
+            <div className="form-row">{editCapabilities.expiration && <label>Expiration<input type="date" value={expiration} onChange={(event) => setExpiration(event.target.value)} /></label>}{editCapabilities.low_stock && <label>Low stock at<input ref={thresholdInput} inputMode="decimal" placeholder="1" value={threshold} onChange={(event) => setThreshold(event.target.value)} /></label>}</div>
             {editCapabilities.fullness && <label className="fullness-editor"><span>Fullness <strong>{fullness}%</strong></span><input type="range" min="0" max="100" step="5" value={fullness} onChange={(event) => setFullness(Number(event.target.value))} /></label>}
             <label>Unit<select value={unit} onChange={(event) => setUnit(event.target.value)}>{units.includes(unit) ? null : <option value={unit}>{unit}</option>}{units.map((entry) => <option key={entry} value={entry}>{entry}</option>)}</select></label>
             <div className="picker-field"><span>Category</span><button type="button" onClick={() => setPicker("editCategory")}><Icon name="tag" size={16} /><strong>{editingCategory ? categoryOptionLabel(editingCategory) : "No category"}</strong></button>{category && <button type="button" className="text-button" onClick={() => setCategory("")}>Clear category</button>}</div>
@@ -678,7 +734,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
               <div className="section-heading"><div><h2>Stock</h2><span>Restocking and low-stock warnings</span></div></div>
               <div className="action-rows">
                 {detailCapabilities.shopping_list && <button type="button" disabled={busy} onClick={() => void onAddShopping(item)}><Icon name="plus" size={17} /><span><strong>Add to shopping list</strong><small>Buy more of this</small></span></button>}
-                {detailCapabilities.low_stock && <button type="button" disabled={busy} onClick={() => { setThreshold(item.low_stock_threshold ?? "1"); setFocusThreshold(true); setEditing(true); }}><Icon name="minus" size={17} /><span><strong>{item.low_stock_threshold === null ? "Set low stock warning" : "Change low stock warning"}</strong><small>{item.low_stock_threshold === null ? "Warn when stock runs down" : `Warns at ${item.low_stock_threshold} ${item.unit}`}</small></span></button>}
+                {detailCapabilities.low_stock && <button type="button" disabled={busy} onClick={() => { setFocusThreshold(true); setEditing(true); }}><Icon name="minus" size={17} /><span><strong>{item.low_stock_threshold === null ? "Set low stock warning" : "Change low stock warning"}</strong><small>{item.low_stock_threshold === null ? "Warn when stock runs down" : `Warns at ${item.low_stock_threshold} ${item.unit}`}</small></span></button>}
               </div>
             </section>}
             <section className={`detail-section action-group ${lost ? "is-lost" : ""}`}>
