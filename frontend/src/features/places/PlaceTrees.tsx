@@ -53,9 +53,18 @@ function categoryDescendantIds(categories: Category[], rootId: number): Set<numb
   return result;
 }
 
-export function LocationsView({ locations, locationTypes, onCreate, onUpdate, onDelete, onDeleteTree, onCreateType, onOpen, onQueuePrint, busy }: {
+/** A place stays while it, or anything below it, holds an item. */
+function withoutEmptyPlaces(nodes: LocationNode[]): LocationNode[] {
+  return nodes
+    .filter((node) => (node.total_item_count ?? node.item_count ?? 0) > 0)
+    .map((node) => ({ ...node, children: withoutEmptyPlaces(node.children) }));
+}
+
+export function LocationsView({ locations: allLocations, locationTypes, hideEmpty = false, onCreate, onUpdate, onDelete, onDeleteTree, onCreateType, onOpen, onQueuePrint, busy }: {
   locations: LocationNode[];
   locationTypes: LocationType[];
+  /** Leave out places with nothing in them or below them. */
+  hideEmpty?: boolean;
   onCreate: (body: { name: string; kind: string; parent_public_id: string | null }) => Promise<void>;
   onUpdate: (publicId: string, body: { name: string; kind: string; parent_public_id: string | null }) => Promise<void>;
   onDelete: (publicId: string) => Promise<void>;
@@ -65,6 +74,7 @@ export function LocationsView({ locations, locationTypes, onCreate, onUpdate, on
   onQueuePrint: (location: LocationNode) => void;
   busy: boolean;
 }) {
+  const locations = useMemo(() => hideEmpty ? withoutEmptyPlaces(allLocations) : allLocations, [allLocations, hideEmpty]);
   const [name, setName] = useState("");
   const [kind, setKind] = useState("location");
   const [parent, setParent] = useState("");

@@ -9,6 +9,8 @@
   --card: #ffffff;
   --card-alt: #f1f4f0;
   --accent: #256f69;
+  /* Containers carry a faint purple wherever they are listed. */
+  --container: #7b5bd6;
   --on-accent: #ffffff;
   --accent-dark: #15514d;
   --accent-soft: #dff0ed;
@@ -1322,8 +1324,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .location-item-card > span { display: grid; place-items: center; color: var(--sage); }
 .location-item-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A container stands in for what it holds: its line says how many are inside instead of a quantity. */
-.location-item-card.is-container, .location-item-row.is-container { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
-.is-container > em { color: var(--accent-dark); font-weight: 750; }
+.location-item-card.is-container > em, .location-item-row.is-container > em { color: color-mix(in srgb, var(--container) 75%, var(--ink)); }
+.location-item-card.is-container > em { background: color-mix(in srgb, var(--container) 10%, var(--card)); }
 .location-item-card small { overflow: hidden; color: var(--muted); font-size: .67rem; text-overflow: ellipsis; white-space: nowrap; }
 .location-item-card em { position: absolute; top: 16px; right: 16px; border-radius: 999px; padding: 4px 7px; color: var(--accent-dark); background: var(--accent-soft); font-size: .58rem; font-style: normal; font-weight: 800; text-transform: uppercase; }
 .location-item-list { display: grid; gap: 7px; }
@@ -1509,8 +1511,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .places-detail-empty h2 { margin-bottom: 6px; }
 .places-detail-empty p { max-width: 360px; margin: 0; line-height: 1.5; }
 .location-mode-actions { display: flex; justify-content: flex-end; margin: 10px 0; }
-.print-queue-launcher { display: inline-flex; min-height: 48px; flex: 0 0 auto; align-items: center; gap: 7px; border: 1px solid #9e8dd5; border-radius: 13px; padding: 0 11px; color: #fff; background: linear-gradient(135deg, #312060, #6c3ed1); box-shadow: 0 8px 20px #4923a82e; font-size: .72rem; font-weight: 850; }
-.print-queue-launcher strong { display: grid; min-width: 23px; height: 23px; place-items: center; border-radius: 999px; color: #342064; background: #fff; font-size: .68rem; }
 
 /* Location QR label studio */
 .print-queue-backdrop { position: fixed; z-index: 150; inset: 0; display: flex; align-items: center; justify-content: center; padding: 18px; background: #111827d9; backdrop-filter: blur(9px); }
@@ -1792,7 +1792,6 @@ button:active:not(:disabled) { transform: scale(.98); }
   .calendar-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
   .account-menu span { display: none; }
   .compact-places-heading { align-items: stretch; }
-  .print-queue-launcher span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .form-row { grid-template-columns: 1fr; }
   .dimensions { grid-template-columns: 1fr 1fr 1fr; }
   .search-submit { min-width: 68px; padding: 0 13px; }
@@ -2860,3 +2859,17 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
   .detail-facts.compact-facts .barcode-fact svg, .detail-facts.compact-facts .barcode-fact img { max-height: 38px; }
   .barcode-fact span { align-self: center; }
 }
+
+
+/* Containers, everywhere they are listed: a faint purple tint and edge, mixed with the
+   theme's own card and line colours so it stays quiet in light and dark alike. */
+.inv-row.is-container:not(.needs-attention):not(.selected),
+.location-item-card.is-container, .location-item-row.is-container,
+.item-contents.is-container,
+.global-search-results .is-container:not(.palette-active) {
+  border-color: color-mix(in srgb, var(--container) 28%, var(--line));
+  background: color-mix(in srgb, var(--container) 4%, var(--card));
+}
+.contents-list article.is-container { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--container) 45%, transparent); padding-left: 8px; }
+.inv-row.is-container .inv-thumb:not(.has-photo), .location-item-card.is-container > span { color: color-mix(in srgb, var(--container) 65%, var(--ink-soft)); background: color-mix(in srgb, var(--container) 8%, var(--card-alt)); }
+.global-search-results .is-container .icon { color: color-mix(in srgb, var(--container) 70%, var(--ink-soft)); }

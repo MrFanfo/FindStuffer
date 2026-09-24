@@ -7,7 +7,7 @@ import { loadRecentItemIds } from "./recents";
 import type { CaptureMode } from "../capture/ScanView";
 
 type GlobalDestination = "projects" | "inventory" | "capture" | "places" | "category" | "manage";
-type PaletteEntry = { key: string; icon: IconName; title: string; detail: string; run: () => void };
+type PaletteEntry = { key: string; icon: IconName; title: string; detail: string; run: () => void; container?: boolean };
 type PaletteGroup = { title: string; entries: PaletteEntry[] };
 
 export function GlobalSearch({ items, locations, categories, onClose, onOpenItem, onOpenLocation, onOpenCategory, onNavigate, onCapture, onOpenProject }: {
@@ -88,8 +88,8 @@ export function GlobalSearch({ items, locations, categories, onClose, onOpenItem
   }, [items, term]);
   const recentIds = new Set(recentItems.map((item) => item.public_id));
   const itemEntry = (item: Item): PaletteEntry => ({
-    key: `item-${item.public_id}`, icon: "box", title: item.name,
-    detail: `${item.location_path} · ${item.quantity} ${item.unit}`, run: () => onOpenItem(item),
+    key: `item-${item.public_id}`, icon: "box", title: item.name, container: Boolean(item.is_container),
+    detail: item.is_container ? `${item.location_path} · ${item.contents_count ?? 0} inside` : `${item.location_path} · ${item.quantity} ${item.unit}`, run: () => onOpenItem(item),
   });
   const groups: PaletteGroup[] = [
     { title: "Recent", entries: recentItems.map(itemEntry) },
@@ -150,7 +150,7 @@ export function GlobalSearch({ items, locations, categories, onClose, onOpenItem
         {result && <p role="status">{result.total} matching items{result.matched_by.length ? ` · ${result.matched_by.join(", ")}` : ""}</p>}
         {groups.map((group) => <SearchGroup title={group.title} key={group.title}>
           {group.entries.map((entry) => <button key={entry.key} id={`palette-${entry.key}`} role="option"
-            aria-selected={entry.key === activeKey} className={entry.key === activeKey ? "palette-active" : ""}
+            aria-selected={entry.key === activeKey} className={[entry.key === activeKey ? "palette-active" : "", entry.container ? "is-container" : ""].filter(Boolean).join(" ") || undefined}
             onMouseEnter={() => setActive(flatEntries.findIndex((candidate) => candidate.key === entry.key))}
             onClick={entry.run}>
             <Icon name={entry.icon} size={17} /><span><strong>{entry.title}</strong><small>{entry.detail}</small></span>

@@ -11,6 +11,8 @@ export function ExtraView({
   onData,
   onInventoryManagement,
   onSettings,
+  printQueueCount = 0,
+  onPrintQueue,
   onSync,
   onDiscard,
 }: {
@@ -23,6 +25,8 @@ export function ExtraView({
   onData: () => void;
   onInventoryManagement: () => void;
   onSettings: () => void;
+  printQueueCount?: number;
+  onPrintQueue?: () => void;
   onSync: () => Promise<void>;
   onDiscard: (id: string) => Promise<void>;
 }) {
@@ -34,6 +38,7 @@ export function ExtraView({
       <button type="button" className="extra-tool-card featured" onClick={onAnalytics}><span><Icon name="spark" size={24} /></span><div><strong>Analytics</strong><small>Inventory health, value, activity, Places, Categories, and consumption.</small></div><Icon name="chevron" size={18} /></button>
       <button type="button" className="extra-tool-card data" onClick={onData}><span><Icon name="qr" size={24} /></span><div><strong>Data</strong><small>Full backups, portable exports, safe restore, previewed imports, and undo history.</small></div><Icon name="chevron" size={18} /></button>
       <button type="button" className="extra-tool-card inventory-management" onClick={onInventoryManagement}><span><Icon name="box" size={24} /></span><div><strong>Archive &amp; loans</strong><small>Lost and archived items, projects, reservations, and borrowed or lent records.</small></div><Icon name="chevron" size={18} /></button>
+      <button type="button" className="extra-tool-card qr-labels" onClick={onPrintQueue}><span><Icon name="qr" size={24} /></span><div><strong>QR labels</strong><small>{printQueueCount ? `${printQueueCount} waiting in the print queue. ` : "The print queue is empty. "}Queue places with Print QR, then print their labels here.</small></div><Icon name="chevron" size={18} /></button>
       <button type="button" className="extra-tool-card" onClick={onSettings}><span><Icon name="settings" size={24} /></span><div><strong>Settings</strong><small>Appearance, security, notifications, integrations, customization, and system information.</small></div><Icon name="chevron" size={18} /></button>
     </div>
     <section className="offline-queue-card">

@@ -1031,10 +1031,8 @@ function App() {
             selectedLocationId={selectedLocationId}
             selectedCategoryId={selectedCategoryId}
             busy={busy}
-            printQueueCount={printQueue.length}
             onSelectLocation={setSelectedLocationId}
             onSelectCategory={setSelectedCategoryId}
-            onOpenPrintQueue={() => setPrintQueueOpen(true)}
             onQueuePrint={addLocationToPrintQueue}
             onOpenItem={setSelectedItem}
             onCaptureHere={(id, mode = "quick") => openCapture(mode, id)}
@@ -1118,7 +1116,7 @@ function App() {
         {view === "compatibility" && <CompatibilityView categories={categories} onBack={() => navigate("extra")} onOpenTarget={openTarget} />}
         {view === "target" && selectedTargetId && <TargetDetailView targetId={selectedTargetId} categories={categories} onBack={() => navigate("compatibility")} onOpenItem={setSelectedItem} onOpenTarget={openTarget} onOpenProject={openProject} />}
         {view === "project" && selectedProjectId && <ProjectDetailView projectId={selectedProjectId} categories={categories} locations={locations} onBack={() => navigate("projects")} onOpenItem={setSelectedItem} />}
-        {view === "extra" && <ExtraView onProjects={() => navigate("projects")} onCompatibility={() => navigate("compatibility")} offlineOperations={offlineOperations} offlineMode={offlineMode} syncing={syncingOffline} onAnalytics={() => navigate("analytics")} onData={() => navigate("data")} onInventoryManagement={() => navigate("inventory-management")} onSettings={() => navigate("manage")} onSync={() => syncOfflineQueue()} onDiscard={async (id) => { await deleteOfflineOperation(id); setOfflineOperations(await listOfflineOperations()); if (navigator.onLine) await refresh("", { showBusy: false }); }} />}
+        {view === "extra" && <ExtraView printQueueCount={printQueue.length} onPrintQueue={() => setPrintQueueOpen(true)} onProjects={() => navigate("projects")} onCompatibility={() => navigate("compatibility")} offlineOperations={offlineOperations} offlineMode={offlineMode} syncing={syncingOffline} onAnalytics={() => navigate("analytics")} onData={() => navigate("data")} onInventoryManagement={() => navigate("inventory-management")} onSettings={() => navigate("manage")} onSync={() => syncOfflineQueue()} onDiscard={async (id) => { await deleteOfflineOperation(id); setOfflineOperations(await listOfflineOperations()); if (navigator.onLine) await refresh("", { showBusy: false }); }} />}
         {view === "analytics" && <AnalyticsView
           onBack={() => navigate("extra")}
           onInventory={openAnalyticsInventory}

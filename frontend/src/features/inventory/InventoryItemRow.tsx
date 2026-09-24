@@ -48,7 +48,7 @@ export function InventoryItemRow({
   return (
     <article
       className={[
-        "inv-row", `inv-${density}`,
+        "inv-row", `inv-${density}`, item.is_container ? "is-container" : "",
         low || expiry === "expired" ? "needs-attention" : "",
         syncing ? "syncing" : "", bulkMode ? "selectable" : "", selected ? "selected" : "", commandsOpen ? "commands-open" : "",
       ].filter(Boolean).join(" ")}
