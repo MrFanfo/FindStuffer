@@ -2933,3 +2933,34 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .item-contents .compact-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 .item-contents .compact-actions button, .contents-move-out button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); font-size: .78rem; font-weight: 750; }
 .contents-move-out button:not([type="button"]) { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
+
+/* Contents toolbar and panels: add and move-in are small icon buttons beside the summary,
+   and what they open is a tidy card under it rather than a stack of bare fields. */
+.contents-summary { margin-bottom: 8px; }
+.contents-tools { display: flex; flex: 0 0 auto; gap: 5px; }
+.item-contents .contents-tools button { display: inline-flex; min-height: 32px; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-soft); background: var(--card); font-size: .74rem; font-weight: 800; }
+.item-contents .contents-tools button.active { border-color: var(--accent); color: var(--accent-dark); background: var(--accent-soft); }
+.contents-search { display: flex; align-items: center; gap: 7px; min-height: 36px; margin: 0 0 8px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--muted); background: var(--card); }
+.contents-search:focus-within { border-color: var(--accent); }
+.contents-search input { min-height: 34px; flex: 1; border: 0; padding: 0; background: transparent; box-shadow: none; font-size: .82rem; }
+.contents-search input:focus { box-shadow: none; }
+.contents-panel { display: grid; gap: 8px; margin: 0 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-alt); }
+.contents-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.contents-panel header strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+.item-contents .contents-panel-close { display: grid; width: 28px; min-width: 28px; min-height: 28px; place-items: center; padding: 0; border: 0; border-radius: 8px; color: var(--muted); background: transparent; }
+.contents-panel label { display: grid; gap: 3px; color: var(--ink-soft); font-size: .72rem; font-weight: 750; }
+.contents-panel label input, .contents-panel label select { min-height: 38px; padding: 7px 10px; font-size: .86rem; }
+.contents-panel .contents-search { margin: 0; }
+.contents-panel-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.contents-panel-actions { display: flex; justify-content: end; gap: 6px; }
+.item-contents .contents-panel-actions button { min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); font-size: .8rem; font-weight: 800; }
+.item-contents .contents-panel-actions button.primary { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
+.contents-hint { margin: 0; color: var(--muted); font-size: .74rem; }
+.contents-choices { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }
+.item-contents .contents-choice { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); text-align: left; background: var(--card); }
+.contents-choice > span { display: grid; min-width: 0; }
+.contents-choice strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+.contents-choice small { overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.contents-choice .icon { flex: 0 0 auto; color: var(--accent-dark); }
+.contents-panel label.contents-search { display: flex; gap: 7px; }
+.contents-panel .contents-search input, .contents-panel .contents-search input:focus { min-height: 34px; padding: 0; border: 0; outline: none; box-shadow: none; }
