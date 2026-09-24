@@ -2907,3 +2907,29 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .child-location-grid small { flex: 0 0 auto; font-size: .7rem; text-transform: none; }
 .child-location-grid small::first-letter { text-transform: uppercase; }
 @media (min-width: 700px) { .child-location-grid { grid-template-columns: 1fr 1fr; gap: 6px; } }
+
+
+/* A container's contents: one compact row per item, photo, name, category and amount,
+   with moving it out a small icon rather than a pill. */
+.contents-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 6px; color: var(--muted); font-size: .76rem; }
+.contents-summary input { width: min(160px, 45%); min-height: 32px; padding: 5px 10px; border-radius: 9px; font-size: .78rem; }
+.contents-list { display: grid; gap: 0; }
+.contents-list .contents-row { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--line); padding: 5px 0; }
+.contents-list > div:last-of-type .contents-row { border-bottom: 0; }
+.contents-row .contents-item { display: grid; flex: 1; min-width: 0; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 9px; color: var(--ink); text-decoration: none; }
+.contents-row .contents-item img, .contents-thumb { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; }
+.contents-thumb { display: grid; place-items: center; color: var(--sage); background: var(--sage-soft); }
+.contents-copy { display: grid; min-width: 0; }
+.contents-copy strong { display: -webkit-box; overflow: hidden; font-size: .84rem; line-height: 1.25; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.contents-copy small { display: block; overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.contents-copy small b { color: var(--danger); font-weight: 750; }
+.contents-row .contents-item em { color: var(--accent-dark); font-size: .72rem; font-style: normal; font-weight: 800; white-space: nowrap; }
+.contents-row.is-container .contents-item em { color: color-mix(in srgb, var(--container) 75%, var(--ink)); }
+.item-contents .contents-out { display: grid; width: 32px; min-width: 32px; min-height: 32px; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: var(--card); }
+.contents-move-out { display: flex; flex-wrap: wrap; align-items: end; gap: 6px; margin: 2px 0 8px; padding: 8px; border-radius: 10px; background: var(--card-alt); }
+.contents-move-out label { flex: 1 1 180px; font-size: .74rem; }
+.contents-move-out select { min-height: 38px; padding: 6px 9px; font-size: .8rem; }
+.contents-none { margin: 6px 0; color: var(--muted); font-size: .76rem; }
+.item-contents .compact-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.item-contents .compact-actions button, .contents-move-out button { min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); font-size: .78rem; font-weight: 750; }
+.contents-move-out button:not([type="button"]) { border-color: var(--accent); color: var(--on-accent); background: var(--accent); }
