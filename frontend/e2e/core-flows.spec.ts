@@ -260,7 +260,8 @@ test("scan opens a Tailnet location QR instead of adding an item", async ({ page
   );
   await page.getByRole("button", { name: "Use code" }).click();
 
-  await expect(page.getByRole("heading", { name: location.name })).toBeVisible();
+  // The place's own title; its item groups repeat the name inside a path.
+  await expect(page.getByRole("heading", { name: location.name, level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "1 unique item" })).toHaveCount(0);
 });
 
