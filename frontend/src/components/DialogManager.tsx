@@ -38,7 +38,11 @@ export function DialogManager() {
       if (oldTop && !next.includes(oldTop)) {
         const target = returnFocus.get(oldTop);
         returnFocus.delete(oldTop);
-        if (target?.isConnected && !target.closest('[inert]')) target.focus();
+        // On a touch screen, putting focus back into a field would open the keyboard or a
+        // picker (and make iPhone Safari zoom), so only controls you tap return focus.
+        const typing = target?.matches('input, select, textarea, [contenteditable="true"]');
+        const touch = window.matchMedia('(pointer: coarse)').matches;
+        if (target?.isConnected && !target.closest('[inert]') && !(typing && touch)) target.focus({ preventScroll: true });
         else if (top) focusFirst(top);
       } else if (top && top !== oldTop) focusFirst(top);
       if (!next.length) document.body.style.overflow = previousOverflow;
@@ -61,12 +65,20 @@ export function DialogManager() {
       }
     };
     const focusin = (event: FocusEvent) => { const top = stack.at(-1); const target = event.target as HTMLElement; if (top && !top.contains(target) && !target.closest('[aria-modal="true"]')) focusFirst(top); else if (!target.closest('[aria-modal="true"]') || top?.contains(target)) lastFocus = target; };
+    // iPhone Safari does not focus a button when it is tapped, so the control that opened a
+    // dialog is remembered from the tap itself.
+    const pointerdown = (event: PointerEvent) => {
+      if (stack.length) return;
+      const control = (event.target as HTMLElement | null)?.closest<HTMLElement>(focusable);
+      if (control) lastFocus = control;
+    };
     const observer = new MutationObserver(update);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'] });
     window.addEventListener('keydown', keydown, true);
     document.addEventListener('focusin', focusin);
+    document.addEventListener('pointerdown', pointerdown, true);
     update();
-    return () => { observer.disconnect(); window.removeEventListener('keydown', keydown, true); document.removeEventListener('focusin', focusin); restoreInert(); if (stack.length) document.body.style.overflow = previousOverflow; };
+    return () => { observer.disconnect(); window.removeEventListener('keydown', keydown, true); document.removeEventListener('focusin', focusin); document.removeEventListener('pointerdown', pointerdown, true); restoreInert(); if (stack.length) document.body.style.overflow = previousOverflow; };
   }, []);
   return null;
 }

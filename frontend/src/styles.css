@@ -2964,3 +2964,11 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .contents-choice .icon { flex: 0 0 auto; color: var(--accent-dark); }
 .contents-panel label.contents-search { display: flex; gap: 7px; }
 .contents-panel .contents-search input, .contents-panel .contents-search input:focus { min-height: 34px; padding: 0; border: 0; outline: none; box-shadow: none; }
+
+
+/* iPhone Safari zooms the page into any field whose text is under 16px when it gets focus,
+   and does not zoom back out. Fields there use at least 16px text; elsewhere they keep
+   their compact sizes. */
+@supports (-webkit-touch-callout: none) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: max(16px, 1em) !important; }
+}
