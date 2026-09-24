@@ -1,0 +1,182 @@
+[
+  {
+    "view": "dashboard",
+    "width": 390,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "inventory",
+    "width": 390,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "capture",
+    "width": 390,
+    "axe_checked": false
+  },
+  {
+    "view": "places",
+    "width": 390,
+    "axe_checked": false
+  },
+  {
+    "view": "extra",
+    "width": 390,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "projects",
+    "width": 390,
+    "axe_checked": false
+  },
+  {
+    "view": "compatibility",
+    "width": 390,
+    "axe_checked": false
+  },
+  {
+    "view": "detail geometry",
+    "width": 390,
+    "geometry": {
+      "client": 366,
+      "scroll": 366,
+      "children": [
+        {
+          "cls": "inventory-page",
+          "x": 12,
+          "width": 366,
+          "right": 378
+        },
+        {
+          "cls": "inventory-detail-pane",
+          "x": 12,
+          "width": 366,
+          "right": 378
+        }
+      ]
+    }
+  },
+  {
+    "view": "dashboard",
+    "width": 1100,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "inventory",
+    "width": 1100,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "capture",
+    "width": 1100,
+    "axe_checked": false
+  },
+  {
+    "view": "places",
+    "width": 1100,
+    "axe_checked": false
+  },
+  {
+    "view": "extra",
+    "width": 1100,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "projects",
+    "width": 1100,
+    "axe_checked": false
+  },
+  {
+    "view": "compatibility",
+    "width": 1100,
+    "axe_checked": false
+  },
+  {
+    "view": "detail geometry",
+    "width": 1100,
+    "geometry": {
+      "client": 822,
+      "scroll": 1016,
+      "children": [
+        {
+          "cls": "inventory-page",
+          "x": 246,
+          "width": 440,
+          "right": 686
+        },
+        {
+          "cls": "inventory-detail-pane",
+          "x": 702,
+          "width": 560,
+          "right": 1262
+        }
+      ]
+    }
+  },
+  {
+    "view": "dashboard",
+    "width": 1920,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "inventory",
+    "width": 1920,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "capture",
+    "width": 1920,
+    "axe_checked": false
+  },
+  {
+    "view": "places",
+    "width": 1920,
+    "axe_checked": false
+  },
+  {
+    "view": "extra",
+    "width": 1920,
+    "violations": [],
+    "axe_checked": true
+  },
+  {
+    "view": "projects",
+    "width": 1920,
+    "axe_checked": false
+  },
+  {
+    "view": "compatibility",
+    "width": 1920,
+    "axe_checked": false
+  },
+  {
+    "view": "detail geometry",
+    "width": 1920,
+    "geometry": {
+      "client": 1642,
+      "scroll": 1642,
+      "children": [
+        {
+          "cls": "inventory-page",
+          "x": 246,
+          "width": 666.65625,
+          "right": 912.65625
+        },
+        {
+          "cls": "inventory-detail-pane",
+          "x": 928.65625,
+          "width": 959.328125,
+          "right": 1887.984375
+        }
+      ]
+    }
+  }
+]

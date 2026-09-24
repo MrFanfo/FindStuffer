@@ -108,6 +108,8 @@ from .enrichment import (
     queue_missing_enrichment,
     run_pending,
 )
+from .enrichment_export import export_category as export_category_enrichment
+from .enrichment_export import export_location as export_location_enrichment
 from .extended import (
     add_shopping,
     apply_import_merge,
@@ -693,6 +695,22 @@ async def import_category_marks_route(payload: CategoryMarkImport) -> dict[str, 
 async def suggest_category_icons(database: Database, overwrite: bool = False) -> dict[str, Any]:
     """Give categories a mark read from their own words, keeping chosen ones."""
     return suggest_category_icon_set(database, overwrite=overwrite)
+
+
+@app.get("/api/v1/categories/{category_id}/enrichment-export", tags=["metadata"])
+async def export_category_for_enrichment(
+    category_id: int, database: Database, include_children: bool = True
+) -> dict[str, Any]:
+    """This category's stock, its fields and the import guide, as one file."""
+    return export_category_enrichment(database, category_id, include_children=include_children)
+
+
+@app.get("/api/v1/locations/{public_id}/enrichment-export", tags=["metadata"])
+async def export_location_for_enrichment(
+    public_id: str, database: Database, include_children: bool = True
+) -> dict[str, Any]:
+    """This place's stock, its fields and the import guide, as one file."""
+    return export_location_enrichment(database, public_id, include_children=include_children)
 
 
 @app.get("/api/v1/categories/icons/export", tags=["metadata"])

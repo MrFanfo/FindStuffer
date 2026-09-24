@@ -33,6 +33,28 @@ import { CategoryCrumbs, findLocationChain, LocationCrumbs } from "../places/Pla
 type RefreshScope = "all" | "inventory" | "none";
 type ActionOptions = { progress?: string; undo?: () => Promise<void> };
 
+/** "3 days ago" reads faster than a full timestamp; the exact time is the title. */
+function relativeTime(when: Date): string {
+  const seconds = Math.round((Date.now() - when.getTime()) / 1000);
+  const steps: Array<[number, Intl.RelativeTimeFormatUnit]> = [
+    [60, "second"], [60, "minute"], [24, "hour"], [7, "day"], [4.35, "week"], [12, "month"],
+  ];
+  let value = seconds;
+  let unit: Intl.RelativeTimeFormatUnit = "second";
+  for (const [size, next] of steps) {
+    if (Math.abs(value) < size) break;
+    value = Math.round(value / size);
+    unit = next;
+  }
+  return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-value, unit);
+}
+
+/** The site a saved link points at, which says more than the label alone. */
+function linkHost(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ""); }
+  catch { return url; }
+}
+
 function hasLostTag(item: Item): boolean {
   return item.tags.some((tag) => tag.toLowerCase() === "lost");
 }
@@ -513,8 +535,8 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     ["Size", size],
     ["Weight", item.weight_g === null ? "" : `${item.weight_g} g`],
     ["Low stock at", item.low_stock_threshold === null ? "" : `${item.low_stock_threshold} ${item.unit}`],
-    ["Expires", item.expiration_date || ""],
-    ["Added", new Date(`${item.created_at}Z`).toLocaleDateString()],
+    ["Expires", item.expiration_date ? new Date(`${item.expiration_date}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""],
+    ["Added", new Date(`${item.created_at}Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })],
   ] as Array<[string, string]>).filter(([, value]) => value);
 
   const optionalSections = (editMode: boolean) => <>
@@ -539,7 +561,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
         <DraftNotice draft={itemDraft} onDiscard={() => { void itemDraft.clear(); setEditing(false); }} /><header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><div className="detail-header-meta">{item.project_holds?.map(hold => <small key={hold.public_id}>{hold.quantity} {item.unit} reserved · <a href={`?view=projects&project=${hold.public_id}`}>{hold.name}</a></small>)}{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div></div>{editing && <button className="text-button" onClick={() => { void itemDraft.clear(); setEditing(false); }}>Cancel editing</button>}</header>
         {((editing ? editCapabilities.photos : detailCapabilities.photos) && (editing || photos.length > 0)) && <section className={`detail-photo-hero ${photos.length ? "" : "empty-photo"}`} aria-label="Item photos">
           <div className="detail-photo-rail" ref={photoRail}>
-            {photos.map((photo, index) => <figure key={photo.public_id}><img src={photo.url} alt={`${item.name} photo ${index + 1}`} /><button aria-label={`Delete photo ${index + 1}`} onClick={() => run(() => api.deletePhoto(photo).then(loadExtras), "Photo removed")}><Icon name="close" size={15} /></button></figure>)}
+            {photos.map((photo, index) => <figure key={photo.public_id}><img src={photo.url} alt={`${item.name} photo ${index + 1}`} />{editing && <button aria-label={`Delete photo ${index + 1}`} onClick={() => run(() => api.deletePhoto(photo).then(loadExtras), "Photo removed")}><Icon name="close" size={15} /></button>}</figure>)}
             {detailCapabilities.photos && <label className="photo-add-tile"><Icon name="camera" size={28} /><span>{photos.length ? "Add photo" : "Add a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(event) => event.target.files?.[0] && void upload(event.target.files[0])} /></label>}
           </div>
         </section>}
@@ -570,16 +592,19 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             <ItemContents item={item} editing={false} locations={locations} categories={categories} onChanged={onChanged} />
             {detailCapabilities.fullness && item.fullness_percent != null && <section className="fullness-card"><div><span><Icon name="box" size={16} />Fullness</span><strong>{fullness}%</strong></div><input aria-label="Item fullness" type="range" min="0" max="100" step="5" value={fullness} style={{ "--fullness": `${fullness}%` } as React.CSSProperties} onChange={(event) => setFullness(Number(event.target.value))} onPointerUp={(event) => void saveFullness(Number(event.currentTarget.value))} onKeyUp={(event) => void saveFullness(Number(event.currentTarget.value))} /><small>Slide while using or refilling this Item.</small></section>}
             {overviewFacts.length > 0 && <section className="detail-section">
-              <div className="section-heading"><div><h2>Facts</h2><span>What this item is</span></div></div>
+              <div className="section-heading"><div><h2>Facts</h2></div></div>
               <dl className="fact-rows">{overviewFacts.map(([label, value]) => <div className="fact-row" key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
             </section>}
             {(item.expiration_date || item.barcode) && <div className="detail-facts compact-facts">{item.expiration_date && <div><span>Next expiry</span><strong>{item.expiration_date}</strong>{expirationState(item) && <small className="fact-warning">{expirationState(item) === "expired" ? "Expired" : "Use within 7 days"}</small>}</div>}{item.barcode && <div className="barcode-fact"><span>Barcode</span><BarcodeGraphic value={item.barcode} /></div>}</div>}
-            {(item.description || item.notes || item.model) && <div className="prose">{item.model && <p className="product-identity">{item.model}</p>}{item.description && <p>{item.description}</p>}{item.notes && <p><strong>Notes</strong><br />{item.notes}</p>}</div>}
+            {(item.description || item.notes) && <section className="detail-section prose-section">
+              {item.description && <p className="item-description">{item.description}</p>}
+              {item.notes && <div className="item-notes"><span>Notes</span><p>{item.notes}</p></div>}
+            </section>}
             {item.tags.length > 0 && <section className="detail-section tag-section"><div className="section-heading"><div><h2>Tags</h2></div></div><div className="tag-list">{item.tags.map((tag) => <button type="button" key={tag} onClick={() => onOpenTag(tag)}><Icon name="tag" size={13} /><span>{tag}</span></button>)}</div></section>}
 
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "details"}>
-            {showLinksData && <section className="detail-section"><div className="section-heading"><div><h2>Links</h2><span>{itemLinks.length ? `${itemLinks.length} saved` : "Manuals, datasheets, and references"}</span></div>{detailCapabilities.links && <button type="button" className="text-button" onClick={() => setEditing(true)}>{itemLinks.length ? "Edit" : "Add link"}</button>}</div>{itemLinks.length ? <div className="link-list">{itemLinks.map((link, index) => <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer"><Icon name="spark" size={14} /><span>{link.label}</span></a>)}</div> : <div className="empty-inline"><span>No links yet</span></div>}</section>}
+            {showLinksData && <section className="detail-section"><div className="section-heading"><div><h2>Links</h2><span>{itemLinks.length ? `${itemLinks.length} saved` : "Manuals, datasheets, and references"}</span></div>{detailCapabilities.links && <button type="button" className="text-button" onClick={() => setEditing(true)}>{itemLinks.length ? "Edit" : "Add link"}</button>}</div>{itemLinks.length ? <div className="link-list">{itemLinks.map((link, index) => <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer"><Icon name="link" size={15} /><span><strong>{link.label}</strong><small>{linkHost(link.url)}</small></span><Icon name="chevron" size={14} /></a>)}</div> : <div className="empty-inline"><span>No links yet</span></div>}</section>}
             {optionalSections(false)}
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "details"}>
@@ -606,7 +631,21 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             </details>}
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "activity"}>
-            {history.length > 0 && <details open className="detail-section history-section"><summary><span><h2>History</h2><small>Permanent activity log</small></span><Icon name="chevron" size={16} /></summary><div className="event-list">{history.length ? history.map((event) => <div className="event" key={event.public_id}><span>{activityLabel(event.action)}</span><strong>{event.quantity_delta ? `${Number(event.quantity_delta) > 0 ? "+" : ""}${event.quantity_delta}` : event.to_location || "Changed"}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>) : <div className="empty-inline"><span>No changes recorded yet</span></div>}</div></details>}
+            {history.length > 0 && <section className="detail-section activity-section">
+              <ol className="activity-feed">{history.map((event) => {
+                const when = new Date(`${event.created_at}Z`);
+                const delta = event.quantity_delta === null ? "" : `${Number(event.quantity_delta) > 0 ? "+" : ""}${Number(event.quantity_delta)}`;
+                const movement = event.to_location ? `${event.from_location ? `${event.from_location} → ` : ""}${event.to_location}` : "";
+                return <li key={event.public_id}>
+                  <span className="activity-mark" aria-hidden="true"><Icon name={event.quantity_delta !== null ? (Number(event.quantity_delta) > 0 ? "plus" : "minus") : event.to_location ? "pin" : "spark"} size={14} /></span>
+                  <span className="activity-copy">
+                    <strong>{activityLabel(event.action)}{delta && <b>{delta} {item.unit}</b>}</strong>
+                    <small>{[movement, event.source].filter(Boolean).join(" · ")}</small>
+                  </span>
+                  <time dateTime={when.toISOString()} title={when.toLocaleString()}>{relativeTime(when)}</time>
+                </li>;
+              })}</ol>
+            </section>}
             </div>
             <div className="detail-tab-panel more-panel" hidden={detailTab !== "more"}>
             <section className="detail-section action-group">

@@ -1,0 +1,44 @@
+{
+  "data": "synthetic browser fixtures and disposable SQLite database; no production mutations",
+  "quantity_lost_response_browser": {
+    "initial": 1,
+    "expected_after_one_increment": 2,
+    "actual_after_recovery": 3
+  },
+  "quantity_backend_sequence": {
+    "initial": 5,
+    "online_decrement_result": 4,
+    "offline_new_id_decrement_result": 3
+  },
+  "capture_draft": {
+    "steps": "Scan, edit name, navigate Inventory, return Capture",
+    "remaining_review_name_fields": 0
+  },
+  "project_palette": {
+    "selected": "Toolhead upgrade",
+    "destination_view": "projects",
+    "project_id_in_url": false
+  },
+  "places": {
+    "selected": "Drawer A",
+    "url_view": "places",
+    "location_id_in_url": false,
+    "detail_after_reload": false
+  },
+  "palette_tab": {
+    "input_remains_focused": true
+  },
+  "inventory_320": {
+    "client_width": 296,
+    "scroll_width": 296
+  },
+  "checks": {
+    "backend_tests_passed": 141,
+    "frontend_unit_tests_passed": 28,
+    "architecture": "pass",
+    "unused_typescript": "pass",
+    "ruff": "pass",
+    "sampled_axe_states": 9,
+    "sampled_axe_violations": 0
+  }
+}

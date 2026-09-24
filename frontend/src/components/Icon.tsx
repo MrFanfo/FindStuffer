@@ -3,7 +3,7 @@ import { ReactNode } from "react";
 export type IconName =
   | "home" | "search" | "plus" | "scan" | "more" | "pin" | "box"
   | "camera" | "mic" | "spark" | "chevron" | "close" | "user"
-  | "settings" | "qr" | "minus" | "check" | "filter" | "tag"
+  | "settings" | "qr" | "minus" | "check" | "filter" | "tag" | "link" | "trash"
   // Category marks: one quiet line drawing per kind of thing.
   | "wrench" | "bolt" | "chip" | "spool" | "book" | "layers" | "cutlery" | "bottle"
   | "sheet" | "leaf" | "shirt" | "pill" | "spray" | "brush" | "plug" | "ball" | "car" | "key";
@@ -20,6 +20,8 @@ const ICON_PATHS: Record<IconName, ReactNode> = {
     mic: <><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></>,
     spark: <><path d="m12 2 1.6 5.4L19 9l-5.4 1.6L12 16l-1.6-5.4L5 9l5.4-1.6L12 2Z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></>,
     chevron: <path d="m9 18 6-6-6-6"/>,
+    trash: <><path d="M4 7h16M10 7V4.5h4V7"/><path d="M6.5 7 7.5 20h9l1-13"/><path d="M10.5 10.5v6M13.5 10.5v6"/></>,
+    link: <><path d="M10.5 13.5a3.5 3.5 0 0 0 5 0l3-3a3.54 3.54 0 0 0-5-5l-1.5 1.5"/><path d="M13.5 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.54 3.54 0 0 0 5 5l1.5-1.5"/></>,
     close: <path d="m6 6 12 12M18 6 6 18"/>,
     user: <><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.8-1.8.9-2-2.1-2.1-2 .9-1.8-.8L10.5 2h-3l-.7 2-1.8.8-2-.9L.9 6l.9 2-.8 1.8-2 .7v3l2 .7.8 1.8-.9 2L3 20.1l2-.9 1.8.8.7 2h3l.7-2 1.8-.8 2 .9 2.1-2.1-.9-2 .8-1.8 2-.7Z" transform="translate(2) scale(.83)"/></>,

@@ -1023,6 +1023,12 @@ export const api = {
     ),
   exportCategoryIcons: () => request<CategoryIconSet>("/api/v1/categories/icons/export"),
   categoryMarks: () => request<{ marks: string[] }>("/api/v1/category-marks"),
+  enrichmentExport: (scope: { category?: number; place?: string }, includeChildren = true) =>
+    request<Record<string, unknown>>(
+      scope.category !== undefined
+        ? `/api/v1/categories/${scope.category}/enrichment-export?include_children=${includeChildren}`
+        : `/api/v1/locations/${encodeURIComponent(scope.place || "")}/enrichment-export?include_children=${includeChildren}`,
+    ),
   exportCategoryMarks: () => request<CategoryMarkSet>("/api/v1/category-marks/export"),
   importCategoryMarks: (payload: CategoryMarkSet, apply: boolean) =>
     request<CategoryMarkImportResult>("/api/v1/category-marks/import", {

@@ -1,6 +1,15 @@
 import { FormEvent, useRef, useState } from "react";
 
 import { api, Item, ItemDocument } from "../api";
+import { Icon } from "./Icon";
+
+/** A stored date is written the way it would be said. */
+function readableDate(value: string): string {
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
 
 type Props = {
   editing?: boolean;
@@ -120,13 +129,25 @@ export function DocumentSection({
                 {document.mime_type === "application/pdf" ? "PDF" : "IMG"}
               </div>
               <div>
-                <a href={document.content_url} target="_blank" rel="noreferrer">
-                  {document.title}
-                </a>
+                <div className="document-title-row">
+                  <a href={document.content_url} target="_blank" rel="noreferrer">
+                    {document.title}
+                  </a>
+                  <button
+                    type="button"
+                    className="document-delete"
+                    aria-label={`Delete ${document.title}`}
+                    title={`Delete ${document.title}`}
+                    disabled={busy}
+                    onClick={() => void remove(document)}
+                  >
+                    <Icon name="trash" size={16} />
+                  </button>
+                </div>
                 <small>
                   {document.document_type} · {fileSize(document.size_bytes)}
                   {document.warranty_expires_at
-                    ? ` · warranty ${document.warranty_expires_at}`
+                    ? ` · warranty to ${readableDate(document.warranty_expires_at)}`
                     : ""}
                 </small>
                 <span className={`extraction-status ${document.extraction_status}`}>
@@ -171,14 +192,6 @@ export function DocumentSection({
                     Retry OCR
                   </button>
                 )}
-                <button
-                  type="button"
-                  aria-label={`Delete ${document.title}`}
-                  disabled={busy}
-                  onClick={() => void remove(document)}
-                >
-                  Delete
-                </button>
               </div>
             </article>
           );

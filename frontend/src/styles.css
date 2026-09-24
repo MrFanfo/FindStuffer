@@ -2757,3 +2757,82 @@ h1.eyebrow, h2.eyebrow { margin: 0 0 7px; font-family: inherit; font-size: .65re
 .action-group.is-lost { border-color: #e3ba9e; }
 .more-panel .qr-section { display: grid; justify-items: center; gap: 8px; text-align: center; }
 .more-panel .qr-section img { width: min(200px, 60vw); height: auto; }
+
+/* ---------------------------------------------------------------------------
+   Item screen, second pass: a header that does not fill the phone, facts read
+   two at a time, and an activity feed that says how long ago in a glance.
+   --------------------------------------------------------------------------- */
+.activity-feed { display: grid; margin: 0; padding: 0; gap: 2px; list-style: none; }
+.activity-feed li { display: grid; align-items: center; gap: 10px; grid-template-columns: auto minmax(0, 1fr) auto; border-top: 1px solid var(--line); padding: 9px 0; }
+.activity-feed li:first-child { border-top: 0; padding-top: 0; }
+.activity-mark { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 9px; color: var(--accent-dark); background: var(--accent-soft); }
+.activity-copy { display: grid; min-width: 0; gap: 1px; }
+.activity-copy strong { display: flex; align-items: baseline; gap: 6px; font-size: .86rem; }
+.activity-copy strong b { color: var(--accent-dark); font-variant-numeric: tabular-nums; }
+.activity-copy small { overflow: hidden; color: var(--muted); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.activity-feed time { flex: 0 0 auto; color: var(--muted); font-size: .72rem; white-space: nowrap; }
+
+@media (max-width: 699px) {
+  /* The header introduces the item; it should not be the whole first screen. */
+  .detail-header h1 { font-size: 1.3rem; line-height: 1.18; }
+  .detail-header { gap: 8px; }
+  .detail-header-meta small, .detail-header-meta a { font-size: .7rem; }
+  .detail-photo-rail { --detail-photo-size: clamp(150px, 44vw, 190px); }
+  /* Facts read two at a time, label above value. */
+  .fact-rows { grid-template-columns: 1fr 1fr; gap: 1px 10px; }
+  .fact-row { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 1px; padding: 8px 0; }
+  .fact-row:nth-child(2) { border-top: 0; padding-top: 2px; }
+  .fact-row dt { font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .fact-row dd { font-size: .92rem; text-align: left; }
+  .structured-item-data .fact-rows { grid-template-columns: 1fr; }
+  .structured-item-data .fact-row { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; }
+  .structured-item-data .fact-row:nth-child(2) { border-top: 1px solid var(--line); padding-top: 10px; }
+  .structured-item-data .fact-row dd { text-align: right; }
+}
+/* The line under the title is context, not a banner: it reads as written. */
+.detail-header-meta small, .detail-header-meta a { text-transform: none; font-size: .74rem; font-weight: 650; letter-spacing: 0; }
+.detail-header-meta a { color: var(--accent-dark); }
+
+/* Details: section headers take one line, links show where they lead, and a
+   document's delete stays quiet beside its title. */
+@media (max-width: 699px) {
+  .detail-tab-panel .section-heading { align-items: baseline; gap: 8px; }
+  .detail-tab-panel .section-heading > div { display: flex; align-items: baseline; gap: 8px; }
+  .detail-tab-panel .section-heading h2 { font-size: .96rem; }
+  .detail-tab-panel .section-heading span { flex: 0 0 auto; border-radius: 999px; padding: 1px 7px; background: var(--card-alt); font-size: .64rem; font-weight: 750; }
+  .link-list a { min-height: 46px; gap: 9px; }
+  .link-list a > span { display: grid; min-width: 0; gap: 0; }
+  .link-list a strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+  .link-list a small { overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+  .link-list a > .icon:last-child { margin-left: auto; color: var(--muted); }
+  .document-row .danger, .document-row button:last-child { min-height: 32px; padding: 0 9px; font-size: .7rem; }
+}
+@media (max-width: 699px) {
+  /* A document is a row: badge, what it is, and a quiet way to remove it. */
+  .document-row { align-items: start; gap: 9px; padding: 9px; }
+  .document-row .document-kind { width: 38px; height: 38px; font-size: .62rem; }
+  .document-row a { font-size: .86rem; }
+  .document-row small, .document-row .extraction-status { font-size: .69rem; }
+  .document-row > button, .document-row .danger { min-height: 30px; align-self: center; border: 0; padding: 0 8px; color: var(--danger); background: transparent; font-size: .72rem; font-weight: 750; }
+}
+
+/* A document's title carries its own removal, so the row keeps its height. */
+.document-title-row { display: flex; align-items: center; gap: 8px; }
+.document-title-row a { min-width: 0; overflow: hidden; flex: 1 1 auto; text-overflow: ellipsis; white-space: nowrap; }
+.document-delete { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 9px; color: var(--muted); background: transparent; }
+.document-delete:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+
+/* Overview polish: a compact add-photo tile, a barcode that states its number,
+   and a description that reads apart from private notes. */
+.prose-section { display: grid; gap: 10px; }
+.item-description { margin: 0; line-height: 1.5; }
+.item-notes { display: grid; gap: 3px; border-left: 3px solid var(--accent-soft); padding-left: 10px; }
+.item-notes span { color: var(--muted); font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.item-notes p { margin: 0; color: var(--ink-soft); line-height: 1.45; }
+@media (max-width: 699px) {
+  .detail-photo-rail .photo-add-tile { width: 96px; min-width: 96px; aspect-ratio: auto; height: 100%; gap: 4px; font-size: .68rem; }
+  .detail-photo-rail .photo-add-tile .icon { width: 20px; height: 20px; }
+  .detail-facts.compact-facts .barcode-fact { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+  .detail-facts.compact-facts .barcode-fact svg, .detail-facts.compact-facts .barcode-fact img { max-height: 38px; }
+  .barcode-fact span { align-self: center; }
+}
