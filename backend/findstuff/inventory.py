@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from .category_icons import is_icon_name
 from .config import get_settings
 from .db import transaction
 from .network_security import validate_http_url
@@ -1815,7 +1816,7 @@ def list_categories(connection: sqlite3.Connection) -> list[dict[str, Any]]:
         dict(row)
         for row in connection.execute(
             """
-            SELECT id, parent_id, name, slug, sort_order, created_at
+            SELECT id, parent_id, name, slug, icon, sort_order, created_at
             FROM categories
             ORDER BY sort_order, name COLLATE NOCASE
             """
@@ -1862,6 +1863,7 @@ def list_categories(connection: sqlite3.Connection) -> list[dict[str, Any]]:
                 "parent_id": node["parent_id"],
                 "name": node["name"],
                 "slug": node["slug"],
+                "icon": node["icon"],
                 "path": path,
                 "depth": max(0, path.count(" > ")),
                 "sort_order": node["sort_order"],
@@ -2028,6 +2030,12 @@ def _update_category(
             raise ConflictError("Category name must contain letters or numbers")
         assignments.append("name = ?")
         parameters.append(next_name)
+    if "icon" in changes and changes["icon"] is not None:
+        icon = str(changes["icon"]).strip()
+        if icon and not is_icon_name(icon):
+            raise ConflictError("That icon name is not one this app can draw")
+        assignments.append("icon = ?")
+        parameters.append(icon)
     if "parent_id" in changes:
         next_parent_id = changes["parent_id"]
         if next_parent_id == row["id"]:

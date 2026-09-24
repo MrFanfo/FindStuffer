@@ -4,8 +4,8 @@ import { Icon } from "../../components/Icon";
 import type { InventoryDensity } from "./InventoryItemRow";
 
 const DENSITIES: Array<[InventoryDensity, string, string]> = [
-  ["compact", "Compact", "Most rows on screen"],
-  ["comfortable", "Comfortable", "Photo and place"],
+  ["compact", "Compact", "Most rows · name and place"],
+  ["comfortable", "Comfortable", "Adds category and details"],
   ["grid", "Photo grid", "Recognise by sight"],
 ];
 

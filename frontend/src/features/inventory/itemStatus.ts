@@ -40,17 +40,33 @@ export function heldQuantity(item: Item): number {
 }
 
 /**
- * The place, most specific part first, so that truncating a narrow row trims the
- * broad end of the path instead of the drawer the item is actually in.
+ * Places are typed in whatever case was handy — STUDIO, armadio grande — so the
+ * list evens them out. Words that are deliberately mixed case, like iPhone or
+ * 3D, are left exactly as they are.
  */
-export function placeParts(item: Item): { leaf: string; rest: string } {
-  if (item.containment_path) {
-    const [leaf, ...rest] = item.containment_path.replace(/^Inside\s+/i, "").split(">").map((part) => part.trim()).filter(Boolean);
-    return { leaf: leaf || "Unassigned", rest: rest.join(" › ") };
-  }
-  const parts = item.location_path.split(">").map((part) => part.trim()).filter(Boolean);
-  const leaf = parts.pop() || "Unassigned";
-  return { leaf, rest: parts.join(" › ") };
+function evenCase(part: string): string {
+  return part.split(" ").map((word) => {
+    if (!word || /\d/.test(word)) return word;
+    const letters = word.replace(/[^A-Za-zÀ-ÿ]/g, "");
+    if (letters.length > 1 && letters !== letters.toUpperCase() && letters !== letters.toLowerCase()) return word;
+    return word[0].toUpperCase() + word.slice(1).toLowerCase();
+  }).join(" ");
+}
+
+/**
+ * The place, led by the two levels that identify it — the room and the cupboard —
+ * because those are what someone walks to. Everything deeper, including the
+ * container an item sits in, follows and gives way first when the row is narrow.
+ */
+export function placeParts(item: Item): { head: string; tail: string } {
+  const parts = item.location_path.split(">").map((part) => evenCase(part.trim())).filter(Boolean);
+  const container = item.containment_path
+    ? evenCase(item.containment_path.replace(/^Inside\s+/i, "").split(">").map((part) => part.trim()).filter(Boolean)[0] || "")
+    : "";
+  return {
+    head: parts.slice(0, 2).join(" › ") || "Unassigned",
+    tail: [...parts.slice(2), container].filter(Boolean).join(" › "),
+  };
 }
 
 /** Quantities are decimal strings; keep the arithmetic free of floating-point dust. */

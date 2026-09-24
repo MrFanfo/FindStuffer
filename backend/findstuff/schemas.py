@@ -47,6 +47,21 @@ class CategoryCreate(StrictModel):
 class CategoryPatch(StrictModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     parent_id: int | None = Field(default=None, ge=1)
+    icon: str | None = Field(default=None, max_length=32)
+
+
+class CategoryIconImport(StrictModel):
+    apply: bool = False
+    payload: dict[str, Any]
+
+
+class CategoryMarkUpload(StrictModel):
+    svg: str = Field(min_length=1, max_length=16384)
+
+
+class CategoryMarkImport(StrictModel):
+    apply: bool = False
+    payload: dict[str, Any]
 
 
 class CategoryDefaultLocationUpdate(StrictModel):

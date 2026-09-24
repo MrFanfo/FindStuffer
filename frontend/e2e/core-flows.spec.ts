@@ -464,8 +464,9 @@ test("scrolling loads more items in place and does not flood history", async ({ 
   });
   await page.reload();
   await expect(page.getByRole("heading", { name: "Bulk item 000" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Bulk item 100" })).toHaveCount(0);
 
+  // Rows are short, so the first page may already reach the end of the list; what
+  // matters is that reaching the end brings the next page without moving the view.
   await page.getByRole("heading", { name: "Bulk item 099" }).scrollIntoViewIfNeeded();
   const before = await page.evaluate(() => window.scrollY);
   expect(before).toBeGreaterThan(1000);
@@ -495,7 +496,7 @@ test("scrolling loads more items in place and does not flood history", async ({ 
   expect(await page.evaluate(() => (window as unknown as { replaceCalls: number }).replaceCalls)).toBeLessThan(20);
 });
 
-test("a row holds its actions, its chips filter, and the quantity can be counted", async ({ page }) => {
+test("each target on a row answers differently: photo, amount, chips, row", async ({ page }) => {
   let adjusted: Record<string, unknown> | null = null;
   await page.route("**/api/v1/offline/sync", async (route) => {
     adjusted = route.request().postDataJSON().payload;
@@ -503,18 +504,15 @@ test("a row holds its actions, its chips filter, and the quantity can be counted
   });
   const row = page.locator(".inv-row").filter({ hasText: "Phillips driver" }).first();
 
-  // The row shows one line: photo, name, place, amount. Changing stock waits behind the chevron.
-  await expect(row.locator(".inv-thumb")).toBeVisible();
+  // Nothing but the item itself until the photo is tapped.
   await expect(row.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);
-  await expect(row.getByRole("button", { name: /^(Add|Remove) one/ })).toHaveCount(0);
-  await row.getByRole("button", { name: "More actions for Phillips driver" }).click();
+  await row.getByRole("button", { name: "Commands for Phillips driver" }).click();
   await expect(row.getByRole("button", { name: "Move", exact: true })).toBeVisible();
   await expect(row.getByRole("button", { name: "Add one Phillips driver" })).toBeVisible();
-  await expect(row.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
-  await row.getByRole("button", { name: "More actions for Phillips driver" }).click();
+  await row.getByRole("button", { name: "Commands for Phillips driver" }).click();
   await expect(row.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);
 
-  // Counting sets an exact amount, sent as the change that reaches it.
+  // The amount opens the counted amount, saved as the change that reaches it.
   await row.getByRole("button", { name: /Set quantity for Phillips driver/ }).click();
   await page.getByRole("textbox", { name: "Quantity in pcs" }).fill("7");
   await expect(page.getByText("Adds 6 pcs", { exact: false })).toBeVisible();
@@ -522,7 +520,7 @@ test("a row holds its actions, its chips filter, and the quantity can be counted
   await expect.poll(() => (adjusted as { delta?: number } | null)?.delta).toBe(6);
 
   // The place chip narrows the list to that place instead of opening the item.
-  await row.getByRole("button", { name: /Drawer A/ }).click();
+  await row.getByRole("button", { name: /Workshop/ }).click();
   await expect(page.getByRole("button", { name: /Drawer A \+ inside/ })).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });

@@ -9,9 +9,13 @@ import {
   type LocationType,
 } from "../../api";
 import { Icon } from "../../components/Icon";
+import { CategoryMark } from "../../components/CategoryMark";
 import { EmptyState } from "../../components/EmptyState";
 import { HierarchyPicker, locationPickerNodes } from "../../components/HierarchyPicker";
 import { categoryOptionLabel } from "../../domain/inventory";
+import { categoryIcons } from "../../domain/categoryIcons";
+import { CategoryIconPicker } from "./CategoryIconPicker";
+import { CategoryMarkTools } from "./CategoryMarkTools";
 
 type CategoryNode = Category & { children: CategoryNode[] };
 const CATEGORY_DATA_FIELD_LABELS: Record<keyof Omit<CategoryCapabilities, "override" | "inherited_from" | "inherited_label">, string> = {
@@ -176,7 +180,7 @@ export function BranchToggle({ hideEmpty, onChange }: { hideEmpty: boolean; onCh
   return <button type="button" className={`branch-toggle ${hideEmpty ? "active" : ""}`} aria-pressed={hideEmpty} aria-label={label} title={label} onClick={() => onChange(!hideEmpty)}><Icon name="box" size={15} />{hideEmpty ? "Show all" : "Hide empty"}</button>;
 }
 
-export function CategoriesView({ categories, locations, busy, hideEmpty: controlledHideEmpty, onHideEmptyChange, onOpen, onCreate, onUpdate, onDelete, onDeleteTree, onSaveCapabilities, onSetDefaultLocation }: {
+export function CategoriesView({ categories, locations, busy, hideEmpty: controlledHideEmpty, onHideEmptyChange, onOpen, onCreate, onUpdate, onDelete, onDeleteTree, onSaveCapabilities, onSetDefaultLocation, onMarksChanged }: {
   categories: Category[];
   locations: LocationNode[];
   busy: boolean;
@@ -186,14 +190,17 @@ export function CategoriesView({ categories, locations, busy, hideEmpty: control
   onHideEmptyChange?: (value: boolean) => void;
   onOpen: (categoryId: number) => void;
   onCreate: (name: string, parentId: number | null) => Promise<void>;
-  onUpdate: (categoryId: number, body: { name: string; parent_id: number | null }) => Promise<void>;
+  onUpdate: (categoryId: number, body: { name?: string; parent_id?: number | null; icon?: string }) => Promise<void>;
   onDelete: (categoryId: number) => Promise<void>;
   onDeleteTree: (categoryId: number) => Promise<void>;
   onSaveCapabilities: (overrides: ApplicationSettings["category_data"]["overrides"]) => Promise<void>;
   onSetDefaultLocation: (categoryId: number, locationId: string | null) => Promise<void>;
+  onMarksChanged: () => void;
 }) {
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
+  const [markFor, setMarkFor] = useState<Category | null>(null);
+  const marks = useMemo(() => categoryIcons(categories), [categories]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
@@ -279,7 +286,9 @@ export function CategoriesView({ categories, locations, busy, hideEmpty: control
       {editingCategory && <button className="secondary" onClick={() => setFieldCategory(editingCategory)}>Custom fields</button>}
       {fieldCategory && <CategoryFieldsPanel category={fieldCategory.id} name={fieldCategory.path} onClose={() => setFieldCategory(null)} />}
       {editingCategory ? <CategoryEditPanel category={editingCategory} locations={flatLocations} editName={editName} editParent={editParent} editParentOptions={editParentOptions} editDefaultLocation={editDefaultLocation} overrides={capabilityOverrides} busy={busy} onEditName={setEditName} onEditParent={setEditParent} onEditDefaultLocation={setEditDefaultLocation} onCapability={setCapability} onResetCapabilities={resetCapabilities} onCancel={() => setEditingId(null)} onSubmit={saveEdit} /> : <details className="create-panel"><summary><span className="summary-icon"><Icon name="plus" /></span><span><strong>Create a category</strong><small>Nest it under any existing category</small></span><Icon name="chevron" /></summary><form className="form-card" onSubmit={submit}><label>Name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Resistors, batteries, printer parts" /></label><label>Inside<select value={parent} onChange={(event) => setParent(event.target.value)}><option value="">Top level</option>{categories.map((entry) => <option key={entry.id} value={entry.id}>{categoryOptionLabel(entry)}</option>)}</select></label><button className="primary wide button-with-icon" disabled={busy || !name.trim()}><Icon name="plus" size={17} />Create category</button></form></details>}
-      <div className="category-tree">{tree.length ? tree.map((category) => <CategoryBranch key={category.id} category={category} expanded={expanded} busy={busy} onToggle={toggle} onOpen={onOpen} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} />) : <EmptyState icon="tag" title="No categories yet" text="Create your first category." />}</div>
+      <CategoryMarkTools busy={busy} onChanged={onMarksChanged} />
+      <div className="category-tree">{tree.length ? tree.map((category) => <CategoryBranch key={category.id} category={category} marks={marks} expanded={expanded} busy={busy} onToggle={toggle} onOpen={onOpen} onMark={setMarkFor} onEdit={startEdit} onDelete={remove} onDeleteTree={removeTree} />) : <EmptyState icon="tag" title="No categories yet" text="Create your first category." />}</div>
+      {markFor && <CategoryIconPicker categoryPath={markFor.path} selected={markFor.icon} onChoose={(icon) => void onUpdate(markFor.id, { icon })} onClose={() => setMarkFor(null)} />}
     </section>
   );
 }
@@ -320,7 +329,9 @@ function CategoryEditPanel({ category, locations, editName, editParent, editPare
   </>;
 }
 
-function CategoryBranch({ category, expanded, busy, depth = 0, onToggle, onOpen, onEdit, onDelete, onDeleteTree }: {
+function CategoryBranch({ category, marks, expanded, busy, depth = 0, onToggle, onOpen, onMark, onEdit, onDelete, onDeleteTree }: {
+  marks: Map<number, string>;
+  onMark: (category: Category) => void;
   category: CategoryNode;
   expanded: Set<number>;
   busy: boolean;
@@ -333,5 +344,5 @@ function CategoryBranch({ category, expanded, busy, depth = 0, onToggle, onOpen,
 }) {
   const isOpen = expanded.has(category.id);
   const canDelete = category.children.length === 0 && category.item_count === 0;
-  return <div className="category-branch" style={{ "--depth": depth } as CSSProperties}><div className="category-node"><span className="hierarchy-rail" aria-hidden="true" />{category.children.length > 0 ? <button type="button" className={`tree-toggle ${isOpen ? "open" : ""}`} onClick={() => onToggle(category.id)} aria-label={`${isOpen ? "Collapse" : "Expand"} ${category.name}`} aria-expanded={isOpen}><Icon name="chevron" size={16} /></button> : <span className="tree-toggle-spacer" />}<button type="button" className="category-open" onClick={() => onOpen(category.id)}><span className="location-kind"><Icon name="tag" size={17} /></span><span><strong>{category.name}</strong><small>{category.total_item_count} item{category.total_item_count === 1 ? "" : "s"} · {category.children.length} child{category.children.length === 1 ? "" : "ren"}</small><em>{categoryOptionLabel(category)}</em></span></button><details className="category-row-menu"><summary aria-label={`Actions for ${category.name}`} title="Category actions"><Icon name="more" size={18} /></summary><div><button type="button" aria-label={`Edit ${category.name}`} onClick={() => onEdit(category)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={busy || !canDelete} aria-label={`Delete ${category.name}`} title={canDelete ? "Delete category" : "Move children and items first"} onClick={() => onDelete(category)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" aria-label={`Delete ${category.name} subtree`} disabled={busy} onClick={() => onDeleteTree(category)}><Icon name="close" size={14} /><span>Subtree</span></button></div></details></div>{isOpen && category.children.map((child) => <CategoryBranch key={child.id} category={child} expanded={expanded} busy={busy} depth={depth + 1} onToggle={onToggle} onOpen={onOpen} onEdit={onEdit} onDelete={onDelete} onDeleteTree={onDeleteTree} />)}</div>;
+  return <div className="category-branch" style={{ "--depth": depth } as CSSProperties}><div className="category-node"><span className="hierarchy-rail" aria-hidden="true" />{category.children.length > 0 ? <button type="button" className={`tree-toggle ${isOpen ? "open" : ""}`} onClick={() => onToggle(category.id)} aria-label={`${isOpen ? "Collapse" : "Expand"} ${category.name}`} aria-expanded={isOpen}><Icon name="chevron" size={16} /></button> : <span className="tree-toggle-spacer" />}<button type="button" className="category-mark" title={`Mark for ${category.name}${category.icon ? "" : " (suggested)"}`} aria-label={`Change the mark for ${category.name}`} onClick={() => onMark(category)}><CategoryMark name={marks.get(category.id) || "tag"} size={18} /></button><button type="button" className="category-open" onClick={() => onOpen(category.id)}><span><strong>{category.name}</strong><small>{category.total_item_count} item{category.total_item_count === 1 ? "" : "s"} · {category.children.length} child{category.children.length === 1 ? "" : "ren"}</small><em>{categoryOptionLabel(category)}</em></span></button><details className="category-row-menu"><summary aria-label={`Actions for ${category.name}`} title="Category actions"><Icon name="more" size={18} /></summary><div><button type="button" aria-label={`Edit ${category.name}`} onClick={() => onEdit(category)}><Icon name="settings" size={14} /><span>Edit</span></button><button type="button" disabled={busy || !canDelete} aria-label={`Delete ${category.name}`} title={canDelete ? "Delete category" : "Move children and items first"} onClick={() => onDelete(category)}><Icon name="close" size={14} /><span>Delete</span></button><button type="button" className="danger-button" aria-label={`Delete ${category.name} subtree`} disabled={busy} onClick={() => onDeleteTree(category)}><Icon name="close" size={14} /><span>Subtree</span></button></div></details></div>{isOpen && category.children.map((child) => <CategoryBranch key={child.id} category={child} marks={marks} expanded={expanded} busy={busy} depth={depth + 1} onToggle={onToggle} onOpen={onOpen} onMark={onMark} onEdit={onEdit} onDelete={onDelete} onDeleteTree={onDeleteTree} />)}</div>;
 }

@@ -52,11 +52,39 @@ export type ImportPreviewDetail = {
   message: string;
 };
 
+export type CategoryIconSet = {
+  format: string;
+  version: number;
+  icons: Array<{ slug: string; path: string; icon: string }>;
+};
+
+export type CategoryIconImportResult = {
+  applied: boolean;
+  matched: number;
+  unmatched: string[];
+  unmatched_count: number;
+  invalid: string[];
+  invalid_count: number;
+};
+
+export type CategoryMarkSet = { format: string; version: number; marks: Record<string, string> };
+
+export type CategoryMarkImportResult = {
+  applied: boolean;
+  added: string[];
+  replaced: string[];
+  added_count: number;
+  replaced_count: number;
+  rejected: Array<{ name: string; reason: string }>;
+  rejected_count: number;
+};
+
 export type Category = {
   id: number;
   parent_id: number | null;
   name: string;
   slug: string;
+  icon: string;
   path: string;
   depth: number;
   sort_order: number;
@@ -988,12 +1016,38 @@ export const api = {
     body: JSON.stringify({ operation_id: operationId, kind, payload }),
   }),
   categories: () => request<Category[]>("/api/v1/categories"),
+  suggestCategoryIcons: (overwrite = false) =>
+    request<{ updated: number; unchanged: number }>(
+      `/api/v1/categories/icons/suggest?overwrite=${overwrite}`,
+      { method: "POST" },
+    ),
+  exportCategoryIcons: () => request<CategoryIconSet>("/api/v1/categories/icons/export"),
+  categoryMarks: () => request<{ marks: string[] }>("/api/v1/category-marks"),
+  exportCategoryMarks: () => request<CategoryMarkSet>("/api/v1/category-marks/export"),
+  importCategoryMarks: (payload: CategoryMarkSet, apply: boolean) =>
+    request<CategoryMarkImportResult>("/api/v1/category-marks/import", {
+      method: "POST",
+      body: JSON.stringify({ apply, payload }),
+    }),
+  saveCategoryMark: (name: string, svg: string) =>
+    request<{ name: string; svg: string }>(`/api/v1/category-marks/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      body: JSON.stringify({ svg }),
+    }),
+  importCategoryIcons: (payload: CategoryIconSet, apply: boolean) =>
+    request<CategoryIconImportResult>("/api/v1/categories/icons/import", {
+      method: "POST",
+      body: JSON.stringify({ apply, payload }),
+    }),
   createCategory: (name: string, parent_id: number | null = null) =>
     request<Category>("/api/v1/categories", {
       method: "POST",
       body: JSON.stringify({ name, parent_id }),
     }),
-  updateCategory: (categoryId: number, body: { name?: string; parent_id?: number | null }) =>
+  updateCategory: (
+    categoryId: number,
+    body: { name?: string; parent_id?: number | null; icon?: string },
+  ) =>
     request<Category>(`/api/v1/categories/${categoryId}`, {
       method: "PATCH",
       body: JSON.stringify(body),

@@ -497,6 +497,26 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
     }, "Category updated", "inventory");
   }
 
+  const money = (minor: number | null, currency: string | null) => (
+    minor === null ? "" : `${(minor / 100).toFixed(2)} ${currency || ""}`.trim()
+  );
+  const size = [item.length_mm, item.width_mm, item.height_mm].every((value) => value !== null)
+    ? `${item.length_mm} × ${item.width_mm} × ${item.height_mm} mm`
+    : "";
+  // Only what this item actually records: an empty row says nothing worth a line.
+  const overviewFacts: Array<[string, string]> = ([
+    ["Brand", item.brand],
+    ["Model", item.model],
+    ["Serial", item.serial_number],
+    ["Paid", money(item.purchase_price_minor, item.purchase_currency)],
+    ["Worth", money(item.estimated_price_minor, item.estimated_price_currency)],
+    ["Size", size],
+    ["Weight", item.weight_g === null ? "" : `${item.weight_g} g`],
+    ["Low stock at", item.low_stock_threshold === null ? "" : `${item.low_stock_threshold} ${item.unit}`],
+    ["Expires", item.expiration_date || ""],
+    ["Added", new Date(`${item.created_at}Z`).toLocaleDateString()],
+  ] as Array<[string, string]>).filter(([, value]) => value);
+
   const optionalSections = (editMode: boolean) => <>
             {editMode && <ItemContents item={item} editing locations={locations} categories={categories} onChanged={onChanged} />}
             {(editMode ? editCapabilities.documents : detailCapabilities.documents && documents.length > 0) && <DocumentSection editing={editMode && editCapabilities.documents} item={item} documents={documents} onReload={loadExtras} onItemChanged={onChanged} notify={(message) => { void run(async () => undefined, message, "none"); }} />}
@@ -516,7 +536,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
       <article className="detail-sheet">
         {extrasErrors.map((section) => <p className="error-banner" role="alert" key={section}>{section} could not load. <button onClick={() => void loadExtras()}>Retry</button></p>)}
         <div className="sheet-handle" aria-hidden="true" />
-        <DraftNotice draft={itemDraft} onDiscard={() => { void itemDraft.clear(); setEditing(false); }} /><header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><strong className="detail-quantity-summary">{item.quantity} {item.unit}</strong>{item.project_holds?.map(hold => <small key={hold.public_id}>{hold.quantity} {item.unit} reserved for <a href={`?view=projects&project=${hold.public_id}`}>{hold.name}</a></small>)}{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div>{editing && <button className="text-button" onClick={() => { void itemDraft.clear(); setEditing(false); }}>Cancel editing</button>}</header>
+        <DraftNotice draft={itemDraft} onDiscard={() => { void itemDraft.clear(); setEditing(false); }} /><header className="detail-header"><button className="icon-button" onClick={onClose} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><strong className="detail-quantity-summary">{item.quantity} {item.unit}</strong><div className="detail-header-meta">{item.project_holds?.map(hold => <small key={hold.public_id}>{hold.quantity} {item.unit} reserved · <a href={`?view=projects&project=${hold.public_id}`}>{hold.name}</a></small>)}{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div></div>{editing && <button className="text-button" onClick={() => { void itemDraft.clear(); setEditing(false); }}>Cancel editing</button>}</header>
         {((editing ? editCapabilities.photos : detailCapabilities.photos) && (editing || photos.length > 0)) && <section className={`detail-photo-hero ${photos.length ? "" : "empty-photo"}`} aria-label="Item photos">
           <div className="detail-photo-rail" ref={photoRail}>
             {photos.map((photo, index) => <figure key={photo.public_id}><img src={photo.url} alt={`${item.name} photo ${index + 1}`} /><button aria-label={`Delete photo ${index + 1}`} onClick={() => run(() => api.deletePhoto(photo).then(loadExtras), "Photo removed")}><Icon name="close" size={15} /></button></figure>)}
@@ -549,6 +569,10 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             <div className="detail-tab-panel" hidden={detailTab !== "overview"}>
             <ItemContents item={item} editing={false} locations={locations} categories={categories} onChanged={onChanged} />
             {detailCapabilities.fullness && item.fullness_percent != null && <section className="fullness-card"><div><span><Icon name="box" size={16} />Fullness</span><strong>{fullness}%</strong></div><input aria-label="Item fullness" type="range" min="0" max="100" step="5" value={fullness} style={{ "--fullness": `${fullness}%` } as React.CSSProperties} onChange={(event) => setFullness(Number(event.target.value))} onPointerUp={(event) => void saveFullness(Number(event.currentTarget.value))} onKeyUp={(event) => void saveFullness(Number(event.currentTarget.value))} /><small>Slide while using or refilling this Item.</small></section>}
+            {overviewFacts.length > 0 && <section className="detail-section">
+              <div className="section-heading"><div><h2>Facts</h2><span>What this item is</span></div></div>
+              <dl className="fact-rows">{overviewFacts.map(([label, value]) => <div className="fact-row" key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+            </section>}
             {(item.expiration_date || item.barcode) && <div className="detail-facts compact-facts">{item.expiration_date && <div><span>Next expiry</span><strong>{item.expiration_date}</strong>{expirationState(item) && <small className="fact-warning">{expirationState(item) === "expired" ? "Expired" : "Use within 7 days"}</small>}</div>}{item.barcode && <div className="barcode-fact"><span>Barcode</span><BarcodeGraphic value={item.barcode} /></div>}</div>}
             {item.tags.length > 0 && <section className="detail-section tag-section"><div className="section-heading"><div><h2>Tags</h2></div></div><div className="tag-list">{item.tags.map((tag) => <button type="button" key={tag} onClick={() => onOpenTag(tag)}><Icon name="tag" size={13} /><span>{tag}</span></button>)}</div></section>}
             {(item.description || item.notes || item.model) && <div className="prose">{item.model && <p className="product-identity">{item.model}</p>}{item.description && <p>{item.description}</p>}{item.notes && <p><strong>Notes</strong><br />{item.notes}</p>}</div>}
@@ -585,7 +609,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             </details>}
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "activity"}>
-            {history.length > 0 && <details className="detail-section history-section"><summary><span><h2>History</h2><small>Permanent activity log</small></span><Icon name="chevron" size={16} /></summary><div className="event-list">{history.length ? history.map((event) => <div className="event" key={event.public_id}><span>{activityLabel(event.action)}</span><strong>{event.quantity_delta ? `${Number(event.quantity_delta) > 0 ? "+" : ""}${event.quantity_delta}` : event.to_location || "Changed"}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>) : <div className="empty-inline"><span>No changes recorded yet</span></div>}</div></details>}
+            {history.length > 0 && <details open className="detail-section history-section"><summary><span><h2>History</h2><small>Permanent activity log</small></span><Icon name="chevron" size={16} /></summary><div className="event-list">{history.length ? history.map((event) => <div className="event" key={event.public_id}><span>{activityLabel(event.action)}</span><strong>{event.quantity_delta ? `${Number(event.quantity_delta) > 0 ? "+" : ""}${event.quantity_delta}` : event.to_location || "Changed"}</strong><time>{new Date(`${event.created_at}Z`).toLocaleString()}</time></div>) : <div className="empty-inline"><span>No changes recorded yet</span></div>}</div></details>}
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "more"}>
             <div className={`lost-controls ${lost ? "active" : ""}`}><div><strong>{lost ? "Marked lost" : "Item actions"}</strong><small>{lost ? "Keep it here until it turns up, or let it go forever." : "Move, categorise, shop, and manage this item."}</small></div><div><button className="secondary" disabled={busy} onClick={() => setPicker("move")}><Icon name="pin" size={15} />Move</button><button className="secondary" disabled={busy} onClick={() => setPicker("category")}><Icon name="tag" size={15} />Category</button>{itemDefaultRule ? <button className="secondary" disabled={busy} onClick={() => void removeItemDefault(itemDefaultRule)}><Icon name="close" size={15} />Delete default ({itemDefaultRule.rule_type}: {itemDefaultRule.match_value})</button> : <button className="secondary" disabled={busy} onClick={() => void setItemDefault()}><Icon name="pin" size={15} />Set default</button>}{detailCapabilities.shopping_list && <button className="secondary" disabled={busy} onClick={() => void onAddShopping(item)}><Icon name="plus" size={15} />Add to shopping list</button>}{item.low_stock_threshold === null && <button className="secondary" disabled={busy} onClick={() => { setThreshold("1"); setEditing(true); }}><Icon name="minus" size={15} />Set low stock</button>}{lost ? <><button className="secondary" disabled={busy} onClick={() => void onMarkFound(item)}><Icon name="check" size={15} />Found</button><button disabled={busy} onClick={() => void onForeverLost(item)}><Icon name="close" size={15} />Forever lost</button></> : <button disabled={busy} onClick={() => void onMarkLost(item)}><Icon name="search" size={15} />Mark lost</button>}</div></div>

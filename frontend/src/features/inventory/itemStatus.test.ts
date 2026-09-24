@@ -8,17 +8,31 @@ const item = {
 } as unknown as Item;
 
 describe("placeParts", () => {
-  it("puts the most specific place first so truncation trims the broad end", () => {
-    expect(placeParts(item)).toEqual({ leaf: "Drawer A", rest: "Workshop › Shelf B" });
+  it("leads with the room and the cupboard, and keeps the rest for after", () => {
+    expect(placeParts(item)).toEqual({ head: "Workshop › Shelf B", tail: "Drawer A" });
   });
 
-  it("keeps a container path in its own order, innermost container first", () => {
+  it("puts the container an item sits in at the deep end of the path", () => {
     const inside = { ...item, containment_path: "Inside Screw organiser > Workshop > Drawer A" };
-    expect(placeParts(inside)).toEqual({ leaf: "Screw organiser", rest: "Workshop › Drawer A" });
+    expect(placeParts(inside)).toEqual({ head: "Workshop › Shelf B", tail: "Drawer A › Screw Organiser" });
+  });
+
+  it("leaves no tail when the place is only two levels deep", () => {
+    expect(placeParts({ ...item, location_path: "Kitchen > Pantry" })).toEqual({ head: "Kitchen › Pantry", tail: "" });
+  });
+
+  it("evens out the case each level was typed in", () => {
+    const shouted = { ...item, location_path: "STUDIO > armadio grande > Ripiano 2" };
+    expect(placeParts(shouted)).toEqual({ head: "Studio › Armadio Grande", tail: "Ripiano 2" });
+  });
+
+  it("leaves mixed case and anything with a number exactly as typed", () => {
+    const mixed = { ...item, location_path: "Studio > iPhone box > 3D prints" };
+    expect(placeParts(mixed)).toEqual({ head: "Studio › iPhone Box", tail: "3D Prints" });
   });
 
   it("names an item with no place rather than showing an empty row", () => {
-    expect(placeParts({ ...item, location_path: "" }).leaf).toBe("Unassigned");
+    expect(placeParts({ ...item, location_path: "" }).head).toBe("Unassigned");
   });
 });
 

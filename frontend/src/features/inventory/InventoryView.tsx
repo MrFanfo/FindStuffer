@@ -4,6 +4,7 @@ import { InventoryDisplayMenu } from "./InventoryDisplayMenu";
 import { InventoryItemRow, type InventoryDensity } from "./InventoryItemRow";
 import { InventoryQuickChips } from "./InventoryQuickChips";
 import { QuantityEditor } from "./QuantityEditor";
+import { categoryIcon, categoryIcons } from "../../domain/categoryIcons";
 import {
   expirationDays,
   expirationTime,
@@ -201,7 +202,6 @@ export function InventoryView({
   const urlScope = useMemo(() => new URLSearchParams(location.search), []);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [viewName, setViewName] = useState("");
-  const [moveItem, setMoveItem] = useState<Item | null>(null);
   const [filter, setFilter] = useState<InventoryFilter>(initialFilter !== "all" ? initialFilter : (urlScope.get("filter") as InventoryFilter) || "all");
   const [groupBy, setGroupBy] = useState<InventoryGroup>((urlScope.get("group") as InventoryGroup) || initialPrefs.groupBy);
   const [sortBy, setSortBy] = useState<InventorySort>((urlScope.get("sort") as InventorySort) || initialPrefs.sortBy);
@@ -219,8 +219,9 @@ export function InventoryView({
   const [bulkPicker, setBulkPicker] = useState<"category" | "location" | "remove-tag" | null>(null);
   const [density, setDensity] = useState<InventoryDensity>(initialPrefs.density);
   const [displayMenuOpen, setDisplayMenuOpen] = useState(false);
-  const [expandedRow, setExpandedRow] = useState("");
   const [quantityItem, setQuantityItem] = useState<Item | null>(null);
+  const [commandsFor, setCommandsFor] = useState("");
+  const [moveItem, setMoveItem] = useState<Item | null>(null);
   const { preferences, save: savePreferences } = usePreferences();
   const [renderLimit, setRenderLimit] = useState(() => Math.max(INITIAL_RESULT_WINDOW, Number(window.history.state?.inventory?.rows) || 0));
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -285,6 +286,7 @@ export function InventoryView({
   const selectedCategory = useMemo(() => (
     categoryFilter ? categories.find((category) => String(category.id) === categoryFilter) || null : null
   ), [categories, categoryFilter]);
+  const categoryMarks = useMemo(() => categoryIcons(categories), [categories]);
   const flatInventoryLocations = useMemo(() => flattenLocations(locations), [locations]);
   const selectedLocation = useMemo(() => (
     locationFilter ? flatInventoryLocations.find((location) => location.public_id === locationFilter) || null : null
@@ -643,7 +645,8 @@ export function InventoryView({
             syncing={pendingItems.has(item.public_id)}
             bulkMode={bulkMode}
             selected={bulkSelection.has(item.public_id)}
-            expanded={expandedRow === item.public_id}
+            commandsOpen={commandsFor === item.public_id}
+            categoryMark={(item.category_id !== null && categoryMarks.get(item.category_id)) || categoryIcon(categoryLabel(item))}
             actions={{
               onOpen: () => bulkMode ? toggleBulkItem(item.public_id) : onOpen(item),
               onAdjust: (delta) => void onQuickAdjust(item, delta),
@@ -656,7 +659,7 @@ export function InventoryView({
               onArchive: () => archiveItem(item),
               onDelete: () => void onDeleteItem(item),
               onAddShopping: () => void onAddShopping(item),
-              onToggleExpand: () => setExpandedRow((current) => current === item.public_id ? "" : item.public_id),
+              onToggleCommands: () => setCommandsFor((current) => current === item.public_id ? "" : item.public_id),
             }}
           />
         ))}</div>)}
@@ -676,8 +679,8 @@ export function InventoryView({
           <button type="button" className="jump-top" aria-label="Top" onClick={backToTop}><Icon name="chevron" size={17} /></button>
         </div>
       )}
-      {quantityItem && <QuantityEditor item={quantityItem} onApply={(delta) => void onQuickAdjust(quantityItem, delta)} onClose={() => setQuantityItem(null)} />}
       {moveItem && <SearchableFilterPicker title={`Move ${moveItem.name}`} icon="pin" selectedId={moveItem.location_public_id} emptyLabel="Cancel" options={flatInventoryLocations.map((place) => ({ id: place.public_id, label: place.name, detail: place.path }))} onChoose={(id) => { if (id) void run(() => api.move(moveItem, id), "Item moved", "inventory", { undo: async () => { const current = await api.item(moveItem.public_id); await api.move(current, moveItem.location_public_id); } }); }} onClose={() => setMoveItem(null)} />}
+      {quantityItem && <QuantityEditor item={quantityItem} onApply={(delta) => void onQuickAdjust(quantityItem, delta)} onClose={() => setQuantityItem(null)} />}
       {filterPicker === "category" && <SearchableFilterPicker title="Filter by category" icon="tag" selectedId={categoryFilter} emptyLabel="Any category" options={categories.map((category) => ({ id: String(category.id), label: category.name, detail: `${category.path} · ${category.total_item_count} item${category.total_item_count === 1 ? "" : "s"}` }))} onChoose={setCategoryFilter} onClose={() => setFilterPicker(null)} />}
       {filterPicker === "location" && <SearchableFilterPicker title="Filter by Place" icon="pin" selectedId={locationFilter} emptyLabel="Any Place" options={flatInventoryLocations.map((location) => ({ id: location.public_id, label: location.name, detail: `${location.path} · ${location.total_item_count ?? location.item_count ?? 0} Items inside` }))} onChoose={setLocationFilter} onClose={() => setFilterPicker(null)} />}
       {filterPicker === "tag" && <SearchableFilterPicker title="Filter by tag" icon="tag" selectedId={tagFilter} emptyLabel="Any tag" options={tags.map((tag) => ({ id: tag, label: tag, detail: "Filter the inventory by this tag" }))} onChoose={setTagFilter} onClose={() => setFilterPicker(null)} />}

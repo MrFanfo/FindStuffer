@@ -75,6 +75,16 @@ from .backups import (
     stored_backup_archive,
 )
 from .barcodes import IMAGE_DECODE_LIMIT_BYTES, decode_image_code, lookup_barcode
+from .category_icons import export_set as export_category_icon_set
+from .category_icons import import_set as import_category_icon_set
+from .category_icons import suggest_all as suggest_category_icon_set
+from .category_marks import delete_mark as delete_category_mark
+from .category_marks import export_marks as export_category_marks
+from .category_marks import import_marks as import_category_marks
+from .category_marks import list_marks as list_category_marks
+from .category_marks import read_mark as read_category_mark
+from .category_marks import save_mark as save_category_mark
+from .category_marks import seed_marks as seed_category_marks
 from .config import get_settings
 from .db import connect, database_dependency, migrate, transaction
 from .documents import (
@@ -218,6 +228,9 @@ from .schemas import (
     CategoryCreate,
     CategoryDataSettingsUpdate,
     CategoryDefaultLocationUpdate,
+    CategoryIconImport,
+    CategoryMarkImport,
+    CategoryMarkUpload,
     CategoryPatch,
     DocumentPatch,
     EnrichmentExportRequest,
@@ -297,6 +310,9 @@ async def lifespan(_: FastAPI):
     if restore_result is not None:
         logger.info("Pending backup restore result: %s", restore_result["status"])
     migrate()
+    seeded = seed_category_marks()
+    if seeded:
+        logger.info("Installed %s category marks into the data directory", seeded)
     settings = get_settings()
     mqtt_task = asyncio.create_task(run_home_assistant_mqtt())
     if settings.auto_backup_enabled:
@@ -626,6 +642,72 @@ async def patch_category(
     category_id: int, payload: CategoryPatch, database: Database
 ) -> dict[str, Any]:
     return update_category(database, category_id, payload.model_dump(exclude_unset=True))
+
+
+@app.get("/api/v1/category-marks", tags=["metadata"])
+async def get_category_marks() -> dict[str, Any]:
+    return {"marks": list_category_marks()}
+
+
+@app.get("/api/v1/category-marks/{name}.svg", tags=["metadata"])
+async def get_category_mark(name: str) -> Response:
+    drawing = read_category_mark(name)
+    if drawing is None:
+        raise HTTPException(status_code=404, detail="No mark by that name")
+    return Response(
+        content=drawing,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+@app.put("/api/v1/category-marks/{name}", tags=["metadata"])
+async def put_category_mark(name: str, payload: CategoryMarkUpload) -> dict[str, Any]:
+    try:
+        return {"name": name, "svg": save_category_mark(name, payload.svg)}
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.delete("/api/v1/category-marks/{name}", status_code=204, tags=["metadata"])
+async def remove_category_mark(name: str) -> Response:
+    if not delete_category_mark(name):
+        raise HTTPException(status_code=404, detail="No mark by that name")
+    return Response(status_code=204)
+
+
+@app.get("/api/v1/category-marks/export", tags=["metadata"])
+async def export_category_marks_route() -> dict[str, Any]:
+    return export_category_marks()
+
+
+@app.post("/api/v1/category-marks/import", tags=["metadata"])
+async def import_category_marks_route(payload: CategoryMarkImport) -> dict[str, Any]:
+    try:
+        return import_category_marks(payload.payload, apply=payload.apply)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/categories/icons/suggest", tags=["metadata"])
+async def suggest_category_icons(database: Database, overwrite: bool = False) -> dict[str, Any]:
+    """Give categories a mark read from their own words, keeping chosen ones."""
+    return suggest_category_icon_set(database, overwrite=overwrite)
+
+
+@app.get("/api/v1/categories/icons/export", tags=["metadata"])
+async def export_category_icons(database: Database) -> dict[str, Any]:
+    return export_category_icon_set(database)
+
+
+@app.post("/api/v1/categories/icons/import", tags=["metadata"])
+async def import_category_icons(
+    payload: CategoryIconImport, database: Database
+) -> dict[str, Any]:
+    try:
+        return import_category_icon_set(database, payload.payload, apply=payload.apply)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.delete("/api/v1/categories/{category_id}", status_code=204, tags=["metadata"])
