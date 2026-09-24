@@ -2237,12 +2237,46 @@ def category_contents(
         "ORDER BY items.category_id = ? DESC, items.name COLLATE NOCASE",
         (*category_ids, category_id),
     ).fetchall()
+    items, inside_containers = _containers_in_place_of_contents(
+        connection, serialize_item_rows(connection, item_rows)
+    )
     return {
         "category": category,
         "children": [entry for entry in categories if entry["parent_id"] == category_id],
-        "items": serialize_item_rows(connection, item_rows),
+        "items": items,
+        "inside_containers": inside_containers,
         "recursive": recursive,
     }
+
+
+def _containers_in_place_of_contents(
+    connection: sqlite3.Connection, items: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    """Items not inside anything, with each stored item replaced by its outermost box.
+
+    A box holding a hundred kinds of screw is listed once, marked with how many of
+    the listed items it holds, whatever category the box itself is in.
+    """
+    shown = [item for item in items if not item.get("container_chain")]
+    matches: dict[str, int] = defaultdict(int)
+    for item in items:
+        if item.get("container_chain"):
+            # The chain runs from the immediate container outwards.
+            matches[item["container_chain"][-1]["public_id"]] += 1
+    listed = {item["public_id"] for item in shown}
+    missing = [public_id for public_id in matches if public_id not in listed]
+    if missing:
+        placeholders = ", ".join("?" for _ in missing)
+        rows = connection.execute(
+            f"{ITEM_SELECT} WHERE items.archived_at IS NULL "
+            f"AND items.public_id IN ({placeholders}) ORDER BY items.name COLLATE NOCASE",
+            missing,
+        ).fetchall()
+        shown.extend(serialize_item_rows(connection, rows))
+    for item in shown:
+        if item["public_id"] in matches:
+            item["contained_matches"] = matches[item["public_id"]]
+    return shown, sum(matches.values())
 
 
 def set_category_default_location(
@@ -2368,10 +2402,16 @@ def location_contents(
             (location["id"],),
         )
     ]
+    inside_containers = connection.execute(
+        f"SELECT count(*) FROM items WHERE archived_at IS NULL "
+        f"AND location_id IN ({placeholders}) AND container_item_id IS NOT NULL",
+        location_ids,
+    ).fetchone()[0]
     return {
         "location": serialize_location(connection, location),
         "children": children,
         "items": items,
+        "inside_containers": inside_containers,
         "recursive": recursive,
     }
 

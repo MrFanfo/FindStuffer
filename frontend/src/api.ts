@@ -122,6 +122,8 @@ export type Item = {
   direct_location_public_id?: string | null;
   containment_path?: string;
   contents_count?: number;
+  /** In a category view, how many of the category's items this container holds. */
+  contained_matches?: number;
   container_chain?: Array<{public_id: string; name: string}>;
   custom_fields?: Record<string, unknown>;
   public_id: string;
@@ -190,6 +192,8 @@ export type LocationContents = {
   location: LocationNode & { item_count?: number };
   children: Array<LocationNode & { item_count?: number }>;
   items: Item[];
+  /** Items stored inside a container here; only the container is listed. */
+  inside_containers?: number;
   recursive: boolean;
 };
 
@@ -197,6 +201,8 @@ export type CategoryContents = {
   category: Category;
   children: Category[];
   items: Item[];
+  /** Items of this category stored inside a container; the outermost container is listed instead. */
+  inside_containers?: number;
   recursive: boolean;
 };
 

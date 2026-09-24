@@ -32,7 +32,8 @@ export function ItemContents({ item, editing, locations, categories, onChanged }
     finally { setBusy(false); }
   }
   if (!editing && !item.is_container && !item.container_item_id) return null;
-  const parent = item.container_chain?.[item.container_chain.length - 1];
+  // The chain runs from the immediate container outwards.
+  const parent = item.container_chain?.[0];
   return <section className="detail-section item-contents"><div className="section-heading"><h2>{item.is_container ? 'Contents' : 'Storage'}</h2></div>
     {/* Editing shows two plain rows, like the More tab, rather than a loose checkbox and button. */}
     {editing && <div className="action-rows storage-rows">

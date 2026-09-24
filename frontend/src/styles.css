@@ -1321,6 +1321,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .location-item-card img, .location-item-card > span { width: 100%; aspect-ratio: 1.45; border-radius: 12px; object-fit: cover; background: var(--sage-soft); }
 .location-item-card > span { display: grid; place-items: center; color: var(--sage); }
 .location-item-card strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A container stands in for what it holds: its line says how many are inside instead of a quantity. */
+.location-item-card.is-container, .location-item-row.is-container { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.is-container > em { color: var(--accent-dark); font-weight: 750; }
 .location-item-card small { overflow: hidden; color: var(--muted); font-size: .67rem; text-overflow: ellipsis; white-space: nowrap; }
 .location-item-card em { position: absolute; top: 16px; right: 16px; border-radius: 999px; padding: 4px 7px; color: var(--accent-dark); background: var(--accent-soft); font-size: .58rem; font-style: normal; font-weight: 800; text-transform: uppercase; }
 .location-item-list { display: grid; gap: 7px; }
