@@ -218,6 +218,18 @@ export type HistoryEvent = {
   created_at: string;
 };
 
+export type PhotoSuggestion = {
+  query: string;
+  title: string;
+  source_page: string;
+  image_url: string;
+  data_url: string;
+  width: number;
+  height: number;
+  size_bytes: number;
+  result_index: number;
+};
+
 export type Photo = {
   public_id: string;
   url: string;
@@ -1180,6 +1192,8 @@ export const api = {
     request<HistoryEvent[]>(`/api/v1/items/${publicId}/history`),
   photos: (publicId: string) =>
     request<Photo[]>(`/api/v1/items/${publicId}/photos`),
+  photoSuggestion: (publicId: string, resultIndex = 0) =>
+    request<PhotoSuggestion>(`/api/v1/items/${publicId}/photo-suggestion?result_index=${resultIndex}`),
   lots: (item: Item) =>
     request<ItemLot[]>(`/api/v1/items/${item.public_id}/lots`),
   createLot: (item: Item, body: { quantity: string; expiration_date: string | null; note: string }) =>

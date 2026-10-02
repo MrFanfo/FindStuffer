@@ -24,6 +24,7 @@ import {
   type RelatedItem,
 } from "../../api";
 import { DocumentSection } from "../../components/DocumentSection";
+import { PhotoFinderSession } from "../../components/PhotoFinderSession";
 import { HierarchyPicker, categoryPickerNodes, locationPickerNodes } from "../../components/HierarchyPicker";
 import { Icon } from "../../components/Icon";
 import { activityLabel, capabilitiesForCategory, categoryLabel, categoryOptionLabel, expirationState, parseLinkText } from "../../domain/inventory";
@@ -245,6 +246,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   const [extrasErrors, setExtrasErrors] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryEvent[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [photoFinderOpen, setPhotoFinderOpen] = useState(false);
   const [documents, setDocuments] = useState<ItemDocument[]>([]);
   const [lots, setLots] = useState<ItemLot[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceTask[]>([]);
@@ -631,10 +633,11 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
         {extrasErrors.map((section) => <p className="error-banner" role="alert" key={section}>{section} could not load. <button onClick={() => void loadExtras()}>Retry</button></p>)}
         <div className="sheet-handle" aria-hidden="true" />
         <DraftNotice draft={itemDraft} onDiscard={() => { void itemDraft.clear(); setEditing(false); }} /><header className="detail-header"><button className="icon-button" onClick={() => void leave()} aria-label="Close item"><Icon name="close" /></button><div><h1>{brandPrefix && <span className="item-brand-prefix">{brandPrefix} </span>}{item.name}</h1><LocationCrumbs chain={locationChain} fallback={item.location_path} onOpen={onOpenLocation} /><div className="detail-header-meta">{item.project_holds?.map(hold => <small key={hold.public_id}>{hold.quantity} {item.unit} reserved · <a href={`?view=projects&project=${hold.public_id}`}>{hold.name}</a></small>)}{item.category_id && categories.find((entry) => entry.id === item.category_id) ? <CategoryCrumbs category={categories.find((entry) => entry.id === item.category_id)!} categories={categories} onOpen={onOpenCategory} /> : <small>Uncategorised</small>}</div></div>{editing && <button className="text-button" onClick={() => { void itemDraft.clear(); setEditing(false); }}>Cancel editing</button>}</header>
-        {((editing ? editCapabilities.photos : detailCapabilities.photos) && (editing || photos.length > 0)) && <section className={`detail-photo-hero ${photos.length ? "" : "empty-photo"}`} aria-label="Item photos">
+        {((editing ? editCapabilities.photos : detailCapabilities.photos) && (editing || photos.length > 0 || detailCapabilities.photos)) && <section className={`detail-photo-hero ${photos.length ? "" : "empty-photo"}`} aria-label="Item photos">
           <div className="detail-photo-rail" ref={photoRail}>
             {photos.map((photo, index) => <figure key={photo.public_id}><img src={photo.url} alt={`${item.name} photo ${index + 1}`} />{editing && <button aria-label={`Delete photo ${index + 1}`} onClick={() => run(() => api.deletePhoto(photo).then(loadExtras), "Photo removed")}><Icon name="close" size={15} /></button>}</figure>)}
             {detailCapabilities.photos && <label className="photo-add-tile"><Icon name="camera" size={28} /><span>{photos.length ? "Add photo" : "Add a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden onChange={(event) => event.target.files?.[0] && void upload(event.target.files[0])} /></label>}
+            {detailCapabilities.photos && <button type="button" className="photo-add-tile" onClick={() => setPhotoFinderOpen(true)}><Icon name="search" size={28} /><span>Find photo online</span></button>}
           </div>
         </section>}
         {editing ? (
@@ -762,6 +765,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
         {picker === "category" && <HierarchyPicker title="Change category" nodes={categoryNodes} selectedId={item.category_id ? String(item.category_id) : ""} emptyLabel="No child categories here" chooseLabel="Use category" currentChooseLabel="Use this category" onChoose={(id) => { void changeCategory(id); }} onClose={() => setPicker(null)} />}
         {picker === "editCategory" && <HierarchyPicker title="Choose category" nodes={categoryNodes} selectedId={category} emptyLabel="No child categories here" chooseLabel="Use category" currentChooseLabel="Use this category" onChoose={(id) => setCategory(id)} onClose={() => setPicker(null)} />}
       </article>
+      {photoFinderOpen && <PhotoFinderSession title={item.name} items={[item]} onClose={() => setPhotoFinderOpen(false)} onSaved={async () => { await loadExtras(); await onChanged(await api.item(item.public_id)); }} />}
       {showAllProductData && fullProductData && <ProductDataExplorer payload={fullProductData} onClose={() => setShowAllProductData(false)} />}
     </div>
   );

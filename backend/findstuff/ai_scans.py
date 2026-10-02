@@ -152,9 +152,7 @@ def create_scan(
 async def _recognize(connection: sqlite3.Connection, row: sqlite3.Row) -> ScanRecognition:
     settings = get_ai_config(connection)
     if not settings.enabled or not settings.endpoint or not settings.model:
-        raise RuntimeError(
-            "AI vision is not configured. Configure it in Settings > Integrations."
-        )
+        raise RuntimeError("AI vision is not configured. Configure it in Settings > Integrations.")
     category_paths = [entry["path"] for entry in list_categories(connection)]
     image = base64.b64encode(_scan_file(row).read_bytes()).decode("ascii")
     response_template = {
@@ -311,11 +309,7 @@ def _proposal_from_recognition(
         # multiple branches, leave the proposal uncategorised for review
         # instead of silently assigning it to the wrong subtree.
         category_id = None
-    links = (
-        [{"label": research["label"], "url": research["url"]}]
-        if research
-        else []
-    )
+    links = [{"label": research["label"], "url": research["url"]}] if research else []
     specifications = [
         f"{str(key).strip()}: {str(value).strip()}"
         for key, value in list(recognition.specifications.items())[:8]
@@ -341,16 +335,14 @@ def _proposal_from_recognition(
     }
 
 
-async def process_scan(public_id: str) -> None:
-    connection = connect()
+async def process_scan(public_id: str, database_path: Path | None = None) -> None:
+    connection = connect(database_path)
     try:
         row = _scan_row(connection, public_id)
         if row["status"] != "processing":
             return
         recognition = await _recognize(connection, row)
-        research = await _basic_research(
-            recognition.name, recognition.brand, recognition.model
-        )
+        research = await _basic_research(recognition.name, recognition.brand, recognition.model)
         proposal = _proposal_from_recognition(connection, recognition, research)
         with transaction(connection):
             connection.execute(
@@ -441,8 +433,7 @@ def approve_scan(connection: sqlite3.Connection, public_id: str) -> dict[str, An
         raise ConflictError(f"AI scan proposal is already {row['status']}")
     with transaction(connection):
         cursor = connection.execute(
-            "UPDATE ai_scan_proposals SET status = 'applying' "
-            "WHERE id = ? AND status = 'pending'",
+            "UPDATE ai_scan_proposals SET status = 'applying' WHERE id = ? AND status = 'pending'",
             (row["id"],),
         )
         if cursor.rowcount != 1:

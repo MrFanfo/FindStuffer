@@ -12,7 +12,7 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 
 New in 1.9: [Projects, inherited category fields and compatibility](docs/PROJECTS_AND_METADATA.md),
 plus [editable, atomic AI imports](docs/IMPORT_OPERATIONS.md).
-See the [1.13.1 release notes](docs/RELEASE_NOTES_1.13.1.md).
+See the [1.18.0 release notes](docs/RELEASE_NOTES_1.18.0.md).
 
 - Nested locations such as room → cabinet → drawer → shelf.
 - Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
@@ -616,7 +616,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.17.2`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.18.0`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
@@ -743,6 +743,22 @@ supported by the client:
 The MCP server can mutate inventory. Run it only for trusted local clients and
 point it at the intended database.
 
+The MCP exposes inventory, categories, locations, projects, requirements,
+compatibility targets, custom fields, photos, documents, loans, search,
+shopping, enrichment, AI scans, and non-secret settings. A route-by-route
+coverage check is in [docs/MCP_COVERAGE.md](docs/MCP_COVERAGE.md).
+
+To attach an image,
+call `findstuff_upload_photo` with an item `public_id`, `mime_type`
+(`image/jpeg`, `image/png`, or `image/webp`), and raw `data_base64`
+without a data URL prefix. The app's 5 MB photo limit and signature checks
+apply. `findstuff_import_photo_from_url` uses the same allowed-host and
+public-network checks as the web app. `findstuff_find_photo_suggestion` returns a compact, reviewable first image
+(or another result, using `result_index`). Photo records can be found through
+`findstuff_get_item_detail` and removed with `findstuff_delete_photo`.
+Restart a running MCP client/server connection after updating the code so it
+discovers the new tools.
+
 ## Public repository hygiene
 
 Never commit `.env`, data directories, SQLite files, photos, exports, backups,
@@ -765,3 +781,18 @@ may use, modify, redistribute, and charge for copies, subject to the license's
 strong copyleft and source-availability requirements—including its
 network-interaction requirement for modified versions. Versions already
 published under MIT remain available under their original license.
+
+### Find item photos online
+
+Open an item and choose **Find photo online** in its photo panel. In a Place or
+Category, open its actions menu and choose **Find photos online** to review
+items there that have no photo. Findstuff searches DuckDuckGo Images using the
+item's brand and name, or just its name when no brand is set. It shows one
+result at a time, with a source link. Choose **Accept & save**, **Next image**,
+or **Skip item**. Nothing is downloaded into the inventory until you accept.
+
+This search uses no LLM and needs no API key. The preview is downloaded by the
+server, checked as a public image URL, and compressed to WebP at up to 900 px
+and 250 KB before it is shown and saved. DuckDuckGo's public search page is an
+unofficial interface; if it changes or blocks a request, the finder will show
+an error and the regular photo upload remains available.
