@@ -182,7 +182,7 @@ from .metadata_enrichment import (
 )
 from .off_categories import export_mappings, items_for_category, list_mappings
 from .operations_contract import operations_template
-from .photo_finder import find_item_photo
+from .photo_finder import find_item_photo, find_item_photos
 from .photos import MAX_PHOTO_BYTES, delete_photo, import_photo_from_url, list_photos, store_photo
 from .projects import project_detail
 from .saved_views import list_saved_views
@@ -389,6 +389,19 @@ class FindStuffMCPServer:
                     ["public_id"],
                 ),
                 self._find_photo_suggestion,
+            ),
+            Tool(
+                "findstuff_find_photo_suggestions",
+                "Search for 1-8 usable item photos, skipping broken or unsupported results; use next_offset for the next page.",
+                _schema(
+                    {
+                        "public_id": _string("Item public id."),
+                        "offset": _integer("Starting search result position, default 0."),
+                        "count": _integer("Number of usable photos, from 1 to 8; default 4."),
+                    },
+                    ["public_id"],
+                ),
+                self._find_photo_suggestions,
             ),
             Tool(
                 "findstuff_upload_photo",
@@ -2025,6 +2038,15 @@ class FindStuffMCPServer:
             "maintenance": list_maintenance_tasks(self.connection, public_id),
             "related": list_item_relationships(self.connection, public_id),
         }
+
+    def _find_photo_suggestions(self, args: JsonObject) -> JsonObject:
+        offset = args.get("offset", 0)
+        count = args.get("count", 4)
+        if type(offset) is not int or offset < 0:
+            raise ValueError("offset must be a nonnegative integer")
+        if type(count) is not int or not 1 <= count <= 8:
+            raise ValueError("count must be between 1 and 8")
+        return asyncio.run(find_item_photos(self.connection, str(args["public_id"]), offset, count))
 
     def _find_photo_suggestion(self, args: JsonObject) -> JsonObject:
         result_index = args.get("result_index", 0)

@@ -12,7 +12,7 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 
 New in 1.9: [Projects, inherited category fields and compatibility](docs/PROJECTS_AND_METADATA.md),
 plus [editable, atomic AI imports](docs/IMPORT_OPERATIONS.md).
-See the [1.18.0 release notes](docs/RELEASE_NOTES_1.18.0.md).
+See the [1.18.1 release notes](docs/RELEASE_NOTES_1.18.1.md).
 
 - Nested locations such as room → cabinet → drawer → shelf.
 - Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
@@ -616,7 +616,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.18.0`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.18.1`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
@@ -787,12 +787,15 @@ published under MIT remain available under their original license.
 Open an item and choose **Find photo online** in its photo panel. In a Place or
 Category, open its actions menu and choose **Find photos online** to review
 items there that have no photo. Findstuff searches DuckDuckGo Images using the
-item's brand and name, or just its name when no brand is set. It shows one
-result at a time, with a source link. Choose **Accept & save**, **Next image**,
-or **Skip item**. Nothing is downloaded into the inventory until you accept.
+item's brand and name, or just its name when no brand is set. It shows four
+photos by default; choose one to save it, or choose **Next photos** or **Skip
+item**. Settings → Photo search lets you show 1–8 photos per page. Broken,
+unreachable, and unsupported image results are skipped automatically. The
+inventory is only changed when you choose a photo.
 
-This search uses no LLM and needs no API key. The preview is downloaded by the
-server, checked as a public image URL, and compressed to WebP at up to 900 px
-and 250 KB before it is shown and saved. DuckDuckGo's public search page is an
-unofficial interface; if it changes or blocks a request, the finder will show
-an error and the regular photo upload remains available.
+This search uses no LLM and needs no API key. Photos are downloaded in
+parallel, checked as public image URLs, and compressed to WebP at up to 900 px
+and 250 KB before display and saving. More photos use more data, but usually do
+not multiply the wait by the photo count. DuckDuckGo's public search page is an
+unofficial interface; if it changes or blocks a search, the finder will offer
+a retry and the regular photo upload remains available.

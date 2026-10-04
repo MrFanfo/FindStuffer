@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type HomePreferences } from "../../api";
-const initial: HomePreferences = { pinned_places: [], favorite_categories: [], show_shopping: true };
+const initial: HomePreferences = { pinned_places: [], favorite_categories: [], show_shopping: true, photo_suggestion_count: 4 };
 export function usePreferences() {
   const [preferences, setPreferences] = useState(initial);
   // Home sections stay hidden until the stored answer arrives, so a disabled

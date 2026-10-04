@@ -6,7 +6,7 @@ from typing import Any
 
 from .db import transaction
 
-DEFAULTS = {"pinned_places": [], "favorite_categories": [], "show_shopping": True}
+DEFAULTS = {"pinned_places": [], "favorite_categories": [], "show_shopping": True, "photo_suggestion_count": 4}
 
 
 def preferences(connection: sqlite3.Connection) -> dict[str, Any]:
@@ -20,7 +20,10 @@ def save_preferences(connection: sqlite3.Connection, values: dict[str, Any]) -> 
     if set(values) - DEFAULTS.keys():
         raise ValueError("Unknown Home preference")
     for key, value in values.items():
-        if key == "show_shopping":
+        if key == "photo_suggestion_count":
+            if type(value) is not int or not 1 <= value <= 8:
+                raise ValueError("Photo suggestion count must be between 1 and 8")
+        elif key == "show_shopping":
             if not isinstance(value, bool):
                 raise ValueError("Shopping visibility must be true or false")
         elif (

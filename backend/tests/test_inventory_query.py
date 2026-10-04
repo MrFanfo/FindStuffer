@@ -115,6 +115,10 @@ def test_preferences_and_attention(inventory):
 
     db, _ = inventory
     assert preferences(db)["show_shopping"] is True
+    assert preferences(db)["photo_suggestion_count"] == 4
+    assert save_preferences(db, {"photo_suggestion_count": 8})["photo_suggestion_count"] == 8
+    with pytest.raises(ValueError):
+        save_preferences(db, {"photo_suggestion_count": 9})
     save_preferences(db, {"pinned_places": ["unassigned"]})
     assert save_preferences(db, {"show_shopping": False})["pinned_places"] == ["unassigned"]
     with pytest.raises(ValueError):

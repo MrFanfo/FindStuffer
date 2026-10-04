@@ -230,6 +230,8 @@ export type PhotoSuggestion = {
   result_index: number;
 };
 
+export type PhotoSuggestionPage = { suggestions: PhotoSuggestion[]; next_offset: number; has_more: boolean };
+
 export type Photo = {
   public_id: string;
   url: string;
@@ -260,7 +262,7 @@ export type ItemDocument = {
 };
 
 export type ConsolidationPreview = { token: string; source: string; target: string; item_count: number; items: Array<{ public_id: string; name: string }>; source_rules: Array<{ public_id: string; match_value: string }>; categories_retained: number; target_defaults: { name: string } | null };
-export type HomePreferences = { pinned_places: string[]; favorite_categories: number[]; show_shopping: boolean };
+export type HomePreferences = { pinned_places: string[]; favorite_categories: number[]; show_shopping: boolean; photo_suggestion_count: number };
 export type Attention = { ai_pending: number; reminders: Array<{ kind: string; item_id: string; item_name: string; title: string; due: string }> };
 export type BackupPreview = { filename: string; size_bytes: number; counts: Record<string, number>; manifest: { created_at: string; includes: string[] } };
 
@@ -1192,6 +1194,8 @@ export const api = {
     request<HistoryEvent[]>(`/api/v1/items/${publicId}/history`),
   photos: (publicId: string) =>
     request<Photo[]>(`/api/v1/items/${publicId}/photos`),
+  photoSuggestions: (publicId: string, offset = 0, count = 4) =>
+    request<PhotoSuggestionPage>(`/api/v1/items/${publicId}/photo-suggestions?offset=${offset}&count=${count}`),
   photoSuggestion: (publicId: string, resultIndex = 0) =>
     request<PhotoSuggestion>(`/api/v1/items/${publicId}/photo-suggestion?result_index=${resultIndex}`),
   lots: (item: Item) =>

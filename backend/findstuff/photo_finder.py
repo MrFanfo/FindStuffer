@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import re
 import sqlite3
 import warnings
@@ -17,6 +18,7 @@ SEARCH_URL = "https://duckduckgo.com/"
 IMAGE_RESULTS_URL = "https://duckduckgo.com/i.js"
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_PREVIEW_BYTES = 250 * 1024
+MAX_CANDIDATES_PER_PAGE = 32
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; Findstuff/1.0)", "Referer": SEARCH_URL}
 
 
@@ -87,9 +89,32 @@ async def _download_photo(client: httpx.AsyncClient, url: str) -> bytes:
     raise ValueError("Image result redirected too many times")
 
 
-async def find_item_photo(
-    connection: sqlite3.Connection, public_id: str, result_index: int = 0
+async def _photo_from_result(
+    client: httpx.AsyncClient, result: dict[str, object], query: str, result_index: int
 ) -> dict[str, object]:
+    image_url = result.get("image") or ""
+    if not isinstance(image_url, str) or not image_url:
+        raise ValueError("Image result has no photo URL")
+    original = await _download_photo(client, image_url)
+    compact, width, height = compact_photo(original)
+    return {
+        "query": query,
+        "title": result.get("title") or "Image result",
+        "source_page": result.get("url") or image_url,
+        "image_url": image_url,
+        "data_url": "data:image/webp;base64," + base64.b64encode(compact).decode("ascii"),
+        "width": width,
+        "height": height,
+        "size_bytes": len(compact),
+        "result_index": result_index,
+    }
+
+
+async def find_item_photos(
+    connection: sqlite3.Connection, public_id: str, offset: int = 0, count: int = 4
+) -> dict[str, object]:
+    if offset < 0 or not 1 <= count <= 8:
+        raise ValueError("Invalid photo search page")
     item = get_item_row(connection, public_id)
     query = photo_search_query(item["name"], item["brand"])
     try:
@@ -112,24 +137,29 @@ async def find_item_photo(
             )
             response.raise_for_status()
             results = response.json().get("results") or []
-            if result_index >= len(results):
-                raise LookupError("No more image results for this item")
-            result = results[result_index]
-            image_url = result.get("image") or ""
-            if not image_url:
-                raise LookupError("This image result has no photo URL")
-            original = await _download_photo(client, image_url)
+            if not isinstance(results, list):
+                raise ValueError("Image search returned invalid results")
+            cursor = min(offset, len(results))
+            end = min(len(results), cursor + MAX_CANDIDATES_PER_PAGE)
+            suggestions: list[dict[str, object]] = []
+            while cursor < end and len(suggestions) < count:
+                batch_end = min(end, cursor + count - len(suggestions))
+                batch = await asyncio.gather(*(
+                    _photo_from_result(client, results[index], query, index)
+                    for index in range(cursor, batch_end)
+                ), return_exceptions=True)
+                suggestions.extend(result for result in batch if isinstance(result, dict))
+                cursor = batch_end
     except httpx.HTTPError as exc:
-        raise ValueError("Could not fetch the image result") from exc
-    compact, width, height = compact_photo(original)
-    return {
-        "query": query,
-        "title": result.get("title") or "Image result",
-        "source_page": result.get("url") or image_url,
-        "image_url": image_url,
-        "data_url": "data:image/webp;base64," + base64.b64encode(compact).decode("ascii"),
-        "width": width,
-        "height": height,
-        "size_bytes": len(compact),
-        "result_index": result_index,
-    }
+        raise ValueError("Image search is temporarily unavailable") from exc
+    return {"suggestions": suggestions, "next_offset": cursor, "has_more": cursor < len(results)}
+
+
+async def find_item_photo(
+    connection: sqlite3.Connection, public_id: str, result_index: int = 0
+) -> dict[str, object]:
+    page = await find_item_photos(connection, public_id, result_index, 1)
+    suggestions = page["suggestions"]
+    if not suggestions:
+        raise LookupError("No usable image results for this item")
+    return suggestions[0]

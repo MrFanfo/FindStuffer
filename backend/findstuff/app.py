@@ -220,7 +220,7 @@ from .off_categories import (
     set_mapping,
 )
 from .offline import apply_offline_operation
-from .photo_finder import find_item_photo
+from .photo_finder import find_item_photo, find_item_photos
 from .photos import delete_photo, get_photo, import_photo_from_url, list_photos, store_photo
 from .saved_views import SaveViewRequest
 from .schemas import (
@@ -1129,6 +1129,17 @@ async def put_item_default_location(
     public_id: str, payload: ItemDefaultLocationUpdate, database: Database
 ) -> dict[str, Any]:
     return set_item_default_location(database, public_id, payload.location_public_id)
+
+
+@app.get("/api/v1/items/{public_id}/photo-suggestions", tags=["photos"])
+async def get_item_photo_suggestions(
+    public_id: str, database: Database,
+    offset: int = Query(default=0, ge=0), count: int = Query(default=4, ge=1, le=8),
+) -> dict[str, object]:
+    try:
+        return await find_item_photos(database, public_id, offset, count)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/items/{public_id}/photo-suggestion", tags=["photos"])

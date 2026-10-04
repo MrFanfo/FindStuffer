@@ -1,13 +1,13 @@
 # Findstuff MCP coverage audit
 
-Audited 2026-10-02 against the FastAPI route registry and the MCP tool catalog in this repository.
+Audited 2026-10-04 against the FastAPI route registry and the MCP tool catalog in this repository.
 This is capability coverage, not a claim that every HTTP route has a tool with the same name.
 
 ## Summary
 
-- 188 application API operations across 24 route groups.
-- 164 MCP tools registered by the server.
-- 163 operations covered directly, 3 covered with a behavior difference, 22 gaps.
+- 189 application API operations across 24 route groups.
+- 165 MCP tools registered by the server.
+- 164 operations covered directly, 3 covered with a behavior difference, 22 gaps.
 - All project, requirement, compatibility, custom-field, category, location (except recursive delete), item (except permanent delete), photo, search, loan, shopping, enrichment, barcode, QR, and dashboard workflows have explicit MCP tools.
 
 | Group | Covered | Partial | Gap |
@@ -26,7 +26,7 @@ This is capability coverage, not a claim that every HTTP route has a tool with t
 | metadata | 24 | 0 | 1 |
 | notifications | 0 | 0 | 2 |
 | offline | 1 | 0 | 0 |
-| photos | 6 | 0 | 0 |
+| photos | 7 | 0 | 0 |
 | planning and metadata | 12 | 0 | 0 |
 | preferences | 3 | 0 | 0 |
 | projects | 6 | 0 | 0 |
@@ -254,6 +254,7 @@ Covered means an explicit MCP tool or a combination of explicit tools provides t
 | Method | API path | MCP coverage |
 | --- | --- | --- |
 | GET | `/api/v1/items/{public_id}/photo-suggestion` | Covered |
+| GET | `/api/v1/items/{public_id}/photo-suggestions` | Covered |
 | GET | `/api/v1/items/{public_id}/photos` | Covered |
 | POST | `/api/v1/items/{public_id}/photos` | Covered |
 | POST | `/api/v1/items/{public_id}/photos/from-url` | Covered |
