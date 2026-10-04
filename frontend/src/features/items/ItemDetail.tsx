@@ -681,7 +681,6 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
 
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "details"}>
-            <section className="detail-section online-lookup-actions"><div className="section-heading"><div><h2>Find online</h2><span>Review sources before saving anything</span></div></div><div className="button-row"><button type="button" className="secondary" onClick={() => setOnlineLookupMode("manual")}><Icon name="book" size={16} />Find a manual</button><button type="button" className="secondary" onClick={() => setOnlineLookupMode("details")}><Icon name="search" size={16} />Find details online</button></div></section>
             {showLinksData && <section className="detail-section"><div className="section-heading"><div><h2>Links</h2><span>{itemLinks.length ? `${itemLinks.length} saved` : "Manuals, datasheets, and references"}</span></div>{detailCapabilities.links && <button type="button" className="text-button" onClick={() => setEditing(true)}>{itemLinks.length ? "Edit" : "Add link"}</button>}</div>{itemLinks.length ? <div className="link-list">{itemLinks.map((link, index) => <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer"><Icon name="link" size={15} /><span><strong>{link.label}</strong><small>{linkHost(link.url)}</small></span><Icon name="chevron" size={14} /></a>)}</div> : <div className="empty-inline"><span>No links yet</span></div>}</section>}
             {optionalSections(false)}
             </div>
@@ -726,6 +725,10 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
             </section>}
             </div>
             <div className="detail-tab-panel more-panel" hidden={detailTab !== "more"}>
+            <div className="online-lookup-more-actions">
+              <button type="button" onClick={() => setOnlineLookupMode("manual")}><Icon name="book" size={15} />Find manual</button>
+              <button type="button" onClick={() => setOnlineLookupMode("details")}><Icon name="search" size={15} />Find details</button>
+            </div>
             <section className="detail-section action-group">
               <div className="section-heading"><div><h2>Where it lives</h2><span>Place, category and defaults</span></div></div>
               <div className="action-rows">

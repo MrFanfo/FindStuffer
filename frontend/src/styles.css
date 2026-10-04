@@ -3037,3 +3037,7 @@ span.category-mark { cursor: default; }
   .online-lookup-results article { flex-wrap: wrap; }
   .online-lookup-results article div { flex-basis: 100%; }
 }
+
+.online-lookup-more-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.online-lookup-more-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); font-size: .78rem; font-weight: 650; }
+.online-lookup-more-actions button:hover { border-color: var(--accent); background: var(--accent-soft); }

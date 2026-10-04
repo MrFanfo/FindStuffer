@@ -12,7 +12,7 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 
 New in 1.9: [Projects, inherited category fields and compatibility](docs/PROJECTS_AND_METADATA.md),
 plus [editable, atomic AI imports](docs/IMPORT_OPERATIONS.md).
-See the [1.19.0 release notes](docs/RELEASE_NOTES_1.19.0.md).
+See the [1.19.1 release notes](docs/RELEASE_NOTES_1.19.1.md).
 
 - Nested locations such as room → cabinet → drawer → shelf.
 - Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
@@ -551,7 +551,7 @@ documented in
 
 ### Find manuals and product details online
 
-Open an Item's **Details** tab and choose **Find a manual** or **Find details online**.
+Open an Item's **More** tab and choose **Find manual** or **Find details**.
 The Place and Category action menus offer the same workflows as one-at-a-time
 review queues. Search uses public DuckDuckGo results without an API key. Edit
 the search terms or paste a source URL when search does not find the right page.
@@ -635,7 +635,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.19.0`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.19.1`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
