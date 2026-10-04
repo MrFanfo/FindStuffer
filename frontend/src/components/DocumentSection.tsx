@@ -150,6 +150,7 @@ export function DocumentSection({
                     ? ` · warranty to ${readableDate(document.warranty_expires_at)}`
                     : ""}
                 </small>
+                {document.source_url && <a href={document.source_url} target="_blank" rel="noreferrer">Original source</a>}
                 <span className={`extraction-status ${document.extraction_status}`}>
                   OCR: {document.extraction_status}
                   {document.extraction_error ? ` · ${document.extraction_error}` : ""}

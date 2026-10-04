@@ -109,6 +109,19 @@ class ExternalPhotoCreate(StrictModel):
         return validate_http_url(value)
 
 
+class OnlineSourceRequest(StrictModel):
+    url: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        return validate_http_url(value)
+
+
+class ManualFromUrlRequest(OnlineSourceRequest):
+    title: str = Field(default="", max_length=240)
+
+
 class ItemDefaultLocationUpdate(StrictModel):
     location_public_id: str
 

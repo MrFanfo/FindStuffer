@@ -25,6 +25,7 @@ import {
 } from "../../api";
 import { DocumentSection } from "../../components/DocumentSection";
 import { PhotoFinderSession } from "../../components/PhotoFinderSession";
+import { OnlineLookupSession } from "../../components/OnlineLookupSession";
 import { HierarchyPicker, categoryPickerNodes, locationPickerNodes } from "../../components/HierarchyPicker";
 import { Icon } from "../../components/Icon";
 import { activityLabel, capabilitiesForCategory, categoryLabel, categoryOptionLabel, expirationState, parseLinkText } from "../../domain/inventory";
@@ -247,6 +248,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
   const [history, setHistory] = useState<HistoryEvent[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoFinderOpen, setPhotoFinderOpen] = useState(false);
+  const [onlineLookupMode, setOnlineLookupMode] = useState<"manual" | "details" | null>(null);
   const [documents, setDocuments] = useState<ItemDocument[]>([]);
   const [lots, setLots] = useState<ItemLot[]>([]);
   const [maintenance, setMaintenance] = useState<MaintenanceTask[]>([]);
@@ -679,6 +681,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
 
             </div>
             <div className="detail-tab-panel" hidden={detailTab !== "details"}>
+            <section className="detail-section online-lookup-actions"><div className="section-heading"><div><h2>Find online</h2><span>Review sources before saving anything</span></div></div><div className="button-row"><button type="button" className="secondary" onClick={() => setOnlineLookupMode("manual")}><Icon name="book" size={16} />Find a manual</button><button type="button" className="secondary" onClick={() => setOnlineLookupMode("details")}><Icon name="search" size={16} />Find details online</button></div></section>
             {showLinksData && <section className="detail-section"><div className="section-heading"><div><h2>Links</h2><span>{itemLinks.length ? `${itemLinks.length} saved` : "Manuals, datasheets, and references"}</span></div>{detailCapabilities.links && <button type="button" className="text-button" onClick={() => setEditing(true)}>{itemLinks.length ? "Edit" : "Add link"}</button>}</div>{itemLinks.length ? <div className="link-list">{itemLinks.map((link, index) => <a key={`${index}-${link.url}`} href={link.url} target="_blank" rel="noreferrer"><Icon name="link" size={15} /><span><strong>{link.label}</strong><small>{linkHost(link.url)}</small></span><Icon name="chevron" size={14} /></a>)}</div> : <div className="empty-inline"><span>No links yet</span></div>}</section>}
             {optionalSections(false)}
             </div>
@@ -765,6 +768,7 @@ export function ItemDetail({ item, allItems, locations, categories, units, busy,
         {picker === "category" && <HierarchyPicker title="Change category" nodes={categoryNodes} selectedId={item.category_id ? String(item.category_id) : ""} emptyLabel="No child categories here" chooseLabel="Use category" currentChooseLabel="Use this category" onChoose={(id) => { void changeCategory(id); }} onClose={() => setPicker(null)} />}
         {picker === "editCategory" && <HierarchyPicker title="Choose category" nodes={categoryNodes} selectedId={category} emptyLabel="No child categories here" chooseLabel="Use category" currentChooseLabel="Use this category" onChoose={(id) => setCategory(id)} onClose={() => setPicker(null)} />}
       </article>
+      {onlineLookupMode && <OnlineLookupSession mode={onlineLookupMode} title={item.name} items={[item]} onClose={() => setOnlineLookupMode(null)} onSaved={async () => { await loadExtras(); await onChanged(await api.item(item.public_id)); }} />}
       {photoFinderOpen && <PhotoFinderSession title={item.name} items={[item]} onClose={() => setPhotoFinderOpen(false)} onSaved={async () => { await loadExtras(); await onChanged(await api.item(item.public_id)); }} />}
       {showAllProductData && fullProductData && <ProductDataExplorer payload={fullProductData} onClose={() => setShowAllProductData(false)} />}
     </div>

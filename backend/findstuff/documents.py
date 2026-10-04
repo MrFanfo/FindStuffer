@@ -58,6 +58,7 @@ def serialize_document(row: sqlite3.Row) -> dict[str, Any]:
         "document_type": row["document_type"],
         "title": row["title"],
         "original_name": row["original_name"],
+        "source_url": row["source_url"],
         "mime_type": row["mime_type"],
         "size_bytes": row["size_bytes"],
         "purchase_date": row["purchase_date"],
@@ -127,6 +128,7 @@ def store_document(
     document_type: str,
     purchase_date: str | None,
     warranty_expires_at: str | None,
+    source_url: str | None = None,
 ) -> dict[str, Any]:
     item = get_item_row(connection, item_public_id)
     mime_type, extension = _validate_document(data, declared_type)
@@ -137,6 +139,13 @@ def store_document(
         (item["id"], digest),
     ).fetchone()
     if existing:
+        if source_url:
+            with transaction(connection):
+                connection.execute(
+                    ("UPDATE item_documents SET source_url = COALESCE(source_url, ?) "
+                     "WHERE public_id = ?"),
+                    (source_url, existing["public_id"]),
+                )
         return get_document(connection, existing["public_id"])
     public_id = new_public_id("doc")
     relative = Path("documents") / item_public_id / f"{public_id}{extension}"
@@ -153,8 +162,8 @@ def store_document(
                 """
                 INSERT INTO item_documents(
                     public_id, item_id, document_type, title, file_path, original_name,
-                    mime_type, size_bytes, sha256, purchase_date, warranty_expires_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    mime_type, size_bytes, sha256, purchase_date, warranty_expires_at, source_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     public_id,
@@ -168,6 +177,7 @@ def store_document(
                     digest,
                     purchase_date,
                     warranty_expires_at,
+                    source_url,
                 ),
             )
             record_event(

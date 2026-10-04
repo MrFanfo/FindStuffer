@@ -240,12 +240,25 @@ export type Photo = {
   height: number | null;
 };
 
+export type OnlineSourceResult = {
+  title: string;
+  url: string;
+  domain: string;
+  is_pdf: boolean;
+};
+export type OnlineSourceSearch = { query: string; results: OnlineSourceResult[] };
+export type OnlineSourcePreview =
+  | { format: "pdf"; source_url: string; title: string; size_bytes: number; pdf_links: [] }
+  | { format: "page"; source_url: string; title: string; pdf_links: Array<{ title: string; url: string }> }
+  | { format: "product"; source_url: string; title: string; fields: Record<string, string | number>; exact_model: boolean; structured: boolean };
+
 export type ItemDocument = {
   public_id: string;
   item_public_id: string;
   document_type: "receipt" | "invoice" | "manual" | "certificate" | "warranty" | "other";
   title: string;
   original_name: string;
+  source_url?: string | null;
   mime_type: string;
   size_bytes: number;
   purchase_date: string | null;
@@ -1265,6 +1278,19 @@ export const api = {
   },
   deletePhoto: (photo: Photo) =>
     request<void>(`/api/v1/photos/${photo.public_id}`, { method: "DELETE" }),
+  onlineSources: (item: Item, kind: "manual" | "details", query = "") =>
+    request<OnlineSourceSearch>(
+      `/api/v1/items/${item.public_id}/online-sources?kind=${kind}&q=${encodeURIComponent(query)}`,
+    ),
+  onlineSourcePreview: (item: Item, kind: "manual" | "details", url: string) =>
+    request<OnlineSourcePreview>(
+      `/api/v1/items/${item.public_id}/online-source-preview?kind=${kind}`,
+      { method: "POST", body: JSON.stringify({ url }) },
+    ),
+  attachManualFromUrl: (item: Item, url: string, title: string) =>
+    request<ItemDocument>(`/api/v1/items/${item.public_id}/manuals/from-url`, {
+      method: "POST", body: JSON.stringify({ url, title }),
+    }),
   documents: (item: Item) =>
     request<ItemDocument[]>(`/api/v1/items/${item.public_id}/documents`),
   uploadDocument: (

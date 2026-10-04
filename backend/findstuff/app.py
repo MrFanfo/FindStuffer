@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 import httpx
 import segno
@@ -220,6 +220,7 @@ from .off_categories import (
     set_mapping,
 )
 from .offline import apply_offline_operation
+from .online_lookup import fetch_manual_pdf, preview_source, search_sources
 from .photo_finder import find_item_photo, find_item_photos
 from .photos import delete_photo, get_photo, import_photo_from_url, list_photos, store_photo
 from .saved_views import SaveViewRequest
@@ -255,11 +256,13 @@ from .schemas import (
     LocationRulePatch,
     LocationTypeCreate,
     MaintenanceTaskCreate,
+    ManualFromUrlRequest,
     MQTTSettingsUpdate,
     NaturalLanguageCommand,
     NotificationSettingsUpdate,
     OffCategoryMappingUpdate,
     OfflineOperation,
+    OnlineSourceRequest,
     ProjectCreate,
     ProjectStatusUpdate,
     QuantityAdjustment,
@@ -1205,6 +1208,54 @@ async def get_photo_content(public_id: str, database: Database) -> FileResponse:
 async def remove_photo(public_id: str, database: Database) -> Response:
     delete_photo(database, public_id)
     return Response(status_code=204)
+
+
+@app.get("/api/v1/items/{public_id}/online-sources", tags=["enrichment"])
+async def get_online_sources(
+    public_id: str, database: Database,
+    kind: str = Query(pattern=r"^(manual|details)$"),
+    q: str = Query(default="", max_length=180),
+) -> dict[str, object]:
+    try:
+        return await search_sources(database, public_id, kind, q)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/items/{public_id}/online-source-preview", tags=["enrichment"])
+async def post_online_source_preview(
+    public_id: str, payload: OnlineSourceRequest, database: Database,
+    kind: str = Query(pattern=r"^(manual|details)$"),
+) -> dict[str, object]:
+    try:
+        return await preview_source(database, public_id, kind, payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/items/{public_id}/manuals/from-url", status_code=201, tags=["documents"])
+async def post_manual_from_url(
+    public_id: str, payload: ManualFromUrlRequest,
+    background_tasks: BackgroundTasks, database: Database,
+) -> dict[str, Any]:
+    try:
+        data, final_url = await fetch_manual_pdf(payload.url)
+        filename = unquote(urlsplit(final_url).path.rsplit("/", 1)[-1]) or "manual.pdf"
+        if not filename.lower().endswith(".pdf"):
+            filename = "manual.pdf"
+        document = store_document(
+            database, public_id, data, "application/pdf", filename,
+            payload.title or Path(filename).stem, "manual", None, None,
+            source_url=final_url,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Could not download the manual") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    background_tasks.add_task(
+        extract_document_text, document["public_id"], get_settings().database_path
+    )
+    return document
 
 
 @app.get("/api/v1/items/{public_id}/documents", tags=["documents"])

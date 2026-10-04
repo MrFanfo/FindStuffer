@@ -12,7 +12,7 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 
 New in 1.9: [Projects, inherited category fields and compatibility](docs/PROJECTS_AND_METADATA.md),
 plus [editable, atomic AI imports](docs/IMPORT_OPERATIONS.md).
-See the [1.18.1 release notes](docs/RELEASE_NOTES_1.18.1.md).
+See the [1.19.0 release notes](docs/RELEASE_NOTES_1.19.0.md).
 
 - Nested locations such as room → cabinet → drawer → shelf.
 - Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
@@ -40,6 +40,9 @@ See the [1.18.1 release notes](docs/RELEASE_NOTES_1.18.1.md).
 - Full-text search, duplicate detection, low-stock shopping lists, and history.
 - Human-friendly search with plural and synonym expansion, typo-tolerant fallback,
   configurable Item/Place aliases, and actionable no-result feedback.
+- Keyless online lookup for manuals and product details. Review PDF manuals,
+  web guides, and individual product fields before saving to an Item. Start
+  from an Item or review Items in a Place or Category one by one.
 - First-class PDF and image documents for receipts, invoices, manuals,
   certificates, and warranties, including optional local OCR-assisted serial
   and date extraction plus warranty-expiry notifications.
@@ -546,6 +549,22 @@ complete workflow, prompt example, fields, matching rules, and safety limits are
 documented in
 [docs/IMPORT_OPERATIONS.md](docs/IMPORT_OPERATIONS.md).
 
+### Find manuals and product details online
+
+Open an Item's **Details** tab and choose **Find a manual** or **Find details online**.
+The Place and Category action menus offer the same workflows as one-at-a-time
+review queues. Search uses public DuckDuckGo results without an API key. Edit
+the search terms or paste a source URL when search does not find the right page.
+
+For manuals, inspect a result first. A valid PDF can be copied into the Item's
+Documents as a manual, with its original URL retained. A web guide can be saved
+as an Item link. If a web page links to PDFs, inspect one of those links to
+attach a copy. Each PDF is limited to 20 MB. For product details, inspect an
+HTML product page, compare suggested fields against the Item, select the fields
+to save, and optionally keep the source page as an Item link. Existing fields
+are left unchecked by default. Review model matches and source quality before
+saving. Both workflows skip an Item without changing it.
+
 ### External enrichment with ChatGPT or another agent
 
 This workflow researches missing product metadata without giving the agent
@@ -616,7 +635,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.18.1`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.19.0`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
