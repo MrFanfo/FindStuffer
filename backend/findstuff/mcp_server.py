@@ -392,7 +392,8 @@ class FindStuffMCPServer:
             ),
             Tool(
                 "findstuff_find_photo_suggestions",
-                "Search for 1-8 usable item photos, skipping broken or unsupported results; use next_offset for the next page.",
+                "Search 1-8 usable item photos. Skip broken results and use "
+                "next_offset for the next page.",
                 _schema(
                     {
                         "public_id": _string("Item public id."),

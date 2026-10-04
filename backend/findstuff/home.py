@@ -6,7 +6,12 @@ from typing import Any
 
 from .db import transaction
 
-DEFAULTS = {"pinned_places": [], "favorite_categories": [], "show_shopping": True, "photo_suggestion_count": 4}
+DEFAULTS = {
+    "pinned_places": [],
+    "favorite_categories": [],
+    "show_shopping": True,
+    "photo_suggestion_count": 4,
+}
 
 
 def preferences(connection: sqlite3.Connection) -> dict[str, Any]:

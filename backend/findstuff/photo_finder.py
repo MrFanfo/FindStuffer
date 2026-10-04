@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import base64
 import asyncio
+import base64
 import re
 import sqlite3
 import warnings
