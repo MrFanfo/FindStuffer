@@ -40,11 +40,16 @@ export function DataView({ categories, locations, busy, offline, onBack, onChang
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [backups, setBackups] = useState<StoredBackup[]>([]);
   const [payload, setPayload] = useState<unknown>(null);
+  const [sharedImport, setSharedImport] = useState(() => new URLSearchParams(window.location.search).get("import") === "clipboard");
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pastedJson, setPastedJson] = useState("");
   const [summary, setSummary] = useState<Record<string, number> | null>(null);
   const [details, setDetails] = useState<ImportPreviewDetail[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [activity, setActivity] = useState("");
   const restoreInput = useRef<HTMLInputElement>(null);
+  const importSection = useRef<HTMLElement>(null);
+  useEffect(() => { if (sharedImport) importSection.current?.scrollIntoView?.({ block: "start" }); }, [sharedImport]);
 
   const load = useCallback(async () => {
     const results = await Promise.allSettled([api.settings(), api.importBatches(), api.backups()]);
@@ -100,28 +105,55 @@ export function DataView({ categories, locations, busy, offline, onBack, onChang
     } finally { setActivity(""); }
   }
 
-  async function reviewPayload(nextPayload: unknown) {
+  async function reviewPayload(nextPayload: unknown): Promise<boolean> {
     const generation = ++previewGeneration.current;
     setActivity("Validating all proposed changes…"); setPreviewDirty(true); setValidating(true);
     try {
       const result = await api.importPreview(nextPayload);
-      if (generation !== previewGeneration.current) return;
+      if (generation !== previewGeneration.current) return false;
       setPayload(nextPayload); setSummary(result.counts); setDetails(result.details || []); setErrors(result.errors || []);
       setPreviewNote(result.note); setPreviewDirty(false);
       setNotice(result.valid ? "Preview ready. Review destinations and changes before applying." : "Some proposals need edits or rejection.");
+      return true;
     } catch (error) {
-      if (generation !== previewGeneration.current) return;
+      if (generation !== previewGeneration.current) return false;
       setErrors([error instanceof Error ? error.message : "Invalid import file"]);
+      return false;
     } finally { if (generation === previewGeneration.current) { setActivity(""); setValidating(false); } }
   }
 
-  async function preview(file: File) {
+  async function previewText(source: string) {
     try {
-      const parsed = parseImportJson(await file.text());
+      const parsed = parseImportJson(source);
       const next = Array.isArray(parsed.operations) ? { ...parsed, schema_version: parsed.schema_version ?? 2 } : parsed;
       setPayload(next); setDetails([]); setSummary({}); setErrors([]);
-      await reviewPayload(next);
-    } catch (error) { setErrors([error instanceof Error ? error.message : "Invalid JSON"]); setPreviewDirty(true); }
+      if (!await reviewPayload(next)) return;
+      setSharedImport(false);
+      setPasteOpen(false);
+      setPastedJson("");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("import");
+      window.history.replaceState(window.history.state, "", url);
+    } catch (error) { setPayload(null); setSummary(null); setDetails([]); setErrors([error instanceof Error ? error.message : "Invalid JSON"]); setPreviewDirty(true); }
+  }
+
+  async function preview(file: File) {
+    try { await previewText(await file.text()); }
+    catch (error) {
+      previewGeneration.current++;
+      setPayload(null); setSummary(null); setDetails([]); setPreviewDirty(true);
+      setErrors([error instanceof Error ? error.message : "Could not read JSON file"]);
+    }
+  }
+
+  async function pasteFromClipboard() {
+    try {
+      if (!navigator.clipboard?.readText) throw new Error("Clipboard access is unavailable. Paste the JSON below instead.");
+      await previewText(await navigator.clipboard.readText());
+    } catch (error) {
+      setPasteOpen(true);
+      setErrors([error instanceof Error ? error.message : "Could not read clipboard. Paste the JSON below."]);
+    }
   }
 
   function editPayload(next: unknown) {
@@ -168,6 +200,11 @@ export function DataView({ categories, locations, busy, offline, onBack, onChang
     {restorePreview && restoreFile && <section className="workspace-card restore-review"><h2>Review backup before restoring</h2><p>{restorePreview.filename} · {(restorePreview.size_bytes / 1048576).toFixed(2)} MB · created {new Date(restorePreview.manifest.created_at).toLocaleString()}</p><dl>{Object.entries(restorePreview.counts).map(([key, count]) => <div key={key}><dt>{key}</dt><dd>{count}</dd></div>)}</dl><p>Database integrity and photo/document references passed validation. Restoring replaces current inventory and restarts Findstuff. A safety backup is created first.</p><button disabled={Boolean(activity)} onClick={() => { setRestorePreview(null); setRestoreFile(null); }}>Cancel</button><button className="danger-button" disabled={Boolean(activity)} onClick={() => void restore(restoreFile)}>Replace inventory with this backup</button></section>}
     <section className="workspace-card data-backup-section"><header><span><Icon name="box" size={22} /></span><div><h2 className="eyebrow">BACKUP & EXPORT</h2></div></header><div className="data-action-grid"><button className="primary" disabled={Boolean(activity)} onClick={() => void download("/api/v1/admin/backup", "findstuff-backup-current.zip", "Current-state backup")}><Icon name="box" />Download current state<small>Create a fresh backup right now</small></button><button className="secondary" disabled={Boolean(activity)} onClick={() => void download("/api/v1/admin/export", "findstuff-export.json", "JSON export")}><Icon name="qr" />Download JSON export<small>Portable inventory data</small></button></div><div className="saved-backup-list"><div className="saved-backup-heading"><span><strong>Automatic backup history</strong><small>{backups.length} of {backup?.retention ?? "…"} saved · oldest copies rotate automatically</small></span></div>{backups.length === 0 && !loadErrors.includes("Saved backups") && <div className="empty-inline"><span>No automatic backups yet</span></div>}{backups.map((entry, index) => <article key={entry.id}><span className="backup-sequence">{index + 1}</span><div><strong>{new Date(entry.created_at).toLocaleString()}</strong><small>{(entry.size_bytes / 1024 / 1024).toFixed(entry.size_bytes < 1024 * 1024 ? 2 : 1)} MB · automatic snapshot</small></div><button className="secondary" disabled={Boolean(activity)} onClick={() => void download(`/api/v1/admin/backups/${encodeURIComponent(entry.id)}`, `findstuff-backup-${entry.id}.zip`, "Saved backup")}>Download</button></article>)}</div><div className="restore-backup-box"><div><strong>Restore a full backup</strong><span>This replaces current data after validation and creates a safety backup first.</span></div><button className="danger-button" disabled={busy || Boolean(activity)} onClick={() => restoreInput.current?.click()}>Choose backup</button><input hidden ref={restoreInput} type="file" accept="application/zip,.zip" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void inspectBackup(file); }} /></div></section>
     {payload !== null && <><p role="status">{validating ? "Validating proposed changes…" : previewDirty ? "Edited file: review required before applying." : "Showing validated proposals."}</p><ImportReviewEditor payload={payload} details={details} categories={categories} locations={locations} onChange={editPayload} onDraftChange={setUnsavedRows} validating={validating} busy={busy || Boolean(activity)} /></>}
-    <section className="workspace-card data-import-section"><header><span><Icon name="spark" size={22} /></span><div><h2 className="eyebrow">IMPORT</h2></div></header><div className="import-quick-actions"><label className="upload-import"><strong>Choose JSON to preview</strong><span>Findstuff export or findstuff-ops-v1 changes file</span><input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void preview(event.target.files[0])} /></label><button className="secondary button-with-icon" onClick={() => void template()}><Icon name="spark" size={15} />Chatbot operations template</button></div>{summary && <div className="import-preview"><strong>{validating ? "Validating…" : previewDirty ? "Review required" : errors.length ? "Import needs fixes" : "Ready to apply"}</strong>{Object.entries(summary).map(([name, count]) => <p key={name}><span>{name.replaceAll("_", " ")}</span><b>{count}</b></p>)}<p role="status">{previewNote}</p>{errors.length > 0 && <div className="import-errors">{errors.map((error, index) => <small key={`${index}-${error}`}>{error}</small>)}</div>}<button className="secondary" disabled={busy || Boolean(activity) || !payload || unsavedRows} onClick={() => void reviewPayload(payload)}>Review changes again</button><button className="primary" disabled={busy || Boolean(activity) || !payload || previewDirty || unsavedRows || errors.length > 0} onClick={() => void merge()}>Apply reviewed changes</button></div>}<details className="import-history"><summary><span><strong>Recent imports</strong><small>The latest five are retained for safe undo.</small></span><b>{batches.length}</b><Icon name="chevron" size={16} /></summary><div className="import-history-content">{batches.length === 0 && <div className="empty-inline"><span>No imports yet</span></div>}{batches.map((batch) => <article className="import-batch" key={batch.public_id}><div><strong>{batch.mode === "operations" ? "Changes import" : "Data import"}</strong><small>{new Date(batch.created_at).toLocaleString()} · {batchSummary(batch)}</small>{batch.undone_at && <em>Undone {new Date(batch.undone_at).toLocaleString()}</em>}</div><button className="secondary" disabled={busy || Boolean(batch.undone_at)} onClick={() => void undo(batch)}>Undo</button></article>)}</div></details></section>
+    <section className="workspace-card data-import-section" ref={importSection}><header><span><Icon name="spark" size={22} /></span><div><h2 className="eyebrow">IMPORT</h2></div></header>
+      {sharedImport && <p className="inline-alert success" role="status">Shared JSON is ready. Paste it from the clipboard to review the changes.</p>}
+      <div className="import-clipboard-actions"><button type="button" className="primary" onClick={() => void pasteFromClipboard()}>Paste JSON from clipboard</button><button type="button" className="secondary" onClick={() => setPasteOpen((open) => !open)}>{pasteOpen ? "Hide text box" : "Paste JSON manually"}</button></div>
+      {pasteOpen && <div className="import-paste-box"><label>Import JSON<textarea value={pastedJson} onChange={(event) => setPastedJson(event.target.value)} rows={8} spellCheck={false} placeholder="Paste the JSON generated by ChatGPT here" /></label><button type="button" className="primary" disabled={!pastedJson.trim()} onClick={() => void previewText(pastedJson)}>Preview pasted JSON</button></div>}
+      {!summary && errors.length > 0 && <div className="import-errors" role="alert">{errors.map((error, index) => <p key={`${index}-${error}`}>{error}</p>)}</div>}
+      <details className="import-share-help"><summary>Share from ChatGPT on iPhone</summary><p>iPhone does not list web apps directly as Share Sheet targets. Create a Shortcut named “Send to Findstuff”, enable Show in Share Sheet for Files and Text, then add these actions: Get Text from Shortcut Input → Copy to Clipboard → Open URL. Use this URL for Open URL:</p><code>{`${window.location.origin}/?view=data&import=clipboard`}</code><p>Share a generated JSON file to that Shortcut. The Shortcut opens this import screen, sometimes in Safari; sign in if prompted. Tap “Paste JSON from clipboard” to validate and review it. Nothing is applied until you choose Apply reviewed changes.</p></details><div className="import-quick-actions"><label className="upload-import"><strong>Choose JSON to preview</strong><span>Findstuff export or findstuff-ops-v1 changes file</span><input type="file" accept="application/json,.json" onChange={(event) => event.target.files?.[0] && void preview(event.target.files[0])} /></label><button className="secondary button-with-icon" onClick={() => void template()}><Icon name="spark" size={15} />Chatbot operations template</button></div>{summary && <div className="import-preview"><strong>{validating ? "Validating…" : previewDirty ? "Review required" : errors.length ? "Import needs fixes" : "Ready to apply"}</strong>{Object.entries(summary).map(([name, count]) => <p key={name}><span>{name.replaceAll("_", " ")}</span><b>{count}</b></p>)}<p role="status">{previewNote}</p>{errors.length > 0 && <div className="import-errors">{errors.map((error, index) => <small key={`${index}-${error}`}>{error}</small>)}</div>}<button className="secondary" disabled={busy || Boolean(activity) || !payload || unsavedRows} onClick={() => void reviewPayload(payload)}>Review changes again</button><button className="primary" disabled={busy || Boolean(activity) || !payload || previewDirty || unsavedRows || errors.length > 0} onClick={() => void merge()}>Apply reviewed changes</button></div>}<details className="import-history"><summary><span><strong>Recent imports</strong><small>The latest five are retained for safe undo.</small></span><b>{batches.length}</b><Icon name="chevron" size={16} /></summary><div className="import-history-content">{batches.length === 0 && <div className="empty-inline"><span>No imports yet</span></div>}{batches.map((batch) => <article className="import-batch" key={batch.public_id}><div><strong>{batch.mode === "operations" ? "Changes import" : "Data import"}</strong><small>{new Date(batch.created_at).toLocaleString()} · {batchSummary(batch)}</small>{batch.undone_at && <em>Undone {new Date(batch.undone_at).toLocaleString()}</em>}</div><button className="secondary" disabled={busy || Boolean(batch.undone_at)} onClick={() => void undo(batch)}>Undo</button></article>)}</div></details></section>
   </section>;
 }

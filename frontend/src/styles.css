@@ -3041,3 +3041,11 @@ span.category-mark { cursor: default; }
 .online-lookup-more-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .online-lookup-more-actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--card); font-size: .78rem; font-weight: 650; }
 .online-lookup-more-actions button:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+.import-clipboard-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.import-paste-box { display: grid; gap: 8px; margin: 12px 0; }
+.import-paste-box label { display: grid; gap: 6px; }
+.import-paste-box textarea { width: 100%; min-height: 140px; font-family: ui-monospace, monospace; }
+.import-paste-box button { justify-self: start; }
+.import-share-help { margin: 12px 0; font-size: .85rem; }
+.import-share-help code { display: block; overflow-wrap: anywhere; padding: 8px; border-radius: 8px; background: var(--card-alt); }

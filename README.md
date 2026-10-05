@@ -12,7 +12,7 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 
 New in 1.9: [Projects, inherited category fields and compatibility](docs/PROJECTS_AND_METADATA.md),
 plus [editable, atomic AI imports](docs/IMPORT_OPERATIONS.md).
-See the [1.19.1 release notes](docs/RELEASE_NOTES_1.19.1.md).
+See the [1.19.2 release notes](docs/RELEASE_NOTES_1.19.2.md).
 
 - Nested locations such as room → cabinet → drawer → shelf.
 - Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
@@ -506,6 +506,26 @@ To import:
 Imports merge rather than replace the live database. Keep an independent backup
 before a large import.
 
+### Share ChatGPT JSON from an iPhone
+
+The iPhone Share Sheet cannot send files directly to an installed web app. A
+Shortcuts bridge avoids saving the JSON to Downloads:
+
+1. In **Extra → Data → Import**, expand **Share from ChatGPT on iPhone** and
+   copy the URL shown there.
+2. In Apple's **Shortcuts** app, create a shortcut named **Send to Findstuff**.
+   Enable **Show in Share Sheet** and accept **Files** and **Text**.
+3. Add these actions in order: **Get Text from Shortcut Input**, **Copy to
+   Clipboard**, and **Open URL**. Set **Open URL** to the URL from step 1.
+4. In ChatGPT, share the generated JSON file to **Send to Findstuff**. When
+   Findstuff opens, tap **Paste JSON from clipboard**. If clipboard access is
+   denied, use **Paste JSON manually**.
+5. Review the same validation preview used for file imports. The inventory
+   changes only after **Apply reviewed changes** is tapped.
+
+The shortcut may open Safari instead of the installed app; sign in there if
+prompted. The import URL contains no inventory data.
+
 ### Full backup ZIP
 
 **Download full backup ZIP** contains:
@@ -635,7 +655,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.19.1`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.19.2`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 
