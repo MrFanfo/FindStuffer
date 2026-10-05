@@ -2187,9 +2187,14 @@ button:active:not(:disabled) { transform: scale(.98); }
 .proposal-operation { flex-shrink: 0; font-size: .75rem; }
 .proposal-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .85rem; }
 .proposal-row .proposal-line button { flex-shrink: 0; padding: 4px 8px; }
+.proposal-reasons { padding: 0 9px 9px; font-size: .78rem; line-height: 1.4; overflow-wrap: anywhere; }
+.proposal-reasons strong { display: block; font-weight: 700; }
+.proposal-reasons p { margin: 3px 0 0; }
+.proposal-warning .proposal-reasons { color: #886000; }
+.proposal-failed .proposal-reasons { color: var(--danger); }
 .proposal-expanded { padding: 12px; border-top: 1px solid var(--line); }
 .import-batch-options { margin: 12px 0; }
-[data-theme="dark"] .proposal-warning .proposal-status { color: #f1ca68; }
+[data-theme="dark"] .proposal-warning .proposal-status, [data-theme="dark"] .proposal-warning .proposal-reasons { color: #f1ca68; }
 .related-part { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .target-parts { margin: 16px 0; }
 .category-row-menu { position: relative; flex: 0 0 40px; }
@@ -3047,5 +3052,6 @@ span.category-mark { cursor: default; }
 .import-paste-box label { display: grid; gap: 6px; }
 .import-paste-box textarea { width: 100%; min-height: 140px; font-family: ui-monospace, monospace; }
 .import-paste-box button { justify-self: start; }
+.import-paste-hint { margin: 0; color: var(--muted); font-size: .84rem; }
 .import-share-help { margin: 12px 0; font-size: .85rem; }
 .import-share-help code { display: block; overflow-wrap: anywhere; padding: 8px; border-radius: 8px; background: var(--card-alt); }

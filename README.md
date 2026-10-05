@@ -12,7 +12,7 @@ is built with React and Vite. It runs on amd64, arm64, and arm/v7 Linux.
 
 New in 1.9: [Projects, inherited category fields and compatibility](docs/PROJECTS_AND_METADATA.md),
 plus [editable, atomic AI imports](docs/IMPORT_OPERATIONS.md).
-See the [1.19.2 release notes](docs/RELEASE_NOTES_1.19.2.md).
+See the [1.19.3 release notes](docs/RELEASE_NOTES_1.19.3.md).
 
 - Nested locations such as room → cabinet → drawer → shelf.
 - Items, quantities, units, categories, tags, notes, dimensions, prices, lots,
@@ -518,9 +518,11 @@ Shortcuts bridge avoids saving the JSON to Downloads:
 3. Add these actions in order: **Get Text from Shortcut Input**, **Copy to
    Clipboard**, and **Open URL**. Set **Open URL** to the URL from step 1.
 4. In ChatGPT, share the generated JSON file to **Send to Findstuff**. When
-   Findstuff opens, tap **Paste JSON from clipboard**. If clipboard access is
-   denied, use **Paste JSON manually**.
-5. Review the same validation preview used for file imports. The inventory
+   Findstuff opens, tap **Paste JSON from clipboard**. If iPhone blocks that
+   read, tap the text box and choose **Paste** from the iPhone menu. The preview
+   starts automatically; the button below the box remains available.
+5. Review the same validation preview used for file imports. Each proposal
+   shows its full name and any warning or error reason without opening it. The inventory
    changes only after **Apply reviewed changes** is tapped.
 
 The shortcut may open Safari instead of the installed app; sign in there if
@@ -655,7 +657,7 @@ data and the source checkout are untouched.
 
 `latest` is the simplest channel and is required for automatic image upgrades
 from the app. For controlled production releases, set a version in `.env`, for
-example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.19.2`; change that value
+example `FINDSTUFF_IMAGE=ghcr.io/mrfanfo/findstuffer:v1.19.3`; change that value
 manually before running the updater. To roll back, restore the prior image tag and run
 `docker compose up -d`. Download a backup before crossing versions.
 

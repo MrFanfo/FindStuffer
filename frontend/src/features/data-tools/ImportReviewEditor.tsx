@@ -64,13 +64,16 @@ function ProposalRow({ value, index, table, detail, busy, validating, onChange, 
   const status = validating ? 'Validating…' : failed ? 'Error' : dirty ? 'Unsaved' : !detail ? 'Review needed' : warning ? 'Warning' : 'Valid';
   const label = String(data.name || object(entry.match).name || after?.name || before?.name || detail?.label || 'Proposal');
   const destination = [after?.category_path, after?.location_path].filter(Boolean).join(' · ');
+  const reasons = failed
+    ? [detail?.message, ...(detail?.warnings || [])].filter((reason): reason is string => Boolean(reason))
+    : warning ? detail?.warnings?.length ? detail.warnings : detail?.message ? [detail.message] : [] : [];
   return <article className={`proposal-row proposal-${tone}`}><header className="proposal-line">
     <span className="proposal-status" title={detail?.message}>{status}</span>
     <span className="proposal-operation">{table ? `${table} #${index + 1}` : `#${index + 1} ${String(entry.op || '?')} ${String(entry.type || '?')}`}</span>
     <span className="proposal-label" title={[label, destination, detail?.message].filter(Boolean).join(' · ')}>{label}{destination && <small> · {destination}</small>}</span>
     <button type="button" disabled={busy} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? 'Close' : 'Modify'}</button>
     <button type="button" className="danger" disabled={busy} aria-label={`Reject operation ${index + 1}`} title="Reject line" onClick={onReject}>×</button>
-  </header>{expanded && <div className="proposal-expanded">
+  </header>{reasons.length > 0 && !validating && <div className="proposal-reasons"><strong>{label}</strong>{reasons.map((reason, reasonIndex) => <p key={`${reasonIndex}-${reason}`}>{reason}</p>)}</div>}{expanded && <div className="proposal-expanded">
 
     {detail && <p role={detail.status === 'error' ? 'alert' : undefined}>{detail.validation_status || detail.status}: {detail.message}</p>}
     {after && (!table ? entry.type === "item" : table === "items") && <dl className="proposal-destination"><div><dt>Category</dt><dd>{String(after.category_path || 'Uncategorised')}</dd></div><div><dt>Place</dt><dd>{String(after.location_path || after.path || 'Unassigned')}</dd></div>{after.quantity !== undefined && <div><dt>Quantity</dt><dd>{String(after.quantity)} {String(after.unit || '')}</dd></div>}{before && detail.moved && <div><dt>Moving from</dt><dd>{String(before.location_path || '')}</dd></div>}</dl>}

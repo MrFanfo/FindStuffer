@@ -1,3 +1,3 @@
 """Findstuff backend package."""
 
-__version__ = "1.19.2"
+__version__ = "1.19.3"
